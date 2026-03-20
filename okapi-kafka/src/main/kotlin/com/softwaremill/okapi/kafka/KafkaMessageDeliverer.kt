@@ -5,6 +5,7 @@ import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
 import org.apache.kafka.clients.producer.Producer
 import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.common.errors.RetriableException
 import java.util.concurrent.ExecutionException
 
 class KafkaMessageDeliverer(
@@ -23,9 +24,15 @@ class KafkaMessageDeliverer(
             producer.send(record).get()
             DeliveryResult.Success
         } catch (e: ExecutionException) {
-            DeliveryResult.RetriableFailure(e.cause?.message ?: "Send failed")
+            classifyException(e.cause ?: e)
         } catch (e: Exception) {
-            DeliveryResult.RetriableFailure(e.message ?: "Unknown error")
+            classifyException(e)
         }
+    }
+
+    private fun classifyException(e: Throwable): DeliveryResult = if (e is RetriableException) {
+        DeliveryResult.RetriableFailure(e.message ?: "Retriable Kafka error")
+    } else {
+        DeliveryResult.PermanentFailure(e.message ?: "Permanent Kafka error")
     }
 }
