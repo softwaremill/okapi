@@ -1,4 +1,4 @@
-package com.softwaremill.okapi.spring
+package com.softwaremill.okapi.springboot
 
 import com.softwaremill.okapi.core.CompositeMessageDeliverer
 import com.softwaremill.okapi.core.MessageDeliverer
@@ -14,6 +14,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.transaction.PlatformTransactionManager
@@ -83,6 +84,16 @@ class OutboxAutoConfiguration {
         return OutboxProcessorScheduler(
             outboxProcessor = outboxProcessor,
             transactionTemplate = transactionManager.getIfAvailable()?.let { TransactionTemplate(it) },
+        )
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "okapi.purger", name = ["enabled"], havingValue = "true", matchIfMissing = true)
+    fun outboxPurgerScheduler(outboxStore: OutboxStore, clock: ObjectProvider<Clock>): OutboxPurgerScheduler {
+        return OutboxPurgerScheduler(
+            outboxStore = outboxStore,
+            clock = clock.getIfAvailable { Clock.systemUTC() },
         )
     }
 

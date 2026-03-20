@@ -1,4 +1,4 @@
-package com.softwaremill.okapi.spring
+package com.softwaremill.okapi.springboot
 
 import com.softwaremill.okapi.core.DeliveryInfo
 import com.softwaremill.okapi.core.OutboxEntry

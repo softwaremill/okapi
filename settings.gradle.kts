@@ -13,6 +13,7 @@ include("okapi-core")
 include("okapi-postgres")
 include("okapi-http")
 include("okapi-kafka")
-include("okapi-spring")
+include("okapi-spring-boot")
+include("okapi-bom")
 
 rootProject.name = "okapi"

@@ -29,6 +29,7 @@ dependencies {
     // E2E test dependencies
     testImplementation(project(":okapi-http"))
     testImplementation(libs.exposedJdbc)
+    testImplementation(libs.exposedJson)
     testImplementation(libs.exposedJavaTime)
     testImplementation(libs.liquibaseCore)
     testImplementation(libs.testcontainersPostgresql)
