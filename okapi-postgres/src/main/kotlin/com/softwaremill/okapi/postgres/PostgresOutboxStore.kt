@@ -4,15 +4,17 @@ import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxId
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
-import org.jetbrains.exposed.sql.alias
-import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.count
-import org.jetbrains.exposed.sql.deleteWhere
-import org.jetbrains.exposed.sql.min
-import org.jetbrains.exposed.sql.transactions.TransactionManager
-import org.jetbrains.exposed.sql.upsert
+import org.jetbrains.exposed.v1.core.alias
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.count
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.min
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
+import org.jetbrains.exposed.v1.jdbc.select
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
+import org.jetbrains.exposed.v1.jdbc.upsert
 import java.sql.ResultSet
 import java.time.Clock
 import java.time.Instant
@@ -56,7 +58,7 @@ class PostgresOutboxStore(
 
     override fun removeDeliveredBefore(time: Instant) {
         OutboxTable.deleteWhere {
-            (status eq OutboxStatus.DELIVERED.name) and (lastAttempt less time)
+            (OutboxTable.status eq OutboxStatus.DELIVERED.name) and (OutboxTable.lastAttempt less time)
         }
     }
 
@@ -65,11 +67,11 @@ class PostgresOutboxStore(
         val minAlias = OutboxTable.createdAt.min().alias("min_created_at")
         OutboxTable
             .select(OutboxTable.status, minAlias)
-            .where { OutboxTable.status inList statuses.map { it.name } }
+            .where { OutboxTable.status inList statuses.map { status -> status.name } }
             .groupBy(OutboxTable.status)
-            .forEach {
-                val s = OutboxStatus.from(it[OutboxTable.status])
-                result[s] = requireNotNull(it[minAlias])
+            .forEach { row ->
+                val s = OutboxStatus.from(row[OutboxTable.status])
+                result[s] = requireNotNull(row[minAlias])
             }
         return result
     }
@@ -80,8 +82,8 @@ class PostgresOutboxStore(
             OutboxTable
                 .select(OutboxTable.status, countAlias)
                 .groupBy(OutboxTable.status)
-                .associate { OutboxStatus.from(it[OutboxTable.status]) to it[countAlias] }
-        return OutboxStatus.entries.associateWith { counts[it] ?: 0L }
+                .associate { row -> OutboxStatus.from(row[OutboxTable.status]) to row[countAlias] }
+        return OutboxStatus.entries.associateWith { status -> counts[status] ?: 0L }
     }
 
     private fun mapFromResultSet(rs: ResultSet): OutboxEntry = OutboxEntry(

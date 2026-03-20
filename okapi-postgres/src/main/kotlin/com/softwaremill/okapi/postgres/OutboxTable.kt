@@ -2,12 +2,13 @@ package com.softwaremill.okapi.postgres
 
 import com.softwaremill.okapi.core.OutboxId
 import com.softwaremill.okapi.core.OutboxStatus
-import org.jetbrains.exposed.sql.Table
-import org.jetbrains.exposed.sql.javatime.timestamp
-import org.jetbrains.exposed.sql.json.json
+import org.jetbrains.exposed.v1.core.Table
+import org.jetbrains.exposed.v1.core.java.javaUUID
+import org.jetbrains.exposed.v1.javatime.timestamp
+import org.jetbrains.exposed.v1.json.json
 
 internal object OutboxTable : Table("outbox") {
-    val id = uuid("id").transform(wrap = { OutboxId(it) }, unwrap = { it.raw })
+    val id = javaUUID("id").transform(wrap = { uuid -> OutboxId(uuid) }, unwrap = { outboxId -> outboxId.raw })
     val messageType = varchar("message_type", 255)
     val payload = text("payload")
     val deliveryType = varchar("delivery_type", 50)

@@ -5,18 +5,22 @@ plugins {
 dependencies {
     implementation(project(":okapi-core"))
 
-    implementation(libs.exposedCore)
-    implementation(libs.exposedJdbc)
-    implementation(libs.exposedJson)
-    implementation(libs.exposedJavaTime)
+    compileOnly(libs.exposedCore)
+    compileOnly(libs.exposedJdbc)
+    compileOnly(libs.exposedJson)
+    compileOnly(libs.exposedJavaTime)
 
     implementation(libs.jacksonModuleKotlin)
     implementation(libs.jacksonDatatypeJsr310)
 
-    implementation(libs.liquibaseCore)
+    compileOnly(libs.liquibaseCore)
 
     testImplementation(libs.kotestRunnerJunit5)
     testImplementation(libs.kotestAssertionsCore)
     testImplementation(libs.testcontainersPostgresql)
     testImplementation(libs.postgresql)
+    testImplementation(libs.exposedCore)
+    testImplementation(libs.exposedJdbc)
+    testImplementation(libs.exposedJson)
+    testImplementation(libs.exposedJavaTime)
 }

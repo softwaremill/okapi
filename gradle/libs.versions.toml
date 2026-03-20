@@ -2,11 +2,12 @@
 kotlin = "2.1.10"
 kotest = "5.9.1"
 ktlint = "12.1.2"
-exposed = "0.60.0"
+exposed = "1.1.1"
 jackson = "2.18.3"
 liquibase = "4.31.1"
 testcontainers = "1.20.5"
 postgresql = "42.7.5"
+mysql = "9.2.0"
 kafkaClients = "3.9.0"
 spring = "6.2.3"
 springBoot = "3.4.3"
@@ -25,7 +26,9 @@ jacksonModuleKotlin = { module = "com.fasterxml.jackson.module:jackson-module-ko
 jacksonDatatypeJsr310 = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310", version.ref = "jackson" }
 liquibaseCore = { module = "org.liquibase:liquibase-core", version.ref = "liquibase" }
 testcontainersPostgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
+testcontainersMysql = { module = "org.testcontainers:mysql", version.ref = "testcontainers" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+mysql = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }
 kafkaClients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafkaClients" }
 springContext = { module = "org.springframework:spring-context", version.ref = "spring" }
 springTx = { module = "org.springframework:spring-tx", version.ref = "spring" }
