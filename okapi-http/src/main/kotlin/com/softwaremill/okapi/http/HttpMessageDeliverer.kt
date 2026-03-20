@@ -7,10 +7,12 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.time.Duration
 
 class HttpMessageDeliverer(
     private val urlResolver: ServiceUrlResolver,
-    private val httpClient: HttpClient = HttpClient.newHttpClient(),
+    private val httpClient: HttpClient = defaultHttpClient(),
+    private val retriableStatusCodes: Set<Int> = DEFAULT_RETRIABLE_STATUS_CODES,
 ) : MessageDeliverer {
     override val type: String = HttpDeliveryInfo.TYPE
 
@@ -23,6 +25,8 @@ class HttpMessageDeliverer(
                 HttpRequest
                     .newBuilder()
                     .uri(URI.create(url))
+                    .timeout(REQUEST_TIMEOUT)
+                    .header("Content-Type", "application/json")
                     .method(
                         info.httpMethod.name,
                         HttpRequest.BodyPublishers.ofString(entry.payload),
@@ -31,14 +35,27 @@ class HttpMessageDeliverer(
                     .build()
 
             val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val status = response.statusCode()
+            val body = response.body()
 
-            when (response.statusCode()) {
-                in 200..299 -> DeliveryResult.Success
-                in 500..599 -> DeliveryResult.RetriableFailure("HTTP ${response.statusCode()}: ${response.body()}")
-                else -> DeliveryResult.PermanentFailure("HTTP ${response.statusCode()}: ${response.body()}")
+            when {
+                status in 200..299 -> DeliveryResult.Success
+                status in retriableStatusCodes -> DeliveryResult.RetriableFailure("HTTP $status: $body")
+                else -> DeliveryResult.PermanentFailure("HTTP $status: $body")
             }
         } catch (e: Exception) {
             DeliveryResult.RetriableFailure(e.message ?: "Connection failed")
         }
+    }
+
+    companion object {
+        val DEFAULT_RETRIABLE_STATUS_CODES: Set<Int> = (500..599).toSet() + 429 + 408
+        private val CONNECT_TIMEOUT: Duration = Duration.ofSeconds(10)
+        private val REQUEST_TIMEOUT: Duration = Duration.ofSeconds(30)
+
+        private fun defaultHttpClient(): HttpClient = HttpClient.newBuilder()
+            .connectTimeout(CONNECT_TIMEOUT)
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .build()
     }
 }

@@ -9,4 +9,5 @@ dependencies {
 
     testImplementation(libs.kotestRunnerJunit5)
     testImplementation(libs.kotestAssertionsCore)
+    testImplementation(libs.wiremock)
 }
