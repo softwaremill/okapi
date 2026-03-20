@@ -46,3 +46,5 @@ bin/
 
 ### Claude Code ###
 .claude/
+.ai/
+CLAUDE.md
