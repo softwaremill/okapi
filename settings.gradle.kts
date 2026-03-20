@@ -11,6 +11,7 @@ plugins {
 
 include("okapi-core")
 include("okapi-postgres")
+include("okapi-mysql")
 include("okapi-http")
 include("okapi-kafka")
 include("okapi-spring-boot")

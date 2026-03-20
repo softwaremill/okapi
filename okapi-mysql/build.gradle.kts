@@ -23,4 +23,7 @@ dependencies {
     testImplementation(libs.exposedJdbc)
     testImplementation(libs.exposedJson)
     testImplementation(libs.exposedJavaTime)
+    testImplementation(libs.liquibaseCore)
+    testImplementation(libs.wiremock)
+    testImplementation(project(":okapi-http"))
 }
