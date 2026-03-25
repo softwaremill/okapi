@@ -109,6 +109,11 @@ class OutboxAutoConfiguration {
         )
     }
 
+    /**
+     * Auto-configures [PostgresOutboxStore] and Liquibase schema migration
+     * when `outbox-postgres` is on the classpath.
+     * Skipped if the application provides its own [OutboxStore] bean.
+     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(PostgresOutboxStore::class)
     class PostgresStoreConfiguration {

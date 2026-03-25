@@ -13,6 +13,7 @@ spring = "7.0.6"
 springBoot = "4.0.4"
 wiremock = "3.13.2"
 slf4j = "2.0.17"
+assertj = "3.27.3"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -36,6 +37,7 @@ springTx = { module = "org.springframework:spring-tx", version.ref = "spring" }
 springBootAutoconfigure = { module = "org.springframework.boot:spring-boot-autoconfigure", version.ref = "springBoot" }
 springBootStarterValidation = { module = "org.springframework.boot:spring-boot-starter-validation", version.ref = "springBoot" }
 springBootTest = { module = "org.springframework.boot:spring-boot-test", version.ref = "springBoot" }
+assertjCore = { module = "org.assertj:assertj-core", version.ref = "assertj" }
 wiremock = { module = "org.wiremock:wiremock", version.ref = "wiremock" }
 slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4jSimple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }

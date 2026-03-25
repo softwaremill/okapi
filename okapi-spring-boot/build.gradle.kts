@@ -23,6 +23,8 @@ dependencies {
     testImplementation(libs.springTx)
     testImplementation(libs.exposedCore)
     testImplementation(libs.springBootAutoconfigure)
+    testImplementation(libs.springBootTest)
+    testImplementation(libs.assertjCore)
     testImplementation(project(":okapi-postgres"))
     testImplementation(project(":okapi-mysql"))
     testImplementation(project(":okapi-http"))
