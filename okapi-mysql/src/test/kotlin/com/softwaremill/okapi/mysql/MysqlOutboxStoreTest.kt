@@ -83,6 +83,31 @@ class MysqlOutboxStoreTest : BehaviorSpec({
         }
     }
 
+    given("removeDeliveredBefore with limit") {
+        `when`("limit is smaller than matching entries") {
+            transaction(db) { exec("DELETE FROM outbox") }
+            repeat(5) {
+                val entry = newEntry().copy(
+                    status = OutboxStatus.DELIVERED,
+                    lastAttempt = Instant.parse("2020-01-01T00:00:00Z"),
+                )
+                transaction(db) { store.persist(entry) }
+            }
+
+            val deleted = transaction(db) {
+                store.removeDeliveredBefore(Instant.parse("2025-01-01T00:00:00Z"), 3)
+            }
+
+            then("only deletes up to limit") {
+                deleted shouldBe 3
+            }
+            then("remaining entries still exist") {
+                val counts = transaction(db) { store.countByStatuses() }
+                counts[OutboxStatus.DELIVERED] shouldBe 2L
+            }
+        }
+    }
+
     given("countByStatuses") {
         `when`("entries exist with different statuses") {
             transaction(db) {
