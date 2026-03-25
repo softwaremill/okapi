@@ -100,11 +100,6 @@ class OutboxAutoConfiguration {
         )
     }
 
-    /**
-     * Auto-configures [PostgresOutboxStore] and Liquibase schema migration
-     * when `outbox-postgres` is on the classpath.
-     * Skipped if the application provides its own [OutboxStore] bean.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(PostgresOutboxStore::class)
     class PostgresStoreConfiguration {
@@ -112,19 +107,6 @@ class OutboxAutoConfiguration {
         @ConditionalOnMissingBean(OutboxStore::class)
         fun outboxStore(clock: ObjectProvider<Clock>): OutboxStore = PostgresOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
 
-        /**
-         * Runs okapi Liquibase migrations automatically when both:
-         * - `liquibase-core` is on the classpath (i.e. the application already uses Liquibase)
-         * - a [DataSource] bean is available
-         *
-         * The migration is idempotent (CREATE TABLE IF NOT EXISTS) and uses a separate
-         * Liquibase bean named `okapiPostgresLiquibase` to avoid conflicting with the application's
-         * own Liquibase configuration.
-         *
-         * To opt out, define your own bean named `okapiPostgresLiquibase` or include the okapi
-         * changelog manually in your master changelog:
-         * `classpath:com/softwaremill/okapi/db/changelog.xml`
-         */
         @Bean("okapiPostgresLiquibase")
         @ConditionalOnClass(SpringLiquibase::class)
         @ConditionalOnBean(DataSource::class)
@@ -135,15 +117,7 @@ class OutboxAutoConfiguration {
         }
     }
 
-    /**
-     * Auto-configures [MysqlOutboxStore] and Liquibase schema migration
-     * when `okapi-mysql` is on the classpath.
-     * Skipped if the application provides its own [OutboxStore] bean.
-     *
-     * When both `okapi-postgres` and `okapi-mysql` are on the classpath,
-     * [PostgresStoreConfiguration] takes priority (declared first).
-     * Override by defining your own `@Bean OutboxStore`.
-     */
+    /** When both Postgres and MySQL modules are on the classpath, [PostgresStoreConfiguration] takes priority. */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(MysqlOutboxStore::class)
     class MysqlStoreConfiguration {
