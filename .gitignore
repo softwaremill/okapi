@@ -45,3 +45,6 @@ bin/
 .claude/
 .ai/
 CLAUDE.md
+docs/specs/
+docs/plans/
+docs/superpowers/
