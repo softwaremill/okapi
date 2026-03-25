@@ -16,6 +16,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.transaction.PlatformTransactionManager
@@ -41,6 +42,7 @@ import javax.sql.DataSource
  * - [PlatformTransactionManager] — if absent, each store call runs in its own transaction
  */
 @AutoConfiguration
+@EnableConfigurationProperties(OkapiPurgerProperties::class)
 class OutboxAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
@@ -93,9 +95,16 @@ class OutboxAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "okapi.purger", name = ["enabled"], havingValue = "true", matchIfMissing = true)
-    fun outboxPurgerScheduler(outboxStore: OutboxStore, clock: ObjectProvider<Clock>): OutboxPurgerScheduler {
+    fun outboxPurgerScheduler(
+        props: OkapiPurgerProperties,
+        outboxStore: OutboxStore,
+        clock: ObjectProvider<Clock>,
+    ): OutboxPurgerScheduler {
         return OutboxPurgerScheduler(
             outboxStore = outboxStore,
+            retentionDays = props.retentionDays,
+            intervalMinutes = props.intervalMinutes,
+            batchSize = props.batchSize,
             clock = clock.getIfAvailable { Clock.systemUTC() },
         )
     }
