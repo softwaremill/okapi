@@ -3,6 +3,8 @@ updates:
   # Keep Gradle dependencies up to date
   - package-ecosystem: "gradle"
     directory: "/"
+    labels:
+      - "automerge"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
@@ -15,6 +17,8 @@ updates:
   # Keep GitHub Actions up to date
   - package-ecosystem: "github-actions"
     directory: "/"
+    labels:
+      - "automerge"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
