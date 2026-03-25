@@ -12,6 +12,7 @@ kafkaClients = "4.2.0"
 spring = "7.0.6"
 springBoot = "4.0.4"
 wiremock = "3.13.2"
+slf4j = "2.0.17"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -34,6 +35,7 @@ springContext = { module = "org.springframework:spring-context", version.ref = "
 springTx = { module = "org.springframework:spring-tx", version.ref = "spring" }
 springBootAutoconfigure = { module = "org.springframework.boot:spring-boot-autoconfigure", version.ref = "springBoot" }
 wiremock = { module = "org.wiremock:wiremock", version.ref = "wiremock" }
+slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 
 [plugins]
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
