@@ -4,6 +4,7 @@ import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxId
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.alias
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.inList
@@ -64,12 +65,14 @@ class PostgresOutboxStore(
             )
         """.trimIndent()
 
-        val conn = TransactionManager.current().connection.connection as java.sql.Connection
-        return conn.prepareStatement(sql).use { stmt ->
-            stmt.setTimestamp(1, java.sql.Timestamp.from(time))
-            stmt.setInt(2, limit)
-            stmt.executeUpdate()
-        }
+        val statement = TransactionManager.current().connection.prepareStatement(sql, false)
+        statement.fillParameters(
+            listOf(
+                OutboxTable.lastAttempt.columnType to time,
+                IntegerColumnType() to limit,
+            ),
+        )
+        return statement.executeUpdate()
     }
 
     override fun findOldestCreatedAt(statuses: Set<OutboxStatus>): Map<OutboxStatus, Instant> {
