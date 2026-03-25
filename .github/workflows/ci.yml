@@ -1,0 +1,51 @@
+name: CI
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write       # auto-merge requirement
+  pull-requests: write  # auto-merge requirement
+
+jobs:
+  ci:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ "21", "25" ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ matrix.java }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+
+      - name: Check formatting
+        run: ./gradlew ktlintCheck
+
+      - name: Test
+        run: ./gradlew test
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: success() || failure()
+        with:
+          name: test-results-java-${{ matrix.java }}
+          path: '**/build/test-results/test/TEST-*.xml'
+
+  auto-merge-dependabot:
+    # only for PRs by dependabot[bot]
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    needs: [ ci ]
+    uses: softwaremill/github-actions-workflows/.github/workflows/auto-merge.yml@main
+    secrets:
+      github-token: ${{ secrets.SOFTWAREMILL_CI_PR_TOKEN }}
