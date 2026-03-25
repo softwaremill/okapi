@@ -8,6 +8,11 @@ dependencies {
     compileOnly(libs.springContext)
     compileOnly(libs.springTx)
     compileOnly(libs.springBootAutoconfigure)
+
+    // Validation annotations for @ConfigurationProperties classes
+    compileOnly(libs.springBootStarterValidation)
+
+    // Optional store autoconfiguration — compileOnly + @ConditionalOnClass guards runtime absence
     compileOnly(project(":okapi-postgres"))
     compileOnly(project(":okapi-mysql"))
     compileOnly(libs.liquibaseCore)
