@@ -144,9 +144,7 @@ class OutboxPurgerTest : FunSpec({
     }
 })
 
-private fun stubStore(
-    onRemove: (Instant, Int) -> Int = { _, _ -> 0 },
-) = object : OutboxStore {
+private fun stubStore(onRemove: (Instant, Int) -> Int = { _, _ -> 0 }) = object : OutboxStore {
     override fun persist(entry: OutboxEntry) = entry
     override fun claimPending(limit: Int) = emptyList<OutboxEntry>()
     override fun updateAfterProcessing(entry: OutboxEntry) = entry

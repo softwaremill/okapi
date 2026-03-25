@@ -41,7 +41,9 @@ class OutboxPurger(
         if (!running.compareAndSet(false, true)) return
         logger.info(
             "Outbox purger started [retention={}, interval={}ms, batchSize={}]",
-            retentionDuration, intervalMs, batchSize,
+            retentionDuration,
+            intervalMs,
+            batchSize,
         )
         scheduler.scheduleWithFixedDelay(::tick, intervalMs, intervalMs, TimeUnit.MILLISECONDS)
     }

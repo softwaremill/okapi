@@ -6,7 +6,6 @@ import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import org.jetbrains.exposed.v1.core.alias
 import org.jetbrains.exposed.v1.core.count
-import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.min
 import org.jetbrains.exposed.v1.jdbc.select
