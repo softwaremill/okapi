@@ -15,6 +15,16 @@ Messages are stored in a database table within the same transaction as your busi
 | `okapi-spring-boot` | Spring Boot autoconfiguration |
 | `okapi-bom` | Bill of Materials for version alignment |
 
+## Compatibility
+
+| Dependency | Supported Versions | Notes |
+|---|---|---|
+| Java | 21+ | Required |
+| Spring Boot | 3.5.x, 4.0.x | `okapi-spring-boot` module |
+| Kafka Clients | 3.9.x, 4.x | `okapi-kafka` module — you provide `kafka-clients` dependency |
+| Exposed | 1.x | `okapi-postgres`, `okapi-mysql` modules — you provide Exposed |
+| Docker | Required for tests | Testcontainers-based integration tests |
+
 ## Quick Start (Spring Boot)
 
 ```kotlin
@@ -45,6 +55,10 @@ fun placeOrder(order: Order) {
     )
 }
 ```
+
+> **Note:** `okapi-kafka` requires you to add `org.apache.kafka:kafka-clients` to your project.
+> `okapi-postgres`/`okapi-mysql` require Exposed ORM dependencies.
+> Spring and Kafka versions are not forced by okapi — you control them.
 
 Autoconfiguration handles scheduling, retries, and delivery automatically.
 
