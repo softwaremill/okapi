@@ -36,6 +36,7 @@ springTx = { module = "org.springframework:spring-tx", version.ref = "spring" }
 springBootAutoconfigure = { module = "org.springframework.boot:spring-boot-autoconfigure", version.ref = "springBoot" }
 wiremock = { module = "org.wiremock:wiremock", version.ref = "wiremock" }
 slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+slf4jSimple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 
 [plugins]
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }

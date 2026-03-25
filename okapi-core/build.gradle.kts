@@ -6,4 +6,5 @@ dependencies {
     implementation(libs.slf4jApi)
     testImplementation(libs.kotestRunnerJunit5)
     testImplementation(libs.kotestAssertionsCore)
+    testRuntimeOnly(libs.slf4jSimple)
 }
