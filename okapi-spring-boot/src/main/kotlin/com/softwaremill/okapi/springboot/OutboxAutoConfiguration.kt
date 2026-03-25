@@ -149,8 +149,7 @@ class OutboxAutoConfiguration {
     class MysqlStoreConfiguration {
         @Bean
         @ConditionalOnMissingBean(OutboxStore::class)
-        fun outboxStore(clock: ObjectProvider<Clock>): OutboxStore =
-            MysqlOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
+        fun outboxStore(clock: ObjectProvider<Clock>): OutboxStore = MysqlOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
 
         @Bean("okapiMysqlLiquibase")
         @ConditionalOnClass(SpringLiquibase::class)
