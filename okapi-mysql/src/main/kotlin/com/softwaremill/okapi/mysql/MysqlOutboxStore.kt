@@ -56,8 +56,8 @@ class MysqlOutboxStore(
 
     override fun updateAfterProcessing(entry: OutboxEntry): OutboxEntry = persist(entry)
 
-    override fun removeDeliveredBefore(time: Instant) {
-        OutboxTable.deleteWhere {
+    override fun removeDeliveredBefore(time: Instant, limit: Int): Int {
+        return OutboxTable.deleteWhere {
             (OutboxTable.status eq OutboxStatus.DELIVERED.name) and (OutboxTable.lastAttempt less time)
         }
     }

@@ -12,8 +12,8 @@ interface OutboxStore {
     /** Updates an entry after a delivery attempt (status change, retries, lastError). */
     fun updateAfterProcessing(entry: OutboxEntry): OutboxEntry
 
-    /** Removes DELIVERED entries older than [time]. */
-    fun removeDeliveredBefore(time: Instant)
+    /** Removes up to [limit] DELIVERED entries with lastAttempt before [time]. Returns the number of entries deleted. */
+    fun removeDeliveredBefore(time: Instant, limit: Int): Int
 
     /** Returns the oldest createdAt per status (useful for lag metrics). */
     fun findOldestCreatedAt(statuses: Set<OutboxStatus>): Map<OutboxStatus, Instant>

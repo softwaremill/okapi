@@ -17,8 +17,9 @@ class OutboxPurgerTest : FunSpec({
             override fun persist(entry: OutboxEntry) = entry
             override fun claimPending(limit: Int) = emptyList<OutboxEntry>()
             override fun updateAfterProcessing(entry: OutboxEntry) = entry
-            override fun removeDeliveredBefore(time: Instant) {
+            override fun removeDeliveredBefore(time: Instant, limit: Int): Int {
                 capturedCutoff = time
+                return 0
             }
             override fun findOldestCreatedAt(statuses: Set<OutboxStatus>) = emptyMap<OutboxStatus, Instant>()
             override fun countByStatuses() = emptyMap<OutboxStatus, Long>()

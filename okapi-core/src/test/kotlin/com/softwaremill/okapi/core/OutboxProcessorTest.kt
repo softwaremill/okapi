@@ -36,7 +36,7 @@ class OutboxProcessorTest :
 
                 override fun updateAfterProcessing(entry: OutboxEntry): OutboxEntry = entry.also { processedEntries += it }
 
-                override fun removeDeliveredBefore(time: Instant) = Unit
+                override fun removeDeliveredBefore(time: Instant, limit: Int): Int = 0
 
                 override fun findOldestCreatedAt(statuses: Set<OutboxStatus>) = emptyMap<OutboxStatus, Instant>()
 

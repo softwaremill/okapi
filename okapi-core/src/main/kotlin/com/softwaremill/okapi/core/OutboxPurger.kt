@@ -40,6 +40,6 @@ class OutboxPurger(
     }
 
     private fun tick() {
-        outboxStore.removeDeliveredBefore(clock.instant().minus(retentionDuration))
+        outboxStore.removeDeliveredBefore(clock.instant().minus(retentionDuration), Int.MAX_VALUE)
     }
 }

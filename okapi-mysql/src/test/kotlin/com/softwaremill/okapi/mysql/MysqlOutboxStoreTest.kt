@@ -74,7 +74,7 @@ class MysqlOutboxStoreTest : BehaviorSpec({
                 lastAttempt = Instant.parse("2020-01-01T00:00:00Z"),
             )
             transaction(db) { store.persist(delivered) }
-            transaction(db) { store.removeDeliveredBefore(Instant.parse("2025-01-01T00:00:00Z")) }
+            transaction(db) { store.removeDeliveredBefore(Instant.parse("2025-01-01T00:00:00Z"), Int.MAX_VALUE) }
 
             then("old delivered entries are removed") {
                 val counts = transaction(db) { store.countByStatuses() }
