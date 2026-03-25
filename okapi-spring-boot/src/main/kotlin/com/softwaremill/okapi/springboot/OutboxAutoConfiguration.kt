@@ -102,7 +102,7 @@ class OutboxAutoConfiguration {
      * when `outbox-postgres` is on the classpath.
      * Skipped if the application provides its own [OutboxStore] bean.
      */
-    @Configuration
+    @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(PostgresOutboxStore::class)
     class PostgresStoreConfiguration {
         @Bean
@@ -115,18 +115,18 @@ class OutboxAutoConfiguration {
          * - a [DataSource] bean is available
          *
          * The migration is idempotent (CREATE TABLE IF NOT EXISTS) and uses a separate
-         * Liquibase bean named `okapiLiquibase` to avoid conflicting with the application's
+         * Liquibase bean named `okapiPostgresLiquibase` to avoid conflicting with the application's
          * own Liquibase configuration.
          *
-         * To opt out, define your own bean named `okapiLiquibase` or include the okapi
+         * To opt out, define your own bean named `okapiPostgresLiquibase` or include the okapi
          * changelog manually in your master changelog:
          * `classpath:com/softwaremill/okapi/db/changelog.xml`
          */
-        @Bean("okapiLiquibase")
+        @Bean("okapiPostgresLiquibase")
         @ConditionalOnClass(SpringLiquibase::class)
         @ConditionalOnBean(DataSource::class)
-        @ConditionalOnMissingBean(name = ["okapiLiquibase"])
-        fun okapiLiquibase(dataSource: DataSource): SpringLiquibase = SpringLiquibase().apply {
+        @ConditionalOnMissingBean(name = ["okapiPostgresLiquibase"])
+        fun okapiPostgresLiquibase(dataSource: DataSource): SpringLiquibase = SpringLiquibase().apply {
             this.dataSource = dataSource
             changeLog = "classpath:com/softwaremill/okapi/db/changelog.xml"
         }
