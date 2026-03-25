@@ -12,3 +12,16 @@ dependencies {
     testImplementation(libs.kotestRunnerJunit5)
     testImplementation(libs.kotestAssertionsCore)
 }
+
+// CI version override: ./gradlew :okapi-kafka:test -PkafkaVersion=4.0.2
+val kafkaVersion: String? by project
+
+if (kafkaVersion != null) {
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "org.apache.kafka") {
+                useVersion(kafkaVersion!!)
+            }
+        }
+    }
+}
