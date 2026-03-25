@@ -7,6 +7,7 @@ import com.softwaremill.okapi.core.OutboxProcessor
 import com.softwaremill.okapi.core.OutboxPublisher
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.RetryPolicy
+import com.softwaremill.okapi.mysql.MysqlOutboxStore
 import com.softwaremill.okapi.postgres.PostgresOutboxStore
 import liquibase.integration.spring.SpringLiquibase
 import org.springframework.beans.factory.ObjectProvider
@@ -32,7 +33,9 @@ import javax.sql.DataSource
  *   and routed by the `type` field in each entry's deliveryMetadata.
  *
  * Optional beans with defaults:
- * - [OutboxStore] — auto-configured to [PostgresOutboxStore] if `outbox-postgres` is on the classpath
+ * - [OutboxStore] — auto-configured to [PostgresOutboxStore] or [MysqlOutboxStore]
+ *   depending on which module (`okapi-postgres` / `okapi-mysql`) is on the classpath.
+ *   If both are present, Postgres takes priority. Override by defining your own `@Bean OutboxStore`.
  * - [Clock] — defaults to [Clock.systemUTC]
  * - [RetryPolicy] — defaults to `maxRetries = 5`
  * - [PlatformTransactionManager] — if absent, each store call runs in its own transaction
@@ -97,38 +100,40 @@ class OutboxAutoConfiguration {
         )
     }
 
-    /**
-     * Auto-configures [PostgresOutboxStore] and Liquibase schema migration
-     * when `outbox-postgres` is on the classpath.
-     * Skipped if the application provides its own [OutboxStore] bean.
-     */
-    @Configuration
+    @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(PostgresOutboxStore::class)
     class PostgresStoreConfiguration {
         @Bean
         @ConditionalOnMissingBean(OutboxStore::class)
-        fun outboxStore(clock: ObjectProvider<Clock>): OutboxStore = PostgresOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
+        fun outboxStore(clock: ObjectProvider<Clock>): PostgresOutboxStore =
+            PostgresOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
 
-        /**
-         * Runs okapi Liquibase migrations automatically when both:
-         * - `liquibase-core` is on the classpath (i.e. the application already uses Liquibase)
-         * - a [DataSource] bean is available
-         *
-         * The migration is idempotent (CREATE TABLE IF NOT EXISTS) and uses a separate
-         * Liquibase bean named `okapiLiquibase` to avoid conflicting with the application's
-         * own Liquibase configuration.
-         *
-         * To opt out, define your own bean named `okapiLiquibase` or include the okapi
-         * changelog manually in your master changelog:
-         * `classpath:com/softwaremill/okapi/db/changelog.xml`
-         */
-        @Bean("okapiLiquibase")
+        @Bean("okapiPostgresLiquibase")
         @ConditionalOnClass(SpringLiquibase::class)
-        @ConditionalOnBean(DataSource::class)
-        @ConditionalOnMissingBean(name = ["okapiLiquibase"])
-        fun okapiLiquibase(dataSource: DataSource): SpringLiquibase = SpringLiquibase().apply {
+        @ConditionalOnBean(value = [DataSource::class, PostgresOutboxStore::class])
+        @ConditionalOnMissingBean(name = ["okapiPostgresLiquibase"])
+        fun okapiPostgresLiquibase(dataSource: DataSource): SpringLiquibase = SpringLiquibase().apply {
             this.dataSource = dataSource
             changeLog = "classpath:com/softwaremill/okapi/db/changelog.xml"
+        }
+    }
+
+    /** When both Postgres and MySQL modules are on the classpath, [PostgresStoreConfiguration] takes priority. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(MysqlOutboxStore::class)
+    class MysqlStoreConfiguration {
+        @Bean
+        @ConditionalOnMissingBean(OutboxStore::class)
+        fun outboxStore(clock: ObjectProvider<Clock>): MysqlOutboxStore =
+            MysqlOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
+
+        @Bean("okapiMysqlLiquibase")
+        @ConditionalOnClass(SpringLiquibase::class)
+        @ConditionalOnBean(value = [DataSource::class, MysqlOutboxStore::class])
+        @ConditionalOnMissingBean(name = ["okapiMysqlLiquibase"])
+        fun okapiMysqlLiquibase(dataSource: DataSource): SpringLiquibase = SpringLiquibase().apply {
+            this.dataSource = dataSource
+            changeLog = "classpath:com/softwaremill/okapi/db/mysql/changelog.xml"
         }
     }
 }
