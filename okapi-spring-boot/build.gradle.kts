@@ -15,6 +15,9 @@ dependencies {
     // Optional postgres store autoconfiguration — compileOnly + @ConditionalOnClass guards runtime absence
     compileOnly(project(":okapi-postgres"))
 
+    // Optional mysql store autoconfiguration — compileOnly + @ConditionalOnClass guards runtime absence
+    compileOnly(project(":okapi-mysql"))
+
     // Optional Liquibase migration support — compileOnly, activated only when liquibase-core is on the runtime classpath
     compileOnly(libs.liquibaseCore)
 
@@ -25,6 +28,7 @@ dependencies {
     testImplementation(libs.exposedCore)
     testImplementation(libs.springBootAutoconfigure)
     testImplementation(project(":okapi-postgres"))
+    testImplementation(project(":okapi-mysql"))
 
     // E2E test dependencies
     testImplementation(project(":okapi-http"))
@@ -34,5 +38,7 @@ dependencies {
     testImplementation(libs.liquibaseCore)
     testImplementation(libs.testcontainersPostgresql)
     testImplementation(libs.postgresql)
+    testImplementation(libs.testcontainersMysql)
+    testImplementation(libs.mysql)
     testImplementation(libs.wiremock)
 }
