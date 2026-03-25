@@ -105,11 +105,11 @@ class OutboxAutoConfiguration {
     class PostgresStoreConfiguration {
         @Bean
         @ConditionalOnMissingBean(OutboxStore::class)
-        fun outboxStore(clock: ObjectProvider<Clock>): OutboxStore = PostgresOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
+        fun outboxStore(clock: ObjectProvider<Clock>): PostgresOutboxStore = PostgresOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
 
         @Bean("okapiPostgresLiquibase")
         @ConditionalOnClass(SpringLiquibase::class)
-        @ConditionalOnBean(DataSource::class)
+        @ConditionalOnBean(value = [DataSource::class, PostgresOutboxStore::class])
         @ConditionalOnMissingBean(name = ["okapiPostgresLiquibase"])
         fun okapiPostgresLiquibase(dataSource: DataSource): SpringLiquibase = SpringLiquibase().apply {
             this.dataSource = dataSource
@@ -123,11 +123,11 @@ class OutboxAutoConfiguration {
     class MysqlStoreConfiguration {
         @Bean
         @ConditionalOnMissingBean(OutboxStore::class)
-        fun outboxStore(clock: ObjectProvider<Clock>): OutboxStore = MysqlOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
+        fun outboxStore(clock: ObjectProvider<Clock>): MysqlOutboxStore = MysqlOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
 
         @Bean("okapiMysqlLiquibase")
         @ConditionalOnClass(SpringLiquibase::class)
-        @ConditionalOnBean(DataSource::class)
+        @ConditionalOnBean(value = [DataSource::class, MysqlOutboxStore::class])
         @ConditionalOnMissingBean(name = ["okapiMysqlLiquibase"])
         fun okapiMysqlLiquibase(dataSource: DataSource): SpringLiquibase = SpringLiquibase().apply {
             this.dataSource = dataSource
