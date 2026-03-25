@@ -20,27 +20,27 @@ class KafkaMessageDelivererTest : FunSpec({
     }
 
     test("successful send → Success") {
-        val producer = MockProducer(true, StringSerializer(), StringSerializer())
+        val producer = MockProducer(true, null, StringSerializer(), StringSerializer())
         val deliverer = KafkaMessageDeliverer(producer)
         deliverer.deliver(entry()) shouldBe DeliveryResult.Success
     }
 
     test("retriable exception (NetworkException) → RetriableFailure") {
-        val producer = MockProducer(true, StringSerializer(), StringSerializer())
+        val producer = MockProducer(true, null, StringSerializer(), StringSerializer())
         producer.sendException = NetworkException("broker down")
         val deliverer = KafkaMessageDeliverer(producer)
         deliverer.deliver(entry()).shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
     }
 
     test("permanent exception (AuthenticationException) → PermanentFailure") {
-        val producer = MockProducer(true, StringSerializer(), StringSerializer())
+        val producer = MockProducer(true, null, StringSerializer(), StringSerializer())
         producer.sendException = AuthenticationException("bad credentials")
         val deliverer = KafkaMessageDeliverer(producer)
         deliverer.deliver(entry()).shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
     }
 
     test("permanent exception (RecordTooLargeException) → PermanentFailure") {
-        val producer = MockProducer(true, StringSerializer(), StringSerializer())
+        val producer = MockProducer(true, null, StringSerializer(), StringSerializer())
         producer.sendException = RecordTooLargeException("too big")
         val deliverer = KafkaMessageDeliverer(producer)
         deliverer.deliver(entry()).shouldBeInstanceOf<DeliveryResult.PermanentFailure>()

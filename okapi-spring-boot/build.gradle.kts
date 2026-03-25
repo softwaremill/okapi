@@ -31,3 +31,20 @@ dependencies {
     testImplementation(libs.mysql)
     testImplementation(libs.wiremock)
 }
+
+// CI version override: ./gradlew :okapi-spring-boot:test -PspringBootVersion=4.0.4 -PspringVersion=7.0.6
+val springBootVersion: String? by project
+val springVersion: String? by project
+
+if (springBootVersion != null || springVersion != null) {
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            if (springBootVersion != null && requested.group == "org.springframework.boot") {
+                useVersion(springBootVersion!!)
+            }
+            if (springVersion != null && requested.group == "org.springframework") {
+                useVersion(springVersion!!)
+            }
+        }
+    }
+}
