@@ -24,4 +24,8 @@ internal object OutboxTable : Table("outbox") {
     val deliveryMetadata = json("delivery_metadata", { it }, { it })
 
     override val primaryKey = PrimaryKey(id)
+
+    init {
+        index("idx_outbox_status_created_at", isUnique = false, status, createdAt)
+    }
 }

@@ -39,8 +39,12 @@ class MysqlOutboxStore(
     }
 
     override fun claimPending(limit: Int): List<OutboxEntry> {
+        // FORCE INDEX ensures InnoDB walks the (status, created_at) index so
+        // that FOR UPDATE SKIP LOCKED only row-locks the rows actually returned
+        // by LIMIT, rather than every row matching the WHERE clause.
         val nativeQuery =
             "SELECT * FROM ${OutboxTable.tableName}" +
+                " FORCE INDEX (idx_outbox_status_created_at)" +
                 " WHERE ${OutboxTable.status.name} = '${OutboxStatus.PENDING}'" +
                 " ORDER BY ${OutboxTable.createdAt.name} ASC" +
                 " LIMIT $limit FOR UPDATE SKIP LOCKED"
