@@ -4,6 +4,11 @@
       "name": "okapi.purger",
       "type": "com.softwaremill.okapi.springboot.OutboxPurgerProperties",
       "description": "Outbox purger configuration."
+    },
+    {
+      "name": "okapi.processor",
+      "type": "com.softwaremill.okapi.springboot.OutboxProcessorProperties",
+      "description": "Outbox processor configuration."
     }
   ],
   "properties": [
@@ -30,6 +35,24 @@
       "type": "java.lang.Integer",
       "defaultValue": 100,
       "description": "Number of entries deleted per batch. Each purge cycle may execute multiple batches."
+    },
+    {
+      "name": "okapi.processor.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Whether the outbox processor is enabled."
+    },
+    {
+      "name": "okapi.processor.interval-ms",
+      "type": "java.lang.Long",
+      "defaultValue": 1000,
+      "description": "How often the processor runs, in milliseconds."
+    },
+    {
+      "name": "okapi.processor.batch-size",
+      "type": "java.lang.Integer",
+      "defaultValue": 10,
+      "description": "Maximum number of pending entries to process per tick."
     }
   ]
 }
