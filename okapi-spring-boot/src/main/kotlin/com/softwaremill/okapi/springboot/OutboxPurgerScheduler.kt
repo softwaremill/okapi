@@ -37,8 +37,11 @@ class OutboxPurgerScheduler(
     }
 
     override fun stop(callback: Runnable) {
-        purger.stop()
-        callback.run()
+        try {
+            purger.stop()
+        } finally {
+            callback.run()
+        }
     }
 
     override fun isRunning(): Boolean = purger.isRunning()

@@ -38,6 +38,7 @@ class OutboxPurger(
         }
 
     fun start() {
+        check(!scheduler.isShutdown) { "OutboxPurger cannot be restarted after stop()" }
         if (!running.compareAndSet(false, true)) return
         logger.info(
             "Outbox purger started [retention={}, interval={}ms, batchSize={}]",

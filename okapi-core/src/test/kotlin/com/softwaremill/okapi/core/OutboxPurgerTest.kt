@@ -16,11 +16,13 @@ private val fixedClock = Clock.fixed(fixedNow, ZoneOffset.UTC)
 
 class OutboxPurgerTest : FunSpec({
 
-    test("tick removes entries older than retention duration") {
+    test("tick removes entries older than retention duration with correct batch size") {
         var capturedCutoff: Instant? = null
+        var capturedLimit: Int? = null
         val latch = CountDownLatch(1)
-        val store = stubStore(onRemove = { time, _ ->
+        val store = stubStore(onRemove = { time, limit ->
             capturedCutoff = time
+            capturedLimit = limit
             latch.countDown()
             0
         })
@@ -38,6 +40,7 @@ class OutboxPurgerTest : FunSpec({
         purger.stop()
 
         capturedCutoff shouldBe fixedNow.minus(Duration.ofDays(7))
+        capturedLimit shouldBe 100
     }
 
     test("batch loop stops when deleted < batchSize") {
@@ -141,6 +144,17 @@ class OutboxPurgerTest : FunSpec({
         shouldThrow<IllegalArgumentException> {
             OutboxPurger(stubStore(), intervalMs = -1, clock = fixedClock)
         }
+    }
+
+    test("start after stop throws") {
+        val purger = OutboxPurger(stubStore(), intervalMs = 60_000, batchSize = 100, clock = fixedClock)
+
+        purger.start()
+        purger.stop()
+
+        shouldThrow<IllegalStateException> {
+            purger.start()
+        }.message shouldBe "OutboxPurger cannot be restarted after stop()"
     }
 })
 
