@@ -20,4 +20,15 @@ class KafkaDeliveryInfoBuilder {
     )
 }
 
+/**
+ * DSL for building [KafkaDeliveryInfo].
+ *
+ * ```
+ * val info = kafkaDeliveryInfo {
+ *     topic = "order-events"
+ *     partitionKey = orderId
+ *     header("source", "checkout-service")
+ * }
+ * ```
+ */
 fun kafkaDeliveryInfo(block: KafkaDeliveryInfoBuilder.() -> Unit): KafkaDeliveryInfo = KafkaDeliveryInfoBuilder().apply(block).build()
