@@ -2,6 +2,12 @@ package com.softwaremill.okapi.core
 
 import java.time.Instant
 
+/**
+ * Persistent representation of an outbox message with delivery state.
+ *
+ * Created via [createPending] and progressed through [retry], [toDelivered],
+ * or [toFailed] — each returning a new immutable copy.
+ */
 data class OutboxEntry(
     val outboxId: OutboxId,
     val messageType: String,
@@ -15,6 +21,7 @@ data class OutboxEntry(
     val lastError: String?,
     val deliveryMetadata: String,
 ) {
+    /** Returns a copy scheduled for another delivery attempt. */
     fun retry(now: Instant, lastError: String): OutboxEntry = copy(
         status = OutboxStatus.PENDING,
         updatedAt = now,
@@ -23,6 +30,7 @@ data class OutboxEntry(
         lastError = lastError,
     )
 
+    /** Returns a copy marked as permanently failed. */
     fun toFailed(now: Instant, lastError: String): OutboxEntry = copy(
         status = OutboxStatus.FAILED,
         updatedAt = now,
@@ -30,6 +38,7 @@ data class OutboxEntry(
         lastError = lastError,
     )
 
+    /** Returns a copy marked as successfully delivered. */
     fun toDelivered(now: Instant): OutboxEntry = copy(
         status = OutboxStatus.DELIVERED,
         updatedAt = now,
@@ -37,6 +46,7 @@ data class OutboxEntry(
     )
 
     companion object {
+        /** Creates a new PENDING entry from a [message] and [deliveryInfo]. */
         fun createPending(message: OutboxMessage, deliveryInfo: DeliveryInfo, now: Instant): OutboxEntry =
             createPending(message, deliveryType = deliveryInfo.type, deliveryMetadata = deliveryInfo.serialize(), now = now)
 
