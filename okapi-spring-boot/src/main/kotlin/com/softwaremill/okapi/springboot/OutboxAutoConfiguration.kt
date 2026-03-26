@@ -31,7 +31,7 @@ import javax.sql.DataSource
  * - One or more [MessageDeliverer] beans — transport implementations
  *   (e.g. HttpMessageDeliverer, KafkaMessageDeliverer).
  *   Multiple deliverers are automatically wrapped in [CompositeMessageDeliverer]
- *   and routed by the `type` field in each entry's deliveryMetadata.
+ *   and routed by [OutboxEntry.deliveryType].
  *
  * Optional beans with defaults:
  * - [OutboxStore] — auto-configured to [PostgresOutboxStore] or [MysqlOutboxStore]

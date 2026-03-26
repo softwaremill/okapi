@@ -9,7 +9,7 @@ import java.time.Duration
 /**
  * Spring lifecycle wrapper for [OutboxPurger].
  *
- * Uses [SmartLifecycle] for phase-ordered startup/shutdown and async stop support.
+ * Uses [SmartLifecycle] for phase-ordered startup/shutdown.
  * Enabled by default; disable with `okapi.purger.enabled=false`.
  */
 class OutboxPurgerScheduler(

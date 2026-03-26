@@ -29,7 +29,7 @@
       "name": "okapi.purger.batch-size",
       "type": "java.lang.Integer",
       "defaultValue": 100,
-      "description": "Max entries deleted per batch in a single purge cycle."
+      "description": "Number of entries deleted per batch. Each purge cycle may execute multiple batches."
     }
   ]
 }
