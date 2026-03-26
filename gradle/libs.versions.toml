@@ -10,7 +10,7 @@ postgresql = "42.7.10"
 mysql = "9.6.0"
 kafkaClients = "4.2.0"
 spring = "7.0.6"
-springBoot = "4.0.4"
+springBoot = "4.0.5"
 wiremock = "3.13.2"
 
 [libraries]
