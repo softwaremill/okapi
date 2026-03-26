@@ -2,6 +2,7 @@ package com.softwaremill.okapi.springboot
 
 import com.softwaremill.okapi.core.OutboxProcessor
 import com.softwaremill.okapi.core.OutboxScheduler
+import com.softwaremill.okapi.core.OutboxSchedulerConfig
 import org.springframework.beans.factory.DisposableBean
 import org.springframework.beans.factory.SmartInitializingSingleton
 import org.springframework.transaction.support.TransactionTemplate
@@ -26,8 +27,7 @@ class OutboxProcessorScheduler(
     private val scheduler = OutboxScheduler(
         outboxProcessor = outboxProcessor,
         transactionRunner = transactionTemplate?.let { SpringTransactionRunner(it) },
-        intervalMs = intervalMs,
-        batchSize = batchSize,
+        config = OutboxSchedulerConfig(intervalMs = intervalMs, batchSize = batchSize),
     )
 
     override fun afterSingletonsInstantiated() {
