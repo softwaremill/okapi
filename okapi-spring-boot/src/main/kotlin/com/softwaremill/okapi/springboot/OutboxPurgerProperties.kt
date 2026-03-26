@@ -6,7 +6,7 @@ import org.springframework.validation.annotation.Validated
 
 @ConfigurationProperties(prefix = "okapi.purger")
 @Validated
-data class OkapiPurgerProperties(
+data class OutboxPurgerProperties(
     @field:Min(1) val retentionDays: Long = 7,
     @field:Min(1) val intervalMinutes: Long = 60,
     @field:Min(1) val batchSize: Int = 100,

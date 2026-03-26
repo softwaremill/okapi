@@ -42,7 +42,7 @@ import javax.sql.DataSource
  * - [PlatformTransactionManager] — if absent, each store call runs in its own transaction
  */
 @AutoConfiguration
-@EnableConfigurationProperties(OkapiPurgerProperties::class)
+@EnableConfigurationProperties(OutboxPurgerProperties::class)
 class OutboxAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
@@ -96,7 +96,7 @@ class OutboxAutoConfiguration {
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "okapi.purger", name = ["enabled"], havingValue = "true", matchIfMissing = true)
     fun outboxPurgerScheduler(
-        props: OkapiPurgerProperties,
+        props: OutboxPurgerProperties,
         outboxStore: OutboxStore,
         clock: ObjectProvider<Clock>,
     ): OutboxPurgerScheduler {

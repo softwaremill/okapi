@@ -2,7 +2,7 @@
   "groups": [
     {
       "name": "okapi.purger",
-      "type": "com.softwaremill.okapi.springboot.OkapiPurgerProperties",
+      "type": "com.softwaremill.okapi.springboot.OutboxPurgerProperties",
       "description": "Outbox purger configuration."
     }
   ],

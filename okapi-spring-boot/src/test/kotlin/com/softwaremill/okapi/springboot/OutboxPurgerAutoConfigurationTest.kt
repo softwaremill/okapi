@@ -41,7 +41,7 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
                 "okapi.purger.batch-size=200",
             )
             .run { ctx ->
-                val props = ctx.getBean(OkapiPurgerProperties::class.java)
+                val props = ctx.getBean(OutboxPurgerProperties::class.java)
                 props.retentionDays shouldBe 14
                 props.intervalMinutes shouldBe 30
                 props.batchSize shouldBe 200
@@ -50,7 +50,7 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
 
     test("default properties when nothing is configured") {
         contextRunner.run { ctx ->
-            val props = ctx.getBean(OkapiPurgerProperties::class.java)
+            val props = ctx.getBean(OutboxPurgerProperties::class.java)
             props.retentionDays shouldBe 7
             props.intervalMinutes shouldBe 60
             props.batchSize shouldBe 100
@@ -70,6 +70,19 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
             .run { ctx ->
                 ctx.startupFailure.shouldNotBeNull()
             }
+    }
+
+    test("stop callback is always invoked") {
+        val scheduler = OutboxPurgerScheduler(
+            outboxStore = stubStore(),
+            intervalMinutes = 60,
+        )
+        scheduler.start()
+
+        var callbackInvoked = false
+        scheduler.stop { callbackInvoked = true }
+
+        callbackInvoked shouldBe true
     }
 })
 

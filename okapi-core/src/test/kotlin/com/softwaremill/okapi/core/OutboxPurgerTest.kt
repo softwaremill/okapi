@@ -36,7 +36,7 @@ class OutboxPurgerTest : FunSpec({
         )
 
         purger.start()
-        latch.await(2, TimeUnit.SECONDS)
+        latch.await(2, TimeUnit.SECONDS) shouldBe true
         purger.stop()
 
         capturedCutoff shouldBe fixedNow.minus(Duration.ofDays(7))
@@ -58,7 +58,7 @@ class OutboxPurgerTest : FunSpec({
 
         val purger = OutboxPurger(store, intervalMs = 50, batchSize = 100, clock = fixedClock)
         purger.start()
-        latch.await(2, TimeUnit.SECONDS)
+        latch.await(2, TimeUnit.SECONDS) shouldBe true
         purger.stop()
 
         callCount.get() shouldBe 2
@@ -75,7 +75,7 @@ class OutboxPurgerTest : FunSpec({
 
         val purger = OutboxPurger(store, intervalMs = 50, batchSize = 100, clock = fixedClock)
         purger.start()
-        latch.await(2, TimeUnit.SECONDS)
+        latch.await(2, TimeUnit.SECONDS) shouldBe true
         purger.stop()
 
         callCount.get() shouldBe 10
@@ -93,7 +93,7 @@ class OutboxPurgerTest : FunSpec({
 
         val purger = OutboxPurger(store, intervalMs = 50, batchSize = 100, clock = fixedClock)
         purger.start()
-        latch.await(2, TimeUnit.SECONDS)
+        latch.await(2, TimeUnit.SECONDS) shouldBe true
         purger.stop()
 
         callCount.get() shouldBe 2
@@ -111,7 +111,7 @@ class OutboxPurgerTest : FunSpec({
         val purger = OutboxPurger(store, intervalMs = 50, batchSize = 100, clock = fixedClock)
         purger.start()
         purger.start() // second start should be ignored
-        latch.await(2, TimeUnit.SECONDS)
+        latch.await(2, TimeUnit.SECONDS) shouldBe true
         purger.stop()
 
         purger.isRunning() shouldBe false
