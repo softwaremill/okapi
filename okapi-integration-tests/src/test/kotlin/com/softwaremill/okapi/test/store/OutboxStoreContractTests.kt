@@ -180,7 +180,7 @@ fun FunSpec.outboxStoreContractTests(
         }
 
         // Remove delivered before Jan 5 — should delete old (lastAttempt=Jan 2) but keep recent (lastAttempt=Jan 11)
-        transaction { store.removeDeliveredBefore(Instant.parse("2024-01-05T00:00:00Z")) }
+        transaction { store.removeDeliveredBefore(Instant.parse("2024-01-05T00:00:00Z"), limit = 100) }
 
         val counts = transaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.DELIVERED to 1L)

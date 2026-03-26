@@ -8,6 +8,7 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.alias
 import org.jetbrains.exposed.v1.core.count
+import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.min
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
