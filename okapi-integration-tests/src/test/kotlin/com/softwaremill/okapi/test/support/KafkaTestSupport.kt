@@ -9,7 +9,7 @@ import org.apache.kafka.common.serialization.StringSerializer
 import org.testcontainers.kafka.KafkaContainer
 
 class KafkaTestSupport {
-    val container = KafkaContainer("apache/kafka:3.9.0")
+    val container = KafkaContainer("apache/kafka:3.8.1")
 
     fun start() {
         container.start()
