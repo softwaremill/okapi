@@ -22,4 +22,16 @@ class HttpDeliveryInfoBuilder {
     )
 }
 
+/**
+ * DSL for building [HttpDeliveryInfo].
+ *
+ * ```
+ * val info = httpDeliveryInfo {
+ *     serviceName = "order-service"
+ *     endpointPath = "/api/events"
+ *     httpMethod = HttpMethod.POST
+ *     header("X-Correlation-Id", correlationId)
+ * }
+ * ```
+ */
 fun httpDeliveryInfo(block: HttpDeliveryInfoBuilder.() -> Unit): HttpDeliveryInfo = HttpDeliveryInfoBuilder().apply(block).build()
