@@ -6,4 +6,5 @@
     <include file="001__create_outbox_table.sql" relativeToChangelogFile="true"/>
     <include file="002__add_delivery_type_column.sql" relativeToChangelogFile="true"/>
     <include file="003__add_purger_index.sql" relativeToChangelogFile="true"/>
+    <include file="004__add_claim_index.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>
