@@ -20,6 +20,7 @@ import java.time.Clock
 import java.time.Instant
 import java.util.UUID
 
+/** MySQL [OutboxStore] implementation using Exposed ORM. */
 class MysqlOutboxStore(
     private val clock: Clock,
 ) : OutboxStore {
