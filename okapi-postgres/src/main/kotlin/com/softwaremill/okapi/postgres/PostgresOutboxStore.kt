@@ -20,6 +20,7 @@ import java.time.Clock
 import java.time.Instant
 import java.util.UUID
 
+/** PostgreSQL [OutboxStore] implementation using Exposed. */
 class PostgresOutboxStore(
     private val clock: Clock,
 ) : OutboxStore {

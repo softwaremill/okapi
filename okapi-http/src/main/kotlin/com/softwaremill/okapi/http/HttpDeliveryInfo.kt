@@ -4,6 +4,12 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import com.softwaremill.okapi.core.DeliveryInfo
 
+/**
+ * Delivery metadata for HTTP webhook transport.
+ *
+ * [serviceName] is resolved to a base URL via [ServiceUrlResolver] at delivery time.
+ * [endpointPath] is appended to form the full URL.
+ */
 data class HttpDeliveryInfo(
     override val type: String = TYPE,
     val serviceName: String,
@@ -22,6 +28,7 @@ data class HttpDeliveryInfo(
         const val TYPE = "http"
         private val mapper = jacksonObjectMapper()
 
+        /** Deserializes from JSON stored in [OutboxEntry.deliveryMetadata]. */
         fun deserialize(json: String): HttpDeliveryInfo = mapper.readValue(json)
     }
 }

@@ -8,6 +8,13 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.errors.RetriableException
 import java.util.concurrent.ExecutionException
 
+/**
+ * [MessageDeliverer] that publishes outbox entries to Kafka topics.
+ *
+ * Uses the provided [Producer] to send records synchronously.
+ * Kafka [RetriableException]s map to [DeliveryResult.RetriableFailure];
+ * all other errors map to [DeliveryResult.PermanentFailure].
+ */
 class KafkaMessageDeliverer(
     private val producer: Producer<String, String>,
 ) : MessageDeliverer {
