@@ -9,6 +9,16 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 
+/**
+ * [MessageDeliverer] that sends outbox entries as HTTP requests via JDK [HttpClient].
+ *
+ * Status code classification:
+ * - 2xx → [DeliveryResult.Success]
+ * - 5xx, 429, 408 → [DeliveryResult.RetriableFailure] (configurable via [retriableStatusCodes])
+ * - other → [DeliveryResult.PermanentFailure]
+ *
+ * Connection errors are treated as retriable.
+ */
 class HttpMessageDeliverer(
     private val urlResolver: ServiceUrlResolver,
     private val httpClient: HttpClient = defaultHttpClient(),
