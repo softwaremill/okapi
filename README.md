@@ -24,12 +24,18 @@ dependencies {
 }
 ```
 
-Provide a `MessageDeliverer` bean — this tells okapi how to deliver messages:
+Provide a `MessageDeliverer` bean — this tells okapi how to deliver messages.
+`ServiceUrlResolver` maps the logical service name (set per message) to a base URL:
 
 ```kotlin
 @Bean
 fun httpDeliverer(): HttpMessageDeliverer =
-    HttpMessageDeliverer(ServiceUrlResolver { "https://my-service.example.com" })
+    HttpMessageDeliverer(ServiceUrlResolver { serviceName ->
+        when (serviceName) {
+            "notification-service" -> "https://notifications.example.com"
+            else -> error("Unknown service: $serviceName")
+        }
+    })
 ```
 
 Publish inside any `@Transactional` method — inject `SpringOutboxPublisher` via constructor:
@@ -56,7 +62,23 @@ class OrderService(
 
 Autoconfiguration handles scheduling, retries, and delivery automatically.
 
-> **Note:** `okapi-postgres` requires Exposed ORM dependencies in your project.
+**Using Kafka instead of HTTP?** Swap the deliverer bean and delivery info:
+
+```kotlin
+@Bean
+fun kafkaDeliverer(producer: KafkaProducer<String, String>): KafkaMessageDeliverer =
+    KafkaMessageDeliverer(producer)
+```
+```kotlin
+springOutboxPublisher.publish(
+    OutboxMessage("order.created", order.toJson()),
+    kafkaDeliveryInfo { topic = "order-events" }
+)
+```
+
+**Using MySQL instead of PostgreSQL?** Replace `okapi-postgres` with `okapi-mysql` in your dependencies — no code changes needed.
+
+> **Note:** `okapi-postgres` and `okapi-mysql` require Exposed ORM dependencies in your project.
 > Spring and Kafka versions are not forced by okapi — you control them.
 
 ## How It Works
