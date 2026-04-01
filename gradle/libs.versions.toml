@@ -26,6 +26,7 @@ exposedCore = { module = "org.jetbrains.exposed:exposed-core", version.ref = "ex
 exposedJdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposed" }
 exposedJson = { module = "org.jetbrains.exposed:exposed-json", version.ref = "exposed" }
 exposedJavaTime = { module = "org.jetbrains.exposed:exposed-java-time", version.ref = "exposed" }
+exposedSpringTransaction = { module = "org.jetbrains.exposed:spring7-transaction", version.ref = "exposed" }
 jacksonModuleKotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin", version.ref = "jackson" }
 jacksonDatatypeJsr310 = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310", version.ref = "jackson" }
 liquibaseCore = { module = "org.liquibase:liquibase-core", version.ref = "liquibase" }
