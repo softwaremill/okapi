@@ -33,8 +33,8 @@ class OutboxScheduler(
     fun start() {
         check(!scheduler.isShutdown) { "OutboxScheduler cannot be restarted after stop()" }
         if (!running.compareAndSet(false, true)) return
-        logger.info("Outbox processor started [interval={}ms, batchSize={}]", config.intervalMs, config.batchSize)
-        scheduler.scheduleWithFixedDelay(::tick, 0L, config.intervalMs, TimeUnit.MILLISECONDS)
+        logger.info("Outbox processor started [interval={}, batchSize={}]", config.interval, config.batchSize)
+        scheduler.scheduleWithFixedDelay(::tick, 0L, config.interval.toMillis(), TimeUnit.MILLISECONDS)
     }
 
     fun stop() {

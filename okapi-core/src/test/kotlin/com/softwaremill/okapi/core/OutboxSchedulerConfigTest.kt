@@ -3,30 +3,31 @@ package com.softwaremill.okapi.core
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import java.time.Duration
 
 class OutboxSchedulerConfigTest : FunSpec({
 
     test("default config has valid values") {
         val config = OutboxSchedulerConfig()
-        config.intervalMs shouldBe 1_000L
+        config.interval shouldBe Duration.ofSeconds(1)
         config.batchSize shouldBe 10
     }
 
     test("accepts custom valid values") {
-        val config = OutboxSchedulerConfig(intervalMs = 500, batchSize = 50)
-        config.intervalMs shouldBe 500L
+        val config = OutboxSchedulerConfig(interval = Duration.ofMillis(500), batchSize = 50)
+        config.interval shouldBe Duration.ofMillis(500)
         config.batchSize shouldBe 50
     }
 
-    test("rejects zero intervalMs") {
+    test("rejects zero interval") {
         shouldThrow<IllegalArgumentException> {
-            OutboxSchedulerConfig(intervalMs = 0)
+            OutboxSchedulerConfig(interval = Duration.ZERO)
         }
     }
 
-    test("rejects negative intervalMs") {
+    test("rejects negative interval") {
         shouldThrow<IllegalArgumentException> {
-            OutboxSchedulerConfig(intervalMs = -1)
+            OutboxSchedulerConfig(interval = Duration.ofMillis(-1))
         }
     }
 
