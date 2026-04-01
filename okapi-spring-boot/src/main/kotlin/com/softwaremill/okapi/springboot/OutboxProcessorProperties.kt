@@ -1,12 +1,17 @@
 package com.softwaremill.okapi.springboot
 
-import jakarta.validation.constraints.Min
 import org.springframework.boot.context.properties.ConfigurationProperties
-import org.springframework.validation.annotation.Validated
+import java.time.Duration
 
 @ConfigurationProperties(prefix = "okapi.processor")
-@Validated
 data class OutboxProcessorProperties(
-    @field:Min(1) val intervalMs: Long = 1_000,
-    @field:Min(1) val batchSize: Int = 10,
-)
+    val interval: Duration = Duration.ofSeconds(1),
+    val batchSize: Int = 10,
+    val maxRetries: Int = 5,
+) {
+    init {
+        require(!interval.isZero && !interval.isNegative) { "interval must be positive" }
+        require(batchSize > 0) { "batchSize must be positive" }
+        require(maxRetries >= 0) { "maxRetries must be >= 0" }
+    }
+}

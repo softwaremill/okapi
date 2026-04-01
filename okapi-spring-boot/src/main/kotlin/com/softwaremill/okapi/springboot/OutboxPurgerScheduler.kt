@@ -5,7 +5,6 @@ import com.softwaremill.okapi.core.OutboxPurgerConfig
 import com.softwaremill.okapi.core.OutboxStore
 import org.springframework.context.SmartLifecycle
 import java.time.Clock
-import java.time.Duration
 
 /**
  * Spring lifecycle wrapper for [OutboxPurger].
@@ -15,19 +14,13 @@ import java.time.Duration
  */
 class OutboxPurgerScheduler(
     outboxStore: OutboxStore,
-    retentionDays: Long = 7,
-    intervalMinutes: Long = 60,
-    batchSize: Int = 100,
+    config: OutboxPurgerConfig = OutboxPurgerConfig(),
     clock: Clock = Clock.systemUTC(),
 ) : SmartLifecycle {
 
     private val purger = OutboxPurger(
         outboxStore = outboxStore,
-        config = OutboxPurgerConfig(
-            retention = Duration.ofDays(retentionDays),
-            interval = Duration.ofMinutes(intervalMinutes),
-            batchSize = batchSize,
-        ),
+        config = config,
         clock = clock,
     )
 

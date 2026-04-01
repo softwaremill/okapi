@@ -1,13 +1,17 @@
 package com.softwaremill.okapi.springboot
 
-import jakarta.validation.constraints.Min
 import org.springframework.boot.context.properties.ConfigurationProperties
-import org.springframework.validation.annotation.Validated
+import java.time.Duration
 
 @ConfigurationProperties(prefix = "okapi.purger")
-@Validated
 data class OutboxPurgerProperties(
-    @field:Min(1) val retentionDays: Long = 7,
-    @field:Min(1) val intervalMinutes: Long = 60,
-    @field:Min(1) val batchSize: Int = 100,
-)
+    val retention: Duration = Duration.ofDays(7),
+    val interval: Duration = Duration.ofHours(1),
+    val batchSize: Int = 100,
+) {
+    init {
+        require(!retention.isZero && !retention.isNegative) { "retention must be positive" }
+        require(!interval.isZero && !interval.isNegative) { "interval must be positive" }
+        require(batchSize > 0) { "batchSize must be positive" }
+    }
+}

@@ -10,6 +10,7 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import java.time.Duration
 import java.time.Instant
 
 class OutboxProcessorAutoConfigurationTest : FunSpec({
@@ -36,21 +37,24 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
     test("properties are bound from application config") {
         contextRunner
             .withPropertyValues(
-                "okapi.processor.interval-ms=500",
+                "okapi.processor.interval=500ms",
                 "okapi.processor.batch-size=20",
+                "okapi.processor.max-retries=3",
             )
             .run { ctx ->
                 val props = ctx.getBean(OutboxProcessorProperties::class.java)
-                props.intervalMs shouldBe 500
+                props.interval shouldBe Duration.ofMillis(500)
                 props.batchSize shouldBe 20
+                props.maxRetries shouldBe 3
             }
     }
 
     test("default properties when nothing is configured") {
         contextRunner.run { ctx ->
             val props = ctx.getBean(OutboxProcessorProperties::class.java)
-            props.intervalMs shouldBe 1_000
+            props.interval shouldBe Duration.ofSeconds(1)
             props.batchSize shouldBe 10
+            props.maxRetries shouldBe 5
         }
     }
 
@@ -61,7 +65,7 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
         }
     }
 
-    test("invalid batch-size triggers validation") {
+    test("invalid batch-size triggers startup failure") {
         contextRunner
             .withPropertyValues("okapi.processor.batch-size=0")
             .run { ctx ->

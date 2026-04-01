@@ -5,6 +5,7 @@ import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntryProcessor
 import com.softwaremill.okapi.core.OutboxProcessor
 import com.softwaremill.okapi.core.OutboxPublisher
+import com.softwaremill.okapi.core.OutboxPurgerConfig
 import com.softwaremill.okapi.core.OutboxSchedulerConfig
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.RetryPolicy
@@ -23,7 +24,6 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import java.time.Clock
-import java.time.Duration
 import javax.sql.DataSource
 
 /**
@@ -62,13 +62,14 @@ class OutboxAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     fun outboxEntryProcessor(
+        props: OutboxProcessorProperties,
         deliverers: List<MessageDeliverer>,
         retryPolicy: ObjectProvider<RetryPolicy>,
         clock: ObjectProvider<Clock>,
     ): OutboxEntryProcessor {
         return OutboxEntryProcessor(
             deliverer = if (deliverers.size == 1) deliverers.single() else CompositeMessageDeliverer(deliverers),
-            retryPolicy = retryPolicy.getIfAvailable { RetryPolicy(maxRetries = 5) },
+            retryPolicy = retryPolicy.getIfAvailable { RetryPolicy(maxRetries = props.maxRetries) },
             clock = clock.getIfAvailable { Clock.systemUTC() },
         )
     }
@@ -94,7 +95,7 @@ class OutboxAutoConfiguration {
             outboxProcessor = outboxProcessor,
             transactionTemplate = transactionManager.getIfAvailable()?.let { TransactionTemplate(it) },
             config = OutboxSchedulerConfig(
-                interval = Duration.ofMillis(props.intervalMs),
+                interval = props.interval,
                 batchSize = props.batchSize,
             ),
         )
@@ -110,9 +111,11 @@ class OutboxAutoConfiguration {
     ): OutboxPurgerScheduler {
         return OutboxPurgerScheduler(
             outboxStore = outboxStore,
-            retentionDays = props.retentionDays,
-            intervalMinutes = props.intervalMinutes,
-            batchSize = props.batchSize,
+            config = OutboxPurgerConfig(
+                retention = props.retention,
+                interval = props.interval,
+                batchSize = props.batchSize,
+            ),
             clock = clock.getIfAvailable { Clock.systemUTC() },
         )
     }
