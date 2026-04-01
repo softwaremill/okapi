@@ -57,7 +57,8 @@ class OutboxAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    fun springOutboxPublisher(outboxPublisher: OutboxPublisher): SpringOutboxPublisher = SpringOutboxPublisher(delegate = outboxPublisher)
+    fun springOutboxPublisher(outboxPublisher: OutboxPublisher, dataSource: DataSource): SpringOutboxPublisher =
+        SpringOutboxPublisher(delegate = outboxPublisher, dataSource = dataSource)
 
     @Bean
     @ConditionalOnMissingBean

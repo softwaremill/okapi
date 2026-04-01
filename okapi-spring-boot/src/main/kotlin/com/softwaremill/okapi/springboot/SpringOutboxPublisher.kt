@@ -5,6 +5,7 @@ import com.softwaremill.okapi.core.OutboxId
 import com.softwaremill.okapi.core.OutboxMessage
 import com.softwaremill.okapi.core.OutboxPublisher
 import com.softwaremill.okapi.core.TransactionalOutboxPublisher
+import javax.sql.DataSource
 
 /**
  * Spring-aware wrapper around [OutboxPublisher] that validates transactional context
@@ -14,10 +15,10 @@ import com.softwaremill.okapi.core.TransactionalOutboxPublisher
  *
  * @throws IllegalStateException if no active read-write Spring transaction is present.
  */
-class SpringOutboxPublisher(delegate: OutboxPublisher) {
+class SpringOutboxPublisher(delegate: OutboxPublisher, dataSource: DataSource) {
     private val transactionalPublisher = TransactionalOutboxPublisher(
         delegate = delegate,
-        validator = SpringTransactionContextValidator(),
+        validator = SpringTransactionContextValidator(dataSource),
     )
 
     /**

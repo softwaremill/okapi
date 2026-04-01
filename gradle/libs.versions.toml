@@ -37,6 +37,7 @@ mysql = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }
 kafkaClients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafkaClients" }
 springContext = { module = "org.springframework:spring-context", version.ref = "spring" }
 springTx = { module = "org.springframework:spring-tx", version.ref = "spring" }
+springJdbc = { module = "org.springframework:spring-jdbc", version.ref = "spring" }
 springBootAutoconfigure = { module = "org.springframework.boot:spring-boot-autoconfigure", version.ref = "springBoot" }
 springBootStarterValidation = { module = "org.springframework.boot:spring-boot-starter-validation", version.ref = "springBoot" }
 springBootTest = { module = "org.springframework.boot:spring-boot-test", version.ref = "springBoot" }
