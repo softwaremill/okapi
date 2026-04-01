@@ -20,8 +20,7 @@ import javax.sql.DataSource
 class SpringTransactionContextValidator(
     private val dataSource: DataSource,
 ) : TransactionContextValidator {
-    override fun isInActiveReadWriteTransaction(): Boolean =
-        TransactionSynchronizationManager.isActualTransactionActive() &&
-            !TransactionSynchronizationManager.isCurrentTransactionReadOnly() &&
-            TransactionSynchronizationManager.getResource(dataSource) != null
+    override fun isInActiveReadWriteTransaction(): Boolean = TransactionSynchronizationManager.isActualTransactionActive() &&
+        !TransactionSynchronizationManager.isCurrentTransactionReadOnly() &&
+        TransactionSynchronizationManager.getResource(dataSource) != null
 }
