@@ -1,22 +1,24 @@
 package com.softwaremill.okapi.postgres
 
 import com.softwaremill.okapi.core.OutboxEntry
-import com.softwaremill.okapi.core.OutboxId
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import org.jetbrains.exposed.v1.core.IntegerColumnType
+import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.alias
 import org.jetbrains.exposed.v1.core.count
+import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.min
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.upsert
-import java.sql.ResultSet
 import java.time.Clock
 import java.time.Instant
-import java.util.UUID
 
+/** PostgreSQL [OutboxStore] implementation using Exposed. */
 class PostgresOutboxStore(
     private val clock: Clock,
 ) : OutboxStore {
@@ -38,17 +40,13 @@ class PostgresOutboxStore(
     }
 
     override fun claimPending(limit: Int): List<OutboxEntry> {
-        val nativeQuery =
-            "SELECT * FROM ${OutboxTable.tableName}" +
-                " WHERE ${OutboxTable.status.name} = '${OutboxStatus.PENDING}'" +
-                " ORDER BY ${OutboxTable.createdAt.name} ASC" +
-                " LIMIT $limit FOR UPDATE SKIP LOCKED"
-
-        return TransactionManager.current().exec(nativeQuery) { rs ->
-            generateSequence {
-                if (rs.next()) mapFromResultSet(rs) else null
-            }.toList()
-        } ?: emptyList()
+        return OutboxTable
+            .select(OutboxTable.columns)
+            .where { OutboxTable.status eq OutboxStatus.PENDING.name }
+            .orderBy(OutboxTable.createdAt to SortOrder.ASC)
+            .limit(limit)
+            .forUpdate(ForUpdateOption.PostgreSQL.ForUpdate(mode = ForUpdateOption.PostgreSQL.MODE.SKIP_LOCKED))
+            .map { it.toOutboxEntry() }
     }
 
     override fun updateAfterProcessing(entry: OutboxEntry): OutboxEntry = persist(entry)
@@ -99,17 +97,17 @@ class PostgresOutboxStore(
         return OutboxStatus.entries.associateWith { status -> counts[status] ?: 0L }
     }
 
-    private fun mapFromResultSet(rs: ResultSet): OutboxEntry = OutboxEntry(
-        outboxId = OutboxId(UUID.fromString(rs.getString("id"))),
-        messageType = rs.getString("message_type"),
-        payload = rs.getString("payload"),
-        deliveryType = rs.getString("delivery_type"),
-        status = OutboxStatus.from(rs.getString("status")),
-        createdAt = rs.getTimestamp("created_at").toInstant(),
-        updatedAt = rs.getTimestamp("updated_at").toInstant(),
-        retries = rs.getInt("retries"),
-        lastAttempt = rs.getTimestamp("last_attempt")?.toInstant(),
-        lastError = rs.getString("last_error"),
-        deliveryMetadata = rs.getString("delivery_metadata"),
+    private fun ResultRow.toOutboxEntry(): OutboxEntry = OutboxEntry(
+        outboxId = this[OutboxTable.id],
+        messageType = this[OutboxTable.messageType],
+        payload = this[OutboxTable.payload],
+        deliveryType = this[OutboxTable.deliveryType],
+        status = OutboxStatus.from(this[OutboxTable.status]),
+        createdAt = this[OutboxTable.createdAt],
+        updatedAt = this[OutboxTable.updatedAt],
+        retries = this[OutboxTable.retries],
+        lastAttempt = this[OutboxTable.lastAttempt],
+        lastError = this[OutboxTable.lastError],
+        deliveryMetadata = this[OutboxTable.deliveryMetadata],
     )
 }

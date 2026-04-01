@@ -10,7 +10,7 @@ postgresql = "42.7.10"
 mysql = "9.6.0"
 kafkaClients = "4.2.0"
 spring = "7.0.6"
-springBoot = "4.0.4"
+springBoot = "4.0.5"
 wiremock = "3.13.2"
 slf4j = "2.0.17"
 assertj = "3.27.3"
@@ -29,6 +29,7 @@ jacksonDatatypeJsr310 = { module = "com.fasterxml.jackson.datatype:jackson-datat
 liquibaseCore = { module = "org.liquibase:liquibase-core", version.ref = "liquibase" }
 testcontainersPostgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
 testcontainersMysql = { module = "org.testcontainers:mysql", version.ref = "testcontainers" }
+testcontainersKafka = { module = "org.testcontainers:kafka", version.ref = "testcontainers" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
 mysql = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }
 kafkaClients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafkaClients" }

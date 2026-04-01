@@ -16,5 +16,6 @@ include("okapi-http")
 include("okapi-kafka")
 include("okapi-spring-boot")
 include("okapi-bom")
+include("okapi-integration-tests")
 
 rootProject.name = "okapi"
