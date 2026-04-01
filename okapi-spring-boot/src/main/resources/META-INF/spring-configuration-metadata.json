@@ -19,16 +19,16 @@
       "description": "Whether the outbox purger is enabled."
     },
     {
-      "name": "okapi.purger.retention-days",
-      "type": "java.lang.Long",
-      "defaultValue": 7,
-      "description": "How many days to keep delivered entries before purging."
+      "name": "okapi.purger.retention",
+      "type": "java.time.Duration",
+      "defaultValue": "7d",
+      "description": "How long to keep delivered entries before purging."
     },
     {
-      "name": "okapi.purger.interval-minutes",
-      "type": "java.lang.Long",
-      "defaultValue": 60,
-      "description": "How often the purger runs, in minutes."
+      "name": "okapi.purger.interval",
+      "type": "java.time.Duration",
+      "defaultValue": "1h",
+      "description": "How often the purger runs."
     },
     {
       "name": "okapi.purger.batch-size",
@@ -43,16 +43,22 @@
       "description": "Whether the outbox processor is enabled."
     },
     {
-      "name": "okapi.processor.interval-ms",
-      "type": "java.lang.Long",
-      "defaultValue": 1000,
-      "description": "How often the processor runs, in milliseconds."
+      "name": "okapi.processor.interval",
+      "type": "java.time.Duration",
+      "defaultValue": "1s",
+      "description": "How often the processor runs."
     },
     {
       "name": "okapi.processor.batch-size",
       "type": "java.lang.Integer",
       "defaultValue": 10,
       "description": "Maximum number of pending entries to process per tick."
+    },
+    {
+      "name": "okapi.processor.max-retries",
+      "type": "java.lang.Integer",
+      "defaultValue": 5,
+      "description": "Maximum number of delivery retries before marking an entry as failed."
     }
   ]
 }
