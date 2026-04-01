@@ -8,6 +8,7 @@ data class OutboxSchedulerConfig(
 ) {
     init {
         require(!interval.isZero && !interval.isNegative) { "interval must be positive, got: $interval" }
+        require(interval.toMillis() > 0) { "interval must be at least 1ms, got: $interval" }
         require(batchSize > 0) { "batchSize must be positive, got: $batchSize" }
     }
 }

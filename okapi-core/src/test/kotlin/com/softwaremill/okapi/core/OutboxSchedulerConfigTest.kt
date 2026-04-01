@@ -42,4 +42,10 @@ class OutboxSchedulerConfigTest : FunSpec({
             OutboxSchedulerConfig(batchSize = -5)
         }
     }
+
+    test("rejects sub-millisecond interval") {
+        shouldThrow<IllegalArgumentException> {
+            OutboxSchedulerConfig(interval = Duration.ofNanos(1))
+        }
+    }
 })

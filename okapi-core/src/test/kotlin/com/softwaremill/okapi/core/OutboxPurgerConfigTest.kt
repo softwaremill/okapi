@@ -60,4 +60,10 @@ class OutboxPurgerConfigTest : FunSpec({
             OutboxPurgerConfig(batchSize = -10)
         }
     }
+
+    test("rejects sub-millisecond interval") {
+        shouldThrow<IllegalArgumentException> {
+            OutboxPurgerConfig(interval = Duration.ofNanos(1))
+        }
+    }
 })
