@@ -4,14 +4,11 @@ import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxId
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.alias
-import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
-import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
-import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.min
-import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.upsert
@@ -57,10 +54,28 @@ class MysqlOutboxStore(
 
     override fun updateAfterProcessing(entry: OutboxEntry): OutboxEntry = persist(entry)
 
-    override fun removeDeliveredBefore(time: Instant) {
-        OutboxTable.deleteWhere {
-            (OutboxTable.status eq OutboxStatus.DELIVERED.name) and (OutboxTable.lastAttempt less time)
-        }
+    override fun removeDeliveredBefore(time: Instant, limit: Int): Int {
+        val sql = """
+            DELETE FROM ${OutboxTable.tableName} WHERE ${OutboxTable.id.name} IN (
+                SELECT ${OutboxTable.id.name} FROM (
+                    SELECT ${OutboxTable.id.name} FROM ${OutboxTable.tableName}
+                    WHERE ${OutboxTable.status.name} = '${OutboxStatus.DELIVERED}'
+                    AND ${OutboxTable.lastAttempt.name} < ?
+                    ORDER BY ${OutboxTable.id.name}
+                    LIMIT ?
+                    FOR UPDATE SKIP LOCKED
+                ) AS batch
+            )
+        """.trimIndent()
+
+        val statement = TransactionManager.current().connection.prepareStatement(sql, false)
+        statement.fillParameters(
+            listOf(
+                OutboxTable.lastAttempt.columnType to time,
+                IntegerColumnType() to limit,
+            ),
+        )
+        return statement.executeUpdate()
     }
 
     override fun findOldestCreatedAt(statuses: Set<OutboxStatus>): Map<OutboxStatus, Instant> {

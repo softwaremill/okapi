@@ -1,0 +1,35 @@
+{
+  "groups": [
+    {
+      "name": "okapi.purger",
+      "type": "com.softwaremill.okapi.springboot.OutboxPurgerProperties",
+      "description": "Outbox purger configuration."
+    }
+  ],
+  "properties": [
+    {
+      "name": "okapi.purger.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Whether the outbox purger is enabled."
+    },
+    {
+      "name": "okapi.purger.retention-days",
+      "type": "java.lang.Long",
+      "defaultValue": 7,
+      "description": "How many days to keep delivered entries before purging."
+    },
+    {
+      "name": "okapi.purger.interval-minutes",
+      "type": "java.lang.Long",
+      "defaultValue": 60,
+      "description": "How often the purger runs, in minutes."
+    },
+    {
+      "name": "okapi.purger.batch-size",
+      "type": "java.lang.Integer",
+      "defaultValue": 100,
+      "description": "Number of entries deleted per batch. Each purge cycle may execute multiple batches."
+    }
+  ]
+}

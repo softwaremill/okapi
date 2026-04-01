@@ -2,37 +2,54 @@ package com.softwaremill.okapi.springboot
 
 import com.softwaremill.okapi.core.OutboxPurger
 import com.softwaremill.okapi.core.OutboxStore
-import org.springframework.beans.factory.DisposableBean
-import org.springframework.beans.factory.SmartInitializingSingleton
+import org.springframework.context.SmartLifecycle
 import java.time.Clock
 import java.time.Duration
 
 /**
  * Spring lifecycle wrapper for [OutboxPurger].
  *
- * Starts purging after all beans are initialized, stops on context close.
+ * Uses [SmartLifecycle] for phase-ordered startup/shutdown.
  * Enabled by default; disable with `okapi.purger.enabled=false`.
  */
 class OutboxPurgerScheduler(
     outboxStore: OutboxStore,
     retentionDays: Long = 7,
     intervalMinutes: Long = 60,
+    batchSize: Int = 100,
     clock: Clock = Clock.systemUTC(),
-) : SmartInitializingSingleton,
-    DisposableBean {
+) : SmartLifecycle {
 
     private val purger = OutboxPurger(
         outboxStore = outboxStore,
         retentionDuration = Duration.ofDays(retentionDays),
         intervalMs = intervalMinutes * 60 * 1_000,
+        batchSize = batchSize,
         clock = clock,
     )
 
-    override fun afterSingletonsInstantiated() {
+    override fun start() {
         purger.start()
     }
 
-    override fun destroy() {
+    override fun stop() {
         purger.stop()
+    }
+
+    override fun stop(callback: Runnable) {
+        try {
+            purger.stop()
+        } finally {
+            callback.run()
+        }
+    }
+
+    override fun isRunning(): Boolean = purger.isRunning()
+
+    override fun getPhase(): Int = PURGER_PHASE
+
+    companion object {
+        /** Start late (after app beans), stop early (before app beans). */
+        const val PURGER_PHASE = Integer.MAX_VALUE - 1024
     }
 }
