@@ -1,8 +1,8 @@
 [versions]
 kotlin = "2.3.20"
-kotest = "6.1.9"
+kotest = "6.1.10"
 ktlint = "12.1.2"
-exposed = "1.1.1"
+exposed = "1.2.0"
 jackson = "2.21.2"
 liquibase = "5.0.2"
 testcontainers = "1.21.4"
@@ -13,7 +13,7 @@ spring = "7.0.6"
 springBoot = "4.0.5"
 wiremock = "3.13.2"
 slf4j = "2.0.17"
-assertj = "3.27.3"
+assertj = "3.27.7"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
