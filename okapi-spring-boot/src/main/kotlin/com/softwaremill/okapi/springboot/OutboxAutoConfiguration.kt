@@ -5,6 +5,7 @@ import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntryProcessor
 import com.softwaremill.okapi.core.OutboxProcessor
 import com.softwaremill.okapi.core.OutboxPublisher
+import com.softwaremill.okapi.core.OutboxSchedulerConfig
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.RetryPolicy
 import com.softwaremill.okapi.mysql.MysqlOutboxStore
@@ -42,7 +43,7 @@ import javax.sql.DataSource
  * - [PlatformTransactionManager] — if absent, each store call runs in its own transaction
  */
 @AutoConfiguration
-@EnableConfigurationProperties(OutboxPurgerProperties::class)
+@EnableConfigurationProperties(OutboxPurgerProperties::class, OutboxProcessorProperties::class)
 class OutboxAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
@@ -82,13 +83,19 @@ class OutboxAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "okapi.processor", name = ["enabled"], havingValue = "true", matchIfMissing = true)
     fun outboxProcessorScheduler(
+        props: OutboxProcessorProperties,
         outboxProcessor: OutboxProcessor,
         transactionManager: ObjectProvider<PlatformTransactionManager>,
     ): OutboxProcessorScheduler {
         return OutboxProcessorScheduler(
             outboxProcessor = outboxProcessor,
             transactionTemplate = transactionManager.getIfAvailable()?.let { TransactionTemplate(it) },
+            config = OutboxSchedulerConfig(
+                intervalMs = props.intervalMs,
+                batchSize = props.batchSize,
+            ),
         )
     }
 
