@@ -23,6 +23,7 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import java.time.Clock
+import java.time.Duration
 import javax.sql.DataSource
 
 /**
@@ -93,7 +94,7 @@ class OutboxAutoConfiguration {
             outboxProcessor = outboxProcessor,
             transactionTemplate = transactionManager.getIfAvailable()?.let { TransactionTemplate(it) },
             config = OutboxSchedulerConfig(
-                intervalMs = props.intervalMs,
+                interval = Duration.ofMillis(props.intervalMs),
                 batchSize = props.batchSize,
             ),
         )

@@ -1,6 +1,7 @@
 package com.softwaremill.okapi.springboot
 
 import com.softwaremill.okapi.core.OutboxPurger
+import com.softwaremill.okapi.core.OutboxPurgerConfig
 import com.softwaremill.okapi.core.OutboxStore
 import org.springframework.context.SmartLifecycle
 import java.time.Clock
@@ -22,9 +23,11 @@ class OutboxPurgerScheduler(
 
     private val purger = OutboxPurger(
         outboxStore = outboxStore,
-        retentionDuration = Duration.ofDays(retentionDays),
-        intervalMs = intervalMinutes * 60 * 1_000,
-        batchSize = batchSize,
+        config = OutboxPurgerConfig(
+            retention = Duration.ofDays(retentionDays),
+            interval = Duration.ofMinutes(intervalMinutes),
+            batchSize = batchSize,
+        ),
         clock = clock,
     )
 
