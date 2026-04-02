@@ -118,6 +118,12 @@ class MultiDataSourceTransactionTest : FunSpec({
         }
     }
 
+    test("publish fails with IllegalStateException when called outside any transaction") {
+        shouldThrow<IllegalStateException> {
+            publisher.publish(testMessage, stubDeliveryInfo)
+        }
+    }
+
     test("publish succeeds with nested transaction (savepoint) on outbox DataSource") {
         val outboxId = outboxTxTemplate.execute {
             // Nested call creates a savepoint (PROPAGATION_REQUIRED by default nests via savepoints)

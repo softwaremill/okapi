@@ -24,4 +24,8 @@ class ExposedTransactionContextValidator(
         val transaction = database.transactionManager.currentOrNull() ?: return false
         return !transaction.readOnly
     }
+
+    override val failureMessage: String
+        get() = "No active read-write Exposed transaction on the outbox Database. " +
+            "Ensure publish() is called within a transaction(database) { } block using the outbox Database instance."
 }

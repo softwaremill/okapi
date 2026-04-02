@@ -59,6 +59,19 @@ class ExposedTransactionContextValidatorTest : BehaviorSpec({
         }
     }
 
+    given("nested: RW outer on outboxDb, read-only inner on outboxDb") {
+        then("returns true — Exposed currentOrNull() finds the outer RW transaction for same-db nesting") {
+            transaction(outboxDb) {
+                // Exposed does not stack same-db transactions independently;
+                // currentOrNull() finds the outer (RW) transaction, so the validator sees RW.
+                val innerResult = transaction(db = outboxDb, readOnly = true) {
+                    validator.isInActiveReadWriteTransaction()
+                }
+                innerResult shouldBe true
+            }
+        }
+    }
+
     given("read-only transaction on outbox Database") {
         then("returns false") {
             transaction(db = outboxDb, readOnly = true) {

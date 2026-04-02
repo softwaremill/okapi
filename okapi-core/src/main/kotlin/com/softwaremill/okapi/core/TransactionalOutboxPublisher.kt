@@ -14,9 +14,7 @@ class TransactionalOutboxPublisher(
     private val validator: TransactionContextValidator,
 ) {
     fun publish(outboxMessage: OutboxMessage, deliveryInfo: DeliveryInfo): OutboxId {
-        check(validator.isInActiveReadWriteTransaction()) {
-            "No active read-write transaction. Ensure that publish() is called within a transactional context."
-        }
+        check(validator.isInActiveReadWriteTransaction()) { validator.failureMessage }
         return delegate.publish(outboxMessage, deliveryInfo)
     }
 }

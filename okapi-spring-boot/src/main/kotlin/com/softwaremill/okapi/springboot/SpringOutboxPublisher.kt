@@ -13,6 +13,9 @@ import javax.sql.DataSource
  *
  * Ensures the outbox pattern contract: publish must happen within an active read-write transaction.
  *
+ * @param delegate the core publisher to delegate to after validation
+ * @param dataSource the DataSource where the outbox table lives — validation checks
+ *        that the current Spring transaction is bound to this specific DataSource
  * @throws IllegalStateException if no active read-write Spring transaction is present.
  */
 class SpringOutboxPublisher(delegate: OutboxPublisher, dataSource: DataSource) {
