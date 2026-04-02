@@ -11,8 +11,7 @@ data class OutboxPurgerProperties(
 ) {
     init {
         require(!retention.isZero && !retention.isNegative) { "retention must be positive" }
-        require(!interval.isZero && !interval.isNegative) { "interval must be positive" }
-        require(interval.toMillis() > 0) { "interval must be at least 1ms, got: $interval" }
+        require(!interval.isNegative && interval.toMillis() > 0) { "interval must be at least 1ms" }
         require(batchSize > 0) { "batchSize must be positive" }
     }
 }
