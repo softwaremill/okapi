@@ -11,7 +11,9 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
-import java.time.Duration
+import java.time.Duration.ofDays
+import java.time.Duration.ofHours
+import java.time.Duration.ofMinutes
 import java.time.Instant
 
 class OutboxPurgerAutoConfigurationTest : FunSpec({
@@ -44,8 +46,8 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
             )
             .run { ctx ->
                 val props = ctx.getBean(OutboxPurgerProperties::class.java)
-                props.retention shouldBe Duration.ofDays(14)
-                props.interval shouldBe Duration.ofMinutes(30)
+                props.retention shouldBe ofDays(14)
+                props.interval shouldBe ofMinutes(30)
                 props.batchSize shouldBe 200
             }
     }
@@ -53,8 +55,8 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
     test("default properties when nothing is configured") {
         contextRunner.run { ctx ->
             val props = ctx.getBean(OutboxPurgerProperties::class.java)
-            props.retention shouldBe Duration.ofDays(7)
-            props.interval shouldBe Duration.ofHours(1)
+            props.retention shouldBe ofDays(7)
+            props.interval shouldBe ofHours(1)
             props.batchSize shouldBe 100
         }
     }
@@ -77,7 +79,7 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
     test("stop callback is always invoked") {
         val scheduler = OutboxPurgerScheduler(
             outboxStore = stubStore(),
-            config = OutboxPurgerConfig(interval = Duration.ofMinutes(60)),
+            config = OutboxPurgerConfig(interval = ofMinutes(60)),
         )
         scheduler.start()
 

@@ -4,24 +4,29 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import java.time.Duration
+import java.time.Duration.ofDays
+import java.time.Duration.ofHours
+import java.time.Duration.ofMinutes
+import java.time.Duration.ofNanos
+import java.time.Duration.ofSeconds
 
 class OutboxPurgerConfigTest : FunSpec({
 
     test("default config has valid values") {
         val config = OutboxPurgerConfig()
-        config.retention shouldBe Duration.ofDays(7)
-        config.interval shouldBe Duration.ofHours(1)
+        config.retention shouldBe ofDays(7)
+        config.interval shouldBe ofHours(1)
         config.batchSize shouldBe 100
     }
 
     test("accepts custom valid values") {
         val config = OutboxPurgerConfig(
-            retention = Duration.ofHours(12),
-            interval = Duration.ofSeconds(30),
+            retention = ofHours(12),
+            interval = ofSeconds(30),
             batchSize = 50,
         )
-        config.retention shouldBe Duration.ofHours(12)
-        config.interval shouldBe Duration.ofSeconds(30)
+        config.retention shouldBe ofHours(12)
+        config.interval shouldBe ofSeconds(30)
         config.batchSize shouldBe 50
     }
 
@@ -33,7 +38,7 @@ class OutboxPurgerConfigTest : FunSpec({
 
     test("rejects negative retention") {
         shouldThrow<IllegalArgumentException> {
-            OutboxPurgerConfig(retention = Duration.ofDays(-1))
+            OutboxPurgerConfig(retention = ofDays(-1))
         }
     }
 
@@ -45,7 +50,7 @@ class OutboxPurgerConfigTest : FunSpec({
 
     test("rejects negative interval") {
         shouldThrow<IllegalArgumentException> {
-            OutboxPurgerConfig(interval = Duration.ofMinutes(-5))
+            OutboxPurgerConfig(interval = ofMinutes(-5))
         }
     }
 
@@ -63,7 +68,7 @@ class OutboxPurgerConfigTest : FunSpec({
 
     test("rejects sub-millisecond interval") {
         shouldThrow<IllegalArgumentException> {
-            OutboxPurgerConfig(interval = Duration.ofNanos(1))
+            OutboxPurgerConfig(interval = ofNanos(1))
         }
     }
 })
