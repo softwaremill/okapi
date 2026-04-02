@@ -42,10 +42,19 @@ import javax.sql.DataSource
  * - [Clock] — defaults to [Clock.systemUTC]
  * - [RetryPolicy] — defaults to `maxRetries = 5`
  * - [PlatformTransactionManager] — if absent, each store call runs in its own transaction
+ *
+ * Multi-datasource support:
+ * - Set `okapi.datasource-qualifier` to the bean name of the [DataSource] that holds the outbox table.
+ *   When not set, the primary (or single) DataSource is used.
  */
 @AutoConfiguration
-@EnableConfigurationProperties(OutboxPurgerProperties::class, OutboxProcessorProperties::class)
-class OutboxAutoConfiguration {
+@EnableConfigurationProperties(OkapiProperties::class, OutboxPurgerProperties::class, OutboxProcessorProperties::class)
+class OutboxAutoConfiguration(
+    private val dataSources: Map<String, DataSource>,
+    private val okapiProperties: OkapiProperties,
+) {
+    private fun resolveDataSource(): DataSource = resolveDataSource(dataSources, okapiProperties)
+
     @Bean
     @ConditionalOnMissingBean
     fun outboxPublisher(outboxStore: OutboxStore, clock: ObjectProvider<Clock>): OutboxPublisher {
@@ -57,8 +66,8 @@ class OutboxAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    fun springOutboxPublisher(outboxPublisher: OutboxPublisher, dataSource: DataSource): SpringOutboxPublisher =
-        SpringOutboxPublisher(delegate = outboxPublisher, dataSource = dataSource)
+    fun springOutboxPublisher(outboxPublisher: OutboxPublisher): SpringOutboxPublisher =
+        SpringOutboxPublisher(delegate = outboxPublisher, dataSource = resolveDataSource())
 
     @Bean
     @ConditionalOnMissingBean
@@ -128,7 +137,10 @@ class OutboxAutoConfiguration {
      */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(PostgresOutboxStore::class)
-    class PostgresStoreConfiguration {
+    class PostgresStoreConfiguration(
+        private val dataSources: Map<String, DataSource>,
+        private val okapiProperties: OkapiProperties,
+    ) {
         @Bean
         @ConditionalOnMissingBean(OutboxStore::class)
         fun outboxStore(clock: ObjectProvider<Clock>): PostgresOutboxStore =
@@ -138,8 +150,8 @@ class OutboxAutoConfiguration {
         @ConditionalOnClass(SpringLiquibase::class)
         @ConditionalOnBean(value = [DataSource::class, PostgresOutboxStore::class])
         @ConditionalOnMissingBean(name = ["okapiPostgresLiquibase"])
-        fun okapiPostgresLiquibase(dataSource: DataSource): SpringLiquibase = SpringLiquibase().apply {
-            this.dataSource = dataSource
+        fun okapiPostgresLiquibase(): SpringLiquibase = SpringLiquibase().apply {
+            dataSource = resolveDataSource(dataSources, okapiProperties)
             changeLog = "classpath:com/softwaremill/okapi/db/changelog.xml"
         }
     }
@@ -147,7 +159,10 @@ class OutboxAutoConfiguration {
     /** When both Postgres and MySQL modules are on the classpath, [PostgresStoreConfiguration] takes priority. */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(MysqlOutboxStore::class)
-    class MysqlStoreConfiguration {
+    class MysqlStoreConfiguration(
+        private val dataSources: Map<String, DataSource>,
+        private val okapiProperties: OkapiProperties,
+    ) {
         @Bean
         @ConditionalOnMissingBean(OutboxStore::class)
         fun outboxStore(clock: ObjectProvider<Clock>): MysqlOutboxStore =
@@ -157,9 +172,21 @@ class OutboxAutoConfiguration {
         @ConditionalOnClass(SpringLiquibase::class)
         @ConditionalOnBean(value = [DataSource::class, MysqlOutboxStore::class])
         @ConditionalOnMissingBean(name = ["okapiMysqlLiquibase"])
-        fun okapiMysqlLiquibase(dataSource: DataSource): SpringLiquibase = SpringLiquibase().apply {
-            this.dataSource = dataSource
+        fun okapiMysqlLiquibase(): SpringLiquibase = SpringLiquibase().apply {
+            dataSource = resolveDataSource(dataSources, okapiProperties)
             changeLog = "classpath:com/softwaremill/okapi/db/mysql/changelog.xml"
+        }
+    }
+
+    companion object {
+        internal fun resolveDataSource(dataSources: Map<String, DataSource>, okapiProperties: OkapiProperties): DataSource {
+            val qualifier = okapiProperties.datasourceQualifier
+                ?: return dataSources.values.first()
+            return dataSources[qualifier]
+                ?: error(
+                    "okapi.datasource-qualifier='$qualifier' — no DataSource bean named '$qualifier' found. " +
+                        "Available: ${dataSources.keys}",
+                )
         }
     }
 }
