@@ -9,8 +9,10 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeSameInstanceAs
+import org.springframework.beans.factory.support.BeanDefinitionBuilder
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import org.springframework.context.support.GenericApplicationContext
 import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import java.time.Instant
 import javax.sql.DataSource
@@ -36,12 +38,18 @@ class DataSourceQualifierAutoConfigurationTest : FunSpec({
         val primaryDs = SimpleDriverDataSource()
         val outboxDs = SimpleDriverDataSource()
         baseRunner()
-            .withBean("primaryDs", DataSource::class.java, { primaryDs })
+            .withInitializer { context ->
+                val bd = BeanDefinitionBuilder.genericBeanDefinition(DataSource::class.java) { primaryDs }
+                    .beanDefinition
+                bd.isPrimary = true
+                (context as GenericApplicationContext).registerBeanDefinition("primaryDs", bd)
+            }
             .withBean("outboxDs", DataSource::class.java, { outboxDs })
             .withPropertyValues("okapi.datasource-qualifier=outboxDs")
             .run { ctx ->
                 val resolved = OutboxAutoConfiguration.resolveDataSource(
                     ctx.getBeansOfType(DataSource::class.java),
+                    primaryDs,
                     ctx.getBean(OkapiProperties::class.java),
                 )
                 resolved shouldBeSameInstanceAs outboxDs
@@ -59,13 +67,24 @@ class DataSourceQualifierAutoConfigurationTest : FunSpec({
             }
     }
 
-    test("no qualifier set, multiple datasources — uses first (primary) datasource") {
+    test("no qualifier set, multiple datasources — uses primary datasource") {
+        val primaryDs = SimpleDriverDataSource()
+        val secondaryDs = SimpleDriverDataSource()
         baseRunner()
-            .withBean("ds1", DataSource::class.java, { SimpleDriverDataSource() })
-            .withBean("ds2", DataSource::class.java, { SimpleDriverDataSource() })
+            .withInitializer { context ->
+                val bd = BeanDefinitionBuilder.genericBeanDefinition(DataSource::class.java) { primaryDs }
+                    .beanDefinition
+                bd.isPrimary = true
+                (context as GenericApplicationContext).registerBeanDefinition("primaryDs", bd)
+            }
+            .withBean("secondaryDs", DataSource::class.java, { secondaryDs })
             .run { ctx ->
-                val publisher = ctx.getBean(SpringOutboxPublisher::class.java)
-                publisher.shouldNotBeNull()
+                val resolved = OutboxAutoConfiguration.resolveDataSource(
+                    ctx.getBeansOfType(DataSource::class.java),
+                    ctx.getBean(DataSource::class.java),
+                    ctx.getBean(OkapiProperties::class.java),
+                )
+                resolved shouldBeSameInstanceAs primaryDs
             }
     }
 })

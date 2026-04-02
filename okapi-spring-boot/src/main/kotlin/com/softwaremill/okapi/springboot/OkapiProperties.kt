@@ -7,4 +7,10 @@ import org.springframework.validation.annotation.Validated
 @Validated
 data class OkapiProperties(
     val datasourceQualifier: String? = null,
-)
+) {
+    init {
+        require(datasourceQualifier == null || datasourceQualifier.isNotBlank()) {
+            "okapi.datasource-qualifier must not be blank. Set it to the bean name of the outbox DataSource, or remove the property."
+        }
+    }
+}

@@ -51,9 +51,10 @@ import javax.sql.DataSource
 @EnableConfigurationProperties(OkapiProperties::class, OutboxPurgerProperties::class, OutboxProcessorProperties::class)
 class OutboxAutoConfiguration(
     private val dataSources: Map<String, DataSource>,
+    private val primaryDataSource: DataSource,
     private val okapiProperties: OkapiProperties,
 ) {
-    private fun resolveDataSource(): DataSource = resolveDataSource(dataSources, okapiProperties)
+    private fun resolveDataSource(): DataSource = resolveDataSource(dataSources, primaryDataSource, okapiProperties)
 
     @Bean
     @ConditionalOnMissingBean
@@ -139,6 +140,7 @@ class OutboxAutoConfiguration(
     @ConditionalOnClass(PostgresOutboxStore::class)
     class PostgresStoreConfiguration(
         private val dataSources: Map<String, DataSource>,
+        private val primaryDataSource: DataSource,
         private val okapiProperties: OkapiProperties,
     ) {
         @Bean
@@ -151,7 +153,7 @@ class OutboxAutoConfiguration(
         @ConditionalOnBean(value = [DataSource::class, PostgresOutboxStore::class])
         @ConditionalOnMissingBean(name = ["okapiPostgresLiquibase"])
         fun okapiPostgresLiquibase(): SpringLiquibase = SpringLiquibase().apply {
-            dataSource = resolveDataSource(dataSources, okapiProperties)
+            dataSource = resolveDataSource(dataSources, primaryDataSource, okapiProperties)
             changeLog = "classpath:com/softwaremill/okapi/db/changelog.xml"
         }
     }
@@ -161,6 +163,7 @@ class OutboxAutoConfiguration(
     @ConditionalOnClass(MysqlOutboxStore::class)
     class MysqlStoreConfiguration(
         private val dataSources: Map<String, DataSource>,
+        private val primaryDataSource: DataSource,
         private val okapiProperties: OkapiProperties,
     ) {
         @Bean
@@ -173,15 +176,19 @@ class OutboxAutoConfiguration(
         @ConditionalOnBean(value = [DataSource::class, MysqlOutboxStore::class])
         @ConditionalOnMissingBean(name = ["okapiMysqlLiquibase"])
         fun okapiMysqlLiquibase(): SpringLiquibase = SpringLiquibase().apply {
-            dataSource = resolveDataSource(dataSources, okapiProperties)
+            dataSource = resolveDataSource(dataSources, primaryDataSource, okapiProperties)
             changeLog = "classpath:com/softwaremill/okapi/db/mysql/changelog.xml"
         }
     }
 
     companion object {
-        internal fun resolveDataSource(dataSources: Map<String, DataSource>, okapiProperties: OkapiProperties): DataSource {
+        internal fun resolveDataSource(
+            dataSources: Map<String, DataSource>,
+            primaryDataSource: DataSource,
+            okapiProperties: OkapiProperties,
+        ): DataSource {
             val qualifier = okapiProperties.datasourceQualifier
-                ?: return dataSources.values.first()
+                ?: return primaryDataSource
             return dataSources[qualifier]
                 ?: error(
                     "okapi.datasource-qualifier='$qualifier' — no DataSource bean named '$qualifier' found. " +

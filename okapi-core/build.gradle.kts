@@ -11,6 +11,6 @@ dependencies {
     testImplementation(libs.kotestRunnerJunit5)
     testImplementation(libs.kotestAssertionsCore)
     testImplementation(libs.exposedJdbc)
-    testImplementation("com.h2database:h2:2.3.232")
+    testImplementation(libs.h2)
     testRuntimeOnly(libs.slf4jSimple)
 }
