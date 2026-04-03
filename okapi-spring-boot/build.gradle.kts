@@ -3,6 +3,8 @@ plugins {
     id("buildsrc.convention.publish")
 }
 
+description = "Spring Boot autoconfiguration for Okapi"
+
 dependencies {
     implementation(project(":okapi-core"))
 

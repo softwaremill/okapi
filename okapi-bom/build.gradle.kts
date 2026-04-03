@@ -3,6 +3,8 @@ plugins {
     id("buildsrc.convention.publish")
 }
 
+description = "BOM for consistent versioning of Okapi modules"
+
 dependencies {
     constraints {
         api(project(":okapi-core"))

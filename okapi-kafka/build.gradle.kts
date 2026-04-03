@@ -3,6 +3,8 @@ plugins {
     id("buildsrc.convention.publish")
 }
 
+description = "Apache Kafka message delivery"
+
 dependencies {
     implementation(project(":okapi-core"))
     implementation(libs.jacksonModuleKotlin)

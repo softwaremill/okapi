@@ -3,6 +3,8 @@ plugins {
     id("buildsrc.convention.publish")
 }
 
+description = "HTTP message delivery for outbox entries"
+
 dependencies {
     implementation(project(":okapi-core"))
     implementation(libs.jacksonModuleKotlin)

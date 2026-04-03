@@ -3,6 +3,8 @@ plugins {
     id("buildsrc.convention.publish")
 }
 
+description = "PostgreSQL outbox store using Exposed"
+
 dependencies {
     implementation(project(":okapi-core"))
 

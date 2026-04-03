@@ -10,7 +10,7 @@ mavenPublishing {
 
     pom {
         name.set(project.name)
-        description.set("Transactional outbox pattern for Kotlin/JVM")
+        description.set(provider { project.description ?: "Transactional outbox pattern for Kotlin/JVM" })
         url.set("https://github.com/softwaremill/okapi")
         licenses {
             license {
