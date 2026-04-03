@@ -1,5 +1,6 @@
 plugins {
     `java-platform`
+    id("buildsrc.convention.publish")
 }
 
 dependencies {
