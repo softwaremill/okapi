@@ -10,6 +10,7 @@ import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.RetryPolicy
 import com.softwaremill.okapi.test.support.RecordingMessageDeliverer
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.maps.shouldContain
@@ -102,12 +103,16 @@ fun FunSpec.concurrentClaimTests(
 
         // Assert disjoint
         val intersection = idsA.toSet().intersect(idsB.toSet())
-        intersection shouldHaveSize 0
+        withClue("Sets should be disjoint (overlap: $intersection, A claimed ${idsA.size}, B claimed ${idsB.size})") {
+            intersection shouldHaveSize 0
+        }
 
         // Together they cover all 20 entries
         val union = (idsA + idsB).toSet()
-        union shouldHaveSize 20
-        union shouldBe allIds.toSet()
+        withClue("Union of A (${idsA.size}) and B (${idsB.size}) should cover all ${allIds.size} entries") {
+            union shouldHaveSize 20
+            union shouldBe allIds.toSet()
+        }
 
         // Let Thread A commit and finish
         canCommit.countDown()
@@ -146,11 +151,15 @@ fun FunSpec.concurrentClaimTests(
 
         // Verify no amplification
         recorder.assertNoAmplification()
-        recorder.deliveryCount() shouldBe 50
+        withClue("Expected exactly 50 unique deliveries from 5 concurrent processors, got ${recorder.deliveryCount()}") {
+            recorder.deliveryCount() shouldBe 50
+        }
 
         // Verify DB state
         val counts = transaction { store.countByStatuses() }
-        counts shouldContain (OutboxStatus.DELIVERED to 50L)
-        counts shouldContain (OutboxStatus.PENDING to 0L)
+        withClue("DB state after concurrent processing: $counts") {
+            counts shouldContain (OutboxStatus.DELIVERED to 50L)
+            counts shouldContain (OutboxStatus.PENDING to 0L)
+        }
     }
 }

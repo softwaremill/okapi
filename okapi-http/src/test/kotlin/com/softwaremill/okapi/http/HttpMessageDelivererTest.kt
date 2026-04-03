@@ -11,9 +11,19 @@ import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxMessage
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.datatest.WithDataTestName
+import io.kotest.datatest.withTests
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import java.time.Instant
+import kotlin.reflect.KClass
+
+private data class StatusCodeCase(
+    val statusCode: Int,
+    val expectedType: KClass<out DeliveryResult>,
+) : WithDataTestName {
+    override fun dataTestName() = "$statusCode -> ${expectedType.simpleName}"
+}
 
 class HttpMessageDelivererTest : FunSpec({
     val wiremock = WireMockServer(wireMockConfig().dynamicPort())
@@ -33,29 +43,17 @@ class HttpMessageDelivererTest : FunSpec({
         return OutboxEntry.createPending(OutboxMessage("test", """{"k":"v"}"""), info, Instant.now())
     }
 
-    test("200 → Success") {
-        wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(200)))
-        deliverer.deliver(entry()) shouldBe DeliveryResult.Success
-    }
-
-    test("500 → RetriableFailure") {
-        wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(500)))
-        deliverer.deliver(entry()).shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
-    }
-
-    test("429 → RetriableFailure") {
-        wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(429)))
-        deliverer.deliver(entry()).shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
-    }
-
-    test("408 → RetriableFailure") {
-        wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(408)))
-        deliverer.deliver(entry()).shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
-    }
-
-    test("400 → PermanentFailure") {
-        wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(400)))
-        deliverer.deliver(entry()).shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
+    context("status code mapping") {
+        withTests(
+            StatusCodeCase(200, DeliveryResult.Success::class),
+            StatusCodeCase(500, DeliveryResult.RetriableFailure::class),
+            StatusCodeCase(429, DeliveryResult.RetriableFailure::class),
+            StatusCodeCase(408, DeliveryResult.RetriableFailure::class),
+            StatusCodeCase(400, DeliveryResult.PermanentFailure::class),
+        ) { (statusCode, expectedType) ->
+            wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(statusCode)))
+            deliverer.deliver(entry())::class shouldBe expectedType
+        }
     }
 
     test("custom retriable codes") {
@@ -85,7 +83,7 @@ class HttpMessageDelivererTest : FunSpec({
         wiremock.verify(postRequestedFor(urlEqualTo("/test")).withHeader("Content-Type", equalTo("text/plain")))
     }
 
-    test("connection error → RetriableFailure") {
+    test("connection error -> RetriableFailure") {
         wiremock.stubFor(
             post(urlEqualTo("/test"))
                 .willReturn(aResponse().withFault(com.github.tomakehurst.wiremock.http.Fault.CONNECTION_RESET_BY_PEER)),
