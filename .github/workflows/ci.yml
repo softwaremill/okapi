@@ -117,7 +117,7 @@ jobs:
         run: |
           DECODED_KEY=$(echo "$PGP_SECRET_BASE64" | base64 -d)
           while IFS= read -r line; do
-            echo "::add-mask::$line"
+            [ -n "$line" ] && echo "::add-mask::$line"
           done <<< "$DECODED_KEY"
           export ORG_GRADLE_PROJECT_signingInMemoryKey="$DECODED_KEY"
           ./gradlew publishAndReleaseToMavenCentral
