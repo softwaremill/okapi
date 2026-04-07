@@ -1,6 +1,9 @@
 plugins {
     id("buildsrc.convention.kotlin-jvm")
+    id("buildsrc.convention.publish")
 }
+
+description = "PostgreSQL outbox store using Exposed"
 
 dependencies {
     implementation(project(":okapi-core"))

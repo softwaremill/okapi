@@ -1,6 +1,9 @@
 plugins {
     id("buildsrc.convention.kotlin-jvm")
+    id("buildsrc.convention.publish")
 }
+
+description = "Spring Boot autoconfiguration for Okapi"
 
 dependencies {
     implementation(project(":okapi-core"))

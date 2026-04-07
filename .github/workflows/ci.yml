@@ -4,6 +4,7 @@ on:
     branches: [ main ]
   push:
     branches: [ main ]
+    tags: [ v* ]
 
 permissions:
   contents: write       # auto-merge requirement
@@ -42,6 +43,14 @@ jobs:
         with:
           name: test-results-java-${{ matrix.java }}
           path: '**/build/test-results/test/TEST-*.xml'
+
+      - name: Prepare release notes
+        if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+        uses: release-drafter/release-drafter@v7
+        with:
+          config-name: release-drafter.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   spring-compat:
     name: "Spring Boot ${{ matrix.spring-boot }}"
@@ -85,6 +94,48 @@ jobs:
 
       - name: Test okapi-kafka
         run: ./gradlew :okapi-kafka:test -PkafkaVersion=${{ matrix.kafka }}
+
+  publish:
+    name: Publish to Maven Central
+    needs: [build, spring-compat, kafka-compat]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' && (startsWith(github.ref, 'refs/tags/v'))
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+
+      - name: Publish to Maven Central
+        run: ./gradlew publishAndReleaseToMavenCentral
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.SONATYPE_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.SONATYPE_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.PGP_SECRET }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.PGP_PASSPHRASE }}
+
+      - name: Extract version from tag
+        run: |
+          version=${GITHUB_REF/refs\/tags\/v/}
+          echo "VERSION=$version" >> $GITHUB_ENV
+
+      - name: Publish release notes
+        uses: release-drafter/release-drafter@v7
+        with:
+          config-name: release-drafter.yml
+          publish: true
+          name: "v${{ env.VERSION }}"
+          tag: "v${{ env.VERSION }}"
+          version: "v${{ env.VERSION }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   auto-merge-dependabot:
     # only for PRs by dependabot[bot]

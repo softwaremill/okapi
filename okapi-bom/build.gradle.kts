@@ -1,6 +1,9 @@
 plugins {
     `java-platform`
+    id("buildsrc.convention.publish")
 }
+
+description = "BOM for consistent versioning of Okapi modules"
 
 dependencies {
     constraints {

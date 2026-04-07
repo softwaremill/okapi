@@ -11,6 +11,7 @@ mysql = "9.6.0"
 kafkaClients = "4.2.0"
 spring = "7.0.6"
 springBoot = "4.0.5"
+vanniktechPublish = "0.36.0"
 wiremock = "3.13.2"
 slf4j = "2.0.17"
 assertj = "3.27.7"
@@ -18,6 +19,7 @@ assertj = "3.27.7"
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
 ktlintGradlePlugin = { module = "org.jlleitschuh.gradle:ktlint-gradle", version.ref = "ktlint" }
+vanniktechPublishPlugin = { module = "com.vanniktech:gradle-maven-publish-plugin", version.ref = "vanniktechPublish" }
 kotestRunnerJunit5 = { module = "io.kotest:kotest-runner-junit5", version.ref = "kotest" }
 kotestAssertionsCore = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest" }
 exposedCore = { module = "org.jetbrains.exposed:exposed-core", version.ref = "exposed" }
