@@ -113,12 +113,21 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
 
+      - name: Decode PGP key
+        run: |
+          echo "$PGP_SECRET_BASE64" | base64 -d > /tmp/secring.asc
+          echo "ORG_GRADLE_PROJECT_signingInMemoryKey<<EOF" >> $GITHUB_ENV
+          cat /tmp/secring.asc >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          rm /tmp/secring.asc
+        env:
+          PGP_SECRET_BASE64: ${{ secrets.PGP_SECRET }}
+
       - name: Publish to Maven Central
         run: ./gradlew publishAndReleaseToMavenCentral
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.SONATYPE_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.SONATYPE_PASSWORD }}
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.PGP_SECRET }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.PGP_PASSPHRASE }}
 
       - name: Extract version from tag
