@@ -275,4 +275,39 @@ class OutboxProcessorTest :
                 }
             }
         }
+
+        given("processNext() with a listener — RetriableFailure exhausts retries") {
+            val events = mutableListOf<OutboxProcessingEvent>()
+
+            val listener = object : OutboxProcessorListener {
+                override fun onEntryProcessed(event: OutboxProcessingEvent) {
+                    events += event
+                }
+            }
+
+            `when`("retries are exhausted (maxRetries=0)") {
+                pendingEntries = listOf(stubEntry())
+                val entryProcessor = OutboxEntryProcessor(
+                    deliverer = stubDeliverer(DeliveryResult.RetriableFailure("still failing")),
+                    retryPolicy = RetryPolicy(maxRetries = 0),
+                    clock = fixedClock,
+                )
+                OutboxProcessor(store, entryProcessor, listener = listener, clock = fixedClock)
+                    .processNext()
+                val capturedEvents = events.toList()
+                val capturedProcessed = processedEntries.toList()
+
+                then("entry is marked FAILED") {
+                    capturedProcessed.first().status shouldBe OutboxStatus.FAILED
+                }
+                then("listener receives Failed event, not Retried") {
+                    capturedEvents.size shouldBe 1
+                    capturedEvents.first() shouldBe OutboxProcessingEvent.Failed(
+                        entry = capturedProcessed.first(),
+                        duration = Duration.ZERO,
+                        error = "still failing",
+                    )
+                }
+            }
+        }
     })

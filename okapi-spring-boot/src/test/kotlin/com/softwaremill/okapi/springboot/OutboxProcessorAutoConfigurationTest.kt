@@ -5,6 +5,8 @@ import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.micrometer.MicrometerOutboxListener
+import com.softwaremill.okapi.micrometer.MicrometerOutboxMetrics
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -84,6 +86,17 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             scheduler.stop { callbackInvoked = true }
             callbackInvoked shouldBe true
         }
+    }
+
+    test("listener is wired into processor when MeterRegistry is present") {
+        contextRunner
+            .withBean(io.micrometer.core.instrument.MeterRegistry::class.java, {
+                io.micrometer.core.instrument.simple.SimpleMeterRegistry()
+            })
+            .run { ctx ->
+                ctx.getBean(MicrometerOutboxListener::class.java).shouldNotBeNull()
+                ctx.getBean(MicrometerOutboxMetrics::class.java).shouldNotBeNull()
+            }
     }
 })
 
