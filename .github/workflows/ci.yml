@@ -113,19 +113,16 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
 
-      - name: Decode PGP key
+      - name: Publish to Maven Central
         run: |
-          echo "$PGP_SECRET_BASE64" | base64 -d > /tmp/secring.asc
-          echo "ORG_GRADLE_PROJECT_signingInMemoryKey<<EOF" >> $GITHUB_ENV
-          cat /tmp/secring.asc >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-          rm /tmp/secring.asc
+          DECODED_KEY=$(echo "$PGP_SECRET_BASE64" | base64 -d)
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::add-mask::$line"
+          done <<< "$DECODED_KEY"
+          export ORG_GRADLE_PROJECT_signingInMemoryKey="$DECODED_KEY"
+          ./gradlew publishAndReleaseToMavenCentral
         env:
           PGP_SECRET_BASE64: ${{ secrets.PGP_SECRET }}
-
-      - name: Publish to Maven Central
-        run: ./gradlew publishAndReleaseToMavenCentral
-        env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.SONATYPE_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.SONATYPE_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.PGP_PASSPHRASE }}
