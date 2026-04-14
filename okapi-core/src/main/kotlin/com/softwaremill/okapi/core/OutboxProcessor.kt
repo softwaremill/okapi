@@ -24,9 +24,10 @@ class OutboxProcessor(
         store.claimPending(limit).forEach { entry ->
             val entryStart = clock.instant()
             val updated = entryProcessor.process(entry)
+            val deliveryDuration = Duration.between(entryStart, clock.instant())
             store.updateAfterProcessing(updated)
             count++
-            notifyEntry(updated, Duration.between(entryStart, clock.instant()))
+            notifyEntry(updated, deliveryDuration)
         }
         notifyBatch(count, Duration.between(batchStart, clock.instant()))
     }

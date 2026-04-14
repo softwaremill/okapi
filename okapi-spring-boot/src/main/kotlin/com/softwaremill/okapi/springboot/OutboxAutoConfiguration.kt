@@ -95,11 +95,13 @@ class OutboxAutoConfiguration(
         outboxStore: OutboxStore,
         outboxEntryProcessor: OutboxEntryProcessor,
         listener: ObjectProvider<OutboxProcessorListener>,
+        clock: ObjectProvider<Clock>,
     ): OutboxProcessor {
         return OutboxProcessor(
             store = outboxStore,
             entryProcessor = outboxEntryProcessor,
             listener = listener.getIfAvailable(),
+            clock = clock.getIfAvailable { Clock.systemUTC() },
         )
     }
 
