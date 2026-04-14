@@ -25,13 +25,6 @@ dependencies {
     testImplementation(libs.postgresql)
     testImplementation(libs.mysql)
 
-    // Exposed ORM (for transaction blocks and DB queries in tests)
-    testImplementation(libs.exposedCore)
-    testImplementation(libs.exposedJdbc)
-    testImplementation(libs.exposedJson)
-    testImplementation(libs.exposedJavaTime)
-    testImplementation(libs.exposedSpringTransaction)
-
     // Liquibase (schema migrations in tests)
     testImplementation(libs.liquibaseCore)
 

@@ -10,6 +10,7 @@ dependencies {
 
     compileOnly(libs.springContext)
     compileOnly(libs.springTx)
+    implementation(libs.springJdbc)
     compileOnly(libs.springBootAutoconfigure)
 
     // Validation annotations for @ConfigurationProperties classes
@@ -33,10 +34,6 @@ dependencies {
     testImplementation(project(":okapi-postgres"))
     testImplementation(project(":okapi-mysql"))
     testImplementation(project(":okapi-http"))
-    testImplementation(libs.exposedCore)
-    testImplementation(libs.exposedJdbc)
-    testImplementation(libs.exposedJson)
-    testImplementation(libs.exposedJavaTime)
     testImplementation(libs.liquibaseCore)
     testImplementation(libs.testcontainersPostgresql)
     testImplementation(libs.postgresql)

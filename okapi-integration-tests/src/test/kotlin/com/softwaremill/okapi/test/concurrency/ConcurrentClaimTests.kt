@@ -9,13 +9,13 @@ import com.softwaremill.okapi.core.OutboxProcessor
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.RetryPolicy
+import com.softwaremill.okapi.test.support.JdbcConnectionProvider
 import com.softwaremill.okapi.test.support.RecordingMessageDeliverer
 import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.maps.shouldContain
 import io.kotest.matchers.shouldBe
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import java.sql.Connection
 import java.time.Clock
 import java.time.Instant
@@ -41,15 +41,18 @@ private fun createTestEntry(index: Int, now: Instant = Instant.parse("2024-01-01
 
 fun FunSpec.concurrentClaimTests(
     dbName: String,
+    jdbcProvider: () -> JdbcConnectionProvider,
     storeFactory: () -> OutboxStore,
     startDb: () -> Unit,
     stopDb: () -> Unit,
     truncate: () -> Unit,
 ) {
     lateinit var store: OutboxStore
+    lateinit var jdbc: JdbcConnectionProvider
 
     beforeSpec {
         startDb()
+        jdbc = jdbcProvider()
         store = storeFactory()
     }
 
@@ -63,7 +66,7 @@ fun FunSpec.concurrentClaimTests(
 
     test("[$dbName] concurrent claimPending with held locks produces disjoint sets") {
         // Insert 20 entries
-        val allIds = transaction {
+        val allIds = jdbc.withTransaction {
             (0 until 20).map { i ->
                 val entry = createTestEntry(i)
                 store.persist(entry)
@@ -80,7 +83,7 @@ fun FunSpec.concurrentClaimTests(
         // next-key locks cause SKIP LOCKED to skip more rows than actually locked.
         val threadA = Thread.ofVirtual().name("processor-A").start {
             try {
-                transaction(transactionIsolation = Connection.TRANSACTION_READ_COMMITTED) {
+                jdbc.withTransaction(transactionIsolation = Connection.TRANSACTION_READ_COMMITTED) {
                     val claimed = store.claimPending(10)
                     claimedByA.complete(claimed.map { it.outboxId })
                     lockAcquired.countDown()
@@ -97,7 +100,7 @@ fun FunSpec.concurrentClaimTests(
 
         // Main thread: claim remaining entries (SKIP LOCKED should skip A's locked rows)
         val idsA = claimedByA.get(10, TimeUnit.SECONDS)
-        val idsB = transaction(transactionIsolation = Connection.TRANSACTION_READ_COMMITTED) {
+        val idsB = jdbc.withTransaction(transactionIsolation = Connection.TRANSACTION_READ_COMMITTED) {
             store.claimPending(10)
         }.map { it.outboxId }
 
@@ -123,7 +126,7 @@ fun FunSpec.concurrentClaimTests(
         val fixedClock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC)
 
         // Insert 50 entries
-        transaction {
+        jdbc.withTransaction {
             (0 until 50).forEach { i -> store.persist(createTestEntry(i)) }
         }
 
@@ -137,7 +140,7 @@ fun FunSpec.concurrentClaimTests(
             CompletableFuture.supplyAsync(
                 {
                     barrier.await(10, TimeUnit.SECONDS)
-                    transaction(transactionIsolation = Connection.TRANSACTION_READ_COMMITTED) {
+                    jdbc.withTransaction(transactionIsolation = Connection.TRANSACTION_READ_COMMITTED) {
                         OutboxProcessor(store, entryProcessor).processNext(limit = 50)
                     }
                 },
@@ -156,7 +159,7 @@ fun FunSpec.concurrentClaimTests(
         }
 
         // Verify DB state
-        val counts = transaction { store.countByStatuses() }
+        val counts = jdbc.withTransaction { store.countByStatuses() }
         withClue("DB state after concurrent processing: $counts") {
             counts shouldContain (OutboxStatus.DELIVERED to 50L)
             counts shouldContain (OutboxStatus.PENDING to 0L)

@@ -126,10 +126,12 @@ class OutboxAutoConfiguration(
     fun outboxPurgerScheduler(
         props: OutboxPurgerProperties,
         outboxStore: OutboxStore,
+        transactionManager: ObjectProvider<PlatformTransactionManager>,
         clock: ObjectProvider<Clock>,
     ): OutboxPurgerScheduler {
         return OutboxPurgerScheduler(
             outboxStore = outboxStore,
+            transactionTemplate = transactionManager.getIfAvailable()?.let { TransactionTemplate(it) },
             config = OutboxPurgerConfig(
                 retention = props.retention,
                 interval = props.interval,
@@ -153,8 +155,10 @@ class OutboxAutoConfiguration(
     ) {
         @Bean
         @ConditionalOnMissingBean(OutboxStore::class)
-        fun outboxStore(clock: ObjectProvider<Clock>): PostgresOutboxStore =
-            PostgresOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
+        fun outboxStore(clock: ObjectProvider<Clock>): PostgresOutboxStore = PostgresOutboxStore(
+            connectionProvider = SpringConnectionProvider(resolveDataSource(dataSources, primaryDataSource, okapiProperties)),
+            clock = clock.getIfAvailable { Clock.systemUTC() },
+        )
 
         @Bean("okapiPostgresLiquibase")
         @ConditionalOnClass(SpringLiquibase::class)
@@ -176,8 +180,10 @@ class OutboxAutoConfiguration(
     ) {
         @Bean
         @ConditionalOnMissingBean(OutboxStore::class)
-        fun outboxStore(clock: ObjectProvider<Clock>): MysqlOutboxStore =
-            MysqlOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
+        fun outboxStore(clock: ObjectProvider<Clock>): MysqlOutboxStore = MysqlOutboxStore(
+            connectionProvider = SpringConnectionProvider(resolveDataSource(dataSources, primaryDataSource, okapiProperties)),
+            clock = clock.getIfAvailable { Clock.systemUTC() },
+        )
 
         @Bean("okapiMysqlLiquibase")
         @ConditionalOnClass(SpringLiquibase::class)

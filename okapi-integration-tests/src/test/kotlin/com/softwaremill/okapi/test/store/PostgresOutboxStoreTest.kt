@@ -12,7 +12,13 @@ class PostgresOutboxStoreTest : FunSpec({
 
     outboxStoreContractTests(
         dbName = "postgres",
-        storeFactory = { PostgresOutboxStore(Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC)) },
+        storeFactory = {
+            PostgresOutboxStore(
+                connectionProvider = db.jdbc,
+                clock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC),
+            )
+        },
+        jdbcProvider = { db.jdbc },
         startDb = { db.start() },
         stopDb = { db.stop() },
         truncate = { db.truncate() },

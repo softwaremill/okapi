@@ -6,6 +6,8 @@ import com.github.tomakehurst.wiremock.client.WireMock.post
 import com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig
+import com.mysql.cj.jdbc.MysqlDataSource
+import com.softwaremill.okapi.core.ConnectionProvider
 import com.softwaremill.okapi.core.OutboxEntryProcessor
 import com.softwaremill.okapi.core.OutboxMessage
 import com.softwaremill.okapi.core.OutboxProcessor
@@ -22,8 +24,6 @@ import liquibase.Liquibase
 import liquibase.database.DatabaseFactory
 import liquibase.database.jvm.JdbcConnection
 import liquibase.resource.ClassLoaderResourceAccessor
-import org.jetbrains.exposed.v1.jdbc.Database
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.testcontainers.containers.MySQLContainer
 import java.sql.DriverManager
 import java.time.Clock
@@ -36,17 +36,18 @@ class OutboxMysqlEndToEndTest :
         lateinit var store: MysqlOutboxStore
         lateinit var publisher: OutboxPublisher
         lateinit var processor: OutboxProcessor
+        lateinit var jdbc: TestJdbcConnectionProvider
 
         beforeSpec {
             mysql.start()
             wiremock.start()
 
-            Database.connect(
-                url = mysql.jdbcUrl,
-                driver = mysql.driverClassName,
-                user = mysql.username,
-                password = mysql.password,
-            )
+            val dataSource = MysqlDataSource().apply {
+                setURL(mysql.jdbcUrl)
+                user = mysql.username
+                setPassword(mysql.password)
+            }
+            jdbc = TestJdbcConnectionProvider(dataSource)
 
             val connection = DriverManager.getConnection(mysql.jdbcUrl, mysql.username, mysql.password)
             val db = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(JdbcConnection(connection))
@@ -55,7 +56,7 @@ class OutboxMysqlEndToEndTest :
             connection.close()
 
             val clock = Clock.systemUTC()
-            store = MysqlOutboxStore(clock)
+            store = MysqlOutboxStore(jdbc, clock)
             publisher = OutboxPublisher(store, clock)
 
             val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
@@ -71,7 +72,7 @@ class OutboxMysqlEndToEndTest :
 
         beforeEach {
             wiremock.resetAll()
-            transaction { exec("DELETE FROM outbox") }
+            jdbc.withTransaction { jdbc.getConnection().createStatement().use { it.execute("DELETE FROM outbox") } }
         }
 
         given("a message published within a transaction") {
@@ -81,7 +82,7 @@ class OutboxMysqlEndToEndTest :
                         .willReturn(aResponse().withStatus(200)),
                 )
 
-                transaction {
+                jdbc.withTransaction {
                     publisher.publish(
                         OutboxMessage("order.created", """{"orderId":"abc-123"}"""),
                         httpDeliveryInfo {
@@ -91,10 +92,10 @@ class OutboxMysqlEndToEndTest :
                     )
                 }
 
-                transaction { processor.processNext() }
+                jdbc.withTransaction { processor.processNext() }
 
                 val requests = wiremock.findAll(postRequestedFor(urlEqualTo("/api/notify")))
-                val counts = transaction { store.countByStatuses() }
+                val counts = jdbc.withTransaction { store.countByStatuses() }
 
                 then("WireMock receives exactly one POST request") {
                     requests.size shouldBe 1
@@ -113,7 +114,7 @@ class OutboxMysqlEndToEndTest :
                         .willReturn(aResponse().withStatus(500).withBody("Internal Server Error")),
                 )
 
-                transaction {
+                jdbc.withTransaction {
                     publisher.publish(
                         OutboxMessage("order.created", """{"orderId":"xyz-456"}"""),
                         httpDeliveryInfo {
@@ -123,9 +124,9 @@ class OutboxMysqlEndToEndTest :
                     )
                 }
 
-                transaction { processor.processNext() }
+                jdbc.withTransaction { processor.processNext() }
 
-                val counts = transaction { store.countByStatuses() }
+                val counts = jdbc.withTransaction { store.countByStatuses() }
 
                 then("entry stays PENDING (retriable failure, retries remaining)") {
                     counts[OutboxStatus.PENDING] shouldBe 1L
@@ -141,7 +142,7 @@ class OutboxMysqlEndToEndTest :
                         .willReturn(aResponse().withStatus(400).withBody("Bad Request")),
                 )
 
-                transaction {
+                jdbc.withTransaction {
                     publisher.publish(
                         OutboxMessage("order.created", """{"orderId":"err-789"}"""),
                         httpDeliveryInfo {
@@ -151,9 +152,9 @@ class OutboxMysqlEndToEndTest :
                     )
                 }
 
-                transaction { processor.processNext() }
+                jdbc.withTransaction { processor.processNext() }
 
-                val counts = transaction { store.countByStatuses() }
+                val counts = jdbc.withTransaction { store.countByStatuses() }
 
                 then("entry is immediately FAILED (permanent failure)") {
                     counts[OutboxStatus.FAILED] shouldBe 1L
@@ -174,7 +175,7 @@ class OutboxMysqlEndToEndTest :
                         ),
                 )
 
-                transaction {
+                jdbc.withTransaction {
                     publisher.publish(
                         OutboxMessage("order.created", """{"orderId":"net-000"}"""),
                         httpDeliveryInfo {
@@ -184,9 +185,9 @@ class OutboxMysqlEndToEndTest :
                     )
                 }
 
-                transaction { processor.processNext() }
+                jdbc.withTransaction { processor.processNext() }
 
-                val counts = transaction { store.countByStatuses() }
+                val counts = jdbc.withTransaction { store.countByStatuses() }
 
                 then("entry stays PENDING (retriable network failure)") {
                     counts[OutboxStatus.PENDING] shouldBe 1L
@@ -194,3 +195,27 @@ class OutboxMysqlEndToEndTest :
             }
         }
     })
+
+private class TestJdbcConnectionProvider(private val dataSource: javax.sql.DataSource) : ConnectionProvider {
+    private val threadLocalConnection = ThreadLocal<java.sql.Connection>()
+
+    override fun getConnection(): java.sql.Connection = threadLocalConnection.get()
+        ?: throw IllegalStateException("No connection bound to current thread. Use withTransaction { } in tests.")
+
+    fun <T> withTransaction(block: () -> T): T {
+        val conn = dataSource.connection
+        conn.autoCommit = false
+        threadLocalConnection.set(conn)
+        return try {
+            val result = block()
+            conn.commit()
+            result
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            threadLocalConnection.remove()
+            conn.close()
+        }
+    }
+}

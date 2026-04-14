@@ -21,7 +21,6 @@ import com.softwaremill.okapi.postgres.PostgresOutboxStore
 import com.softwaremill.okapi.test.support.PostgresTestSupport
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.maps.shouldContain
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import java.time.Clock
 
 class HttpEndToEndTest : FunSpec({
@@ -45,7 +44,7 @@ class HttpEndToEndTest : FunSpec({
 
     fun buildPipeline(maxRetries: Int = 3): Triple<OutboxPublisher, OutboxProcessor, PostgresOutboxStore> {
         val clock = Clock.systemUTC()
-        val store = PostgresOutboxStore(clock)
+        val store = PostgresOutboxStore(db.jdbc, clock)
         val publisher = OutboxPublisher(store, clock)
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
         val entryProcessor = OutboxEntryProcessor(
@@ -70,15 +69,15 @@ class HttpEndToEndTest : FunSpec({
                 .willReturn(aResponse().withStatus(200)),
         )
 
-        transaction { publisher.publish(OutboxMessage("order.created", payload), deliveryInfo()) }
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", payload), deliveryInfo()) }
+        db.jdbc.withTransaction { processor.processNext() }
 
         wiremock.verify(
             postRequestedFor(urlEqualTo("/api/notify"))
                 .withRequestBody(equalTo(payload)),
         )
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = db.jdbc.withTransaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.DELIVERED to 1L)
     }
 
@@ -90,10 +89,10 @@ class HttpEndToEndTest : FunSpec({
                 .willReturn(aResponse().withStatus(500)),
         )
 
-        transaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
+        db.jdbc.withTransaction { processor.processNext() }
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = db.jdbc.withTransaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.PENDING to 1L)
         counts shouldContain (OutboxStatus.DELIVERED to 0L)
     }
@@ -106,10 +105,10 @@ class HttpEndToEndTest : FunSpec({
                 .willReturn(aResponse().withStatus(400)),
         )
 
-        transaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
+        db.jdbc.withTransaction { processor.processNext() }
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = db.jdbc.withTransaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.FAILED to 1L)
         counts shouldContain (OutboxStatus.PENDING to 0L)
     }
@@ -122,10 +121,10 @@ class HttpEndToEndTest : FunSpec({
                 .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
         )
 
-        transaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
+        db.jdbc.withTransaction { processor.processNext() }
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = db.jdbc.withTransaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.PENDING to 1L)
     }
 
@@ -133,13 +132,13 @@ class HttpEndToEndTest : FunSpec({
         val (publisher, _, store) = buildPipeline()
 
         runCatching {
-            transaction {
+            db.jdbc.withTransaction {
                 publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo())
                 error("Simulated business logic failure")
             }
         }
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = db.jdbc.withTransaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.PENDING to 0L)
     }
 
@@ -151,19 +150,19 @@ class HttpEndToEndTest : FunSpec({
                 .willReturn(aResponse().withStatus(500)),
         )
 
-        transaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
 
         // First 3 processNext calls: retries 0->1, 1->2, 2->3 — stays PENDING
         repeat(3) {
-            transaction { processor.processNext() }
-            val counts = transaction { store.countByStatuses() }
+            db.jdbc.withTransaction { processor.processNext() }
+            val counts = db.jdbc.withTransaction { store.countByStatuses() }
             counts shouldContain (OutboxStatus.PENDING to 1L)
         }
 
         // 4th processNext: retries==3, shouldRetry(3) returns false -> FAILED
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { processor.processNext() }
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = db.jdbc.withTransaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.FAILED to 1L)
         counts shouldContain (OutboxStatus.PENDING to 0L)
     }

@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class OutboxPurger(
     private val outboxStore: OutboxStore,
+    private val transactionRunner: TransactionRunner? = null,
     private val config: OutboxPurgerConfig = OutboxPurgerConfig(),
     private val clock: Clock = Clock.systemUTC(),
 ) {
@@ -58,7 +59,9 @@ class OutboxPurger(
             var totalDeleted = 0
             var batches = 0
             do {
-                val deleted = outboxStore.removeDeliveredBefore(cutoff, config.batchSize)
+                val deleted = transactionRunner?.runInTransaction {
+                    outboxStore.removeDeliveredBefore(cutoff, config.batchSize)
+                } ?: outboxStore.removeDeliveredBefore(cutoff, config.batchSize)
                 totalDeleted += deleted
                 batches++
             } while (deleted == config.batchSize && batches < MAX_BATCHES_PER_TICK)

@@ -12,7 +12,8 @@ class PostgresConcurrentClaimTest : FunSpec({
 
     concurrentClaimTests(
         dbName = "postgres",
-        storeFactory = { PostgresOutboxStore(Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC)) },
+        jdbcProvider = { db.jdbc },
+        storeFactory = { PostgresOutboxStore(db.jdbc, Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC)) },
         startDb = { db.start() },
         stopDb = { db.stop() },
         truncate = { db.truncate() },

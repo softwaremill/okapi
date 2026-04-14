@@ -4,22 +4,24 @@ import liquibase.Liquibase
 import liquibase.database.DatabaseFactory
 import liquibase.database.jvm.JdbcConnection
 import liquibase.resource.ClassLoaderResourceAccessor
-import org.jetbrains.exposed.v1.jdbc.Database
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.postgresql.ds.PGSimpleDataSource
 import org.testcontainers.containers.PostgreSQLContainer
 import java.sql.DriverManager
+import javax.sql.DataSource
 
 class PostgresTestSupport {
     val container = PostgreSQLContainer<Nothing>("postgres:16")
+    lateinit var dataSource: DataSource
+    lateinit var jdbc: JdbcConnectionProvider
 
     fun start() {
         container.start()
-        Database.connect(
-            url = container.jdbcUrl,
-            driver = container.driverClassName,
-            user = container.username,
-            password = container.password,
-        )
+        dataSource = PGSimpleDataSource().apply {
+            setURL(container.jdbcUrl)
+            user = container.username
+            password = container.password
+        }
+        jdbc = JdbcConnectionProvider(dataSource)
         runLiquibase()
     }
 
@@ -28,7 +30,9 @@ class PostgresTestSupport {
     }
 
     fun truncate() {
-        transaction { exec("TRUNCATE TABLE outbox") }
+        jdbc.withTransaction {
+            jdbc.getConnection().createStatement().use { it.execute("TRUNCATE TABLE outbox") }
+        }
     }
 
     private fun runLiquibase() {

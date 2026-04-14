@@ -15,7 +15,6 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.maps.shouldContain
 import io.kotest.matchers.shouldBe
 import org.apache.kafka.clients.producer.KafkaProducer
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import java.time.Clock
 import java.time.Duration
 import java.util.UUID
@@ -43,7 +42,7 @@ class KafkaEndToEndTest : FunSpec({
 
     test("full pipeline: publish to outbox -> processNext -> message on Kafka topic") {
         val clock = Clock.systemUTC()
-        val store = PostgresOutboxStore(clock)
+        val store = PostgresOutboxStore(db.jdbc, clock)
         val publisher = OutboxPublisher(store, clock)
         val deliverer = KafkaMessageDeliverer(producer!!)
         val entryProcessor = OutboxEntryProcessor(deliverer, RetryPolicy(maxRetries = 3), clock)
@@ -56,10 +55,10 @@ class KafkaEndToEndTest : FunSpec({
             partitionKey = "user-1"
         }
 
-        transaction { publisher.publish(OutboxMessage("order.created", payload), info) }
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", payload), info) }
+        db.jdbc.withTransaction { processor.processNext() }
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = db.jdbc.withTransaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.DELIVERED to 1L)
 
         val consumer = kafka.createConsumer(groupId = "e2e-test-${UUID.randomUUID()}")
