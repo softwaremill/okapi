@@ -12,10 +12,11 @@ import java.time.Clock
  * Framework-specific modules (e.g. `okapi-spring`) may provide wrappers that
  * validate transactional context before delegating here.
  */
-class OutboxPublisher(
+class OutboxPublisher @JvmOverloads constructor(
     private val outboxStore: OutboxStore,
     private val clock: Clock = Clock.systemUTC(),
 ) {
+    @JvmName("publish")
     fun publish(outboxMessage: OutboxMessage, deliveryInfo: DeliveryInfo): OutboxId = OutboxEntry
         .createPending(outboxMessage, deliveryInfo, clock.instant())
         .also(outboxStore::persist)

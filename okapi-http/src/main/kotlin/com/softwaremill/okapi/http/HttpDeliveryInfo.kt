@@ -10,7 +10,7 @@ import com.softwaremill.okapi.core.DeliveryInfo
  * [serviceName] is resolved to a base URL via [ServiceUrlResolver] at delivery time.
  * [endpointPath] is appended to form the full URL.
  */
-data class HttpDeliveryInfo(
+data class HttpDeliveryInfo @JvmOverloads constructor(
     override val type: String = TYPE,
     val serviceName: String,
     val endpointPath: String,
@@ -29,6 +29,7 @@ data class HttpDeliveryInfo(
         private val mapper = jacksonObjectMapper()
 
         /** Deserializes from JSON stored in [OutboxEntry.deliveryMetadata]. */
+        @JvmStatic
         fun deserialize(json: String): HttpDeliveryInfo = mapper.readValue(json)
     }
 }

@@ -10,6 +10,7 @@ class OutboxProcessor(
     private val store: OutboxStore,
     private val entryProcessor: OutboxEntryProcessor,
 ) {
+    @JvmOverloads
     fun processNext(limit: Int = 10) {
         store.claimPending(limit).forEach { entry ->
             val updated = entryProcessor.process(entry)

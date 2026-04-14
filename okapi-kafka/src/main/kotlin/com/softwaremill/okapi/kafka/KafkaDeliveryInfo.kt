@@ -10,7 +10,7 @@ import com.softwaremill.okapi.core.DeliveryInfo
  * [topic] is required. Optional [partitionKey] controls partition routing.
  * Custom [headers] are sent as UTF-8 encoded Kafka record headers.
  */
-data class KafkaDeliveryInfo(
+data class KafkaDeliveryInfo @JvmOverloads constructor(
     override val type: String = TYPE,
     val topic: String,
     val partitionKey: String? = null,
@@ -27,6 +27,7 @@ data class KafkaDeliveryInfo(
         private val mapper = jacksonObjectMapper()
 
         /** Deserializes from JSON stored in [OutboxEntry.deliveryMetadata]. */
+        @JvmStatic
         fun deserialize(json: String): KafkaDeliveryInfo = mapper.readValue(json)
     }
 }

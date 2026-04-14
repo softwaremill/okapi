@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Delegates to [OutboxStore.removeDeliveredBefore] -- works with any storage adapter.
  */
-class OutboxPurger(
+class OutboxPurger @JvmOverloads constructor(
     private val outboxStore: OutboxStore,
     private val config: OutboxPurgerConfig = OutboxPurgerConfig(),
     private val clock: Clock = Clock.systemUTC(),
