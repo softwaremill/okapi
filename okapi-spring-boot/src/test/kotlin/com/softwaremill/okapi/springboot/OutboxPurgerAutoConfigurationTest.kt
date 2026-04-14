@@ -11,10 +11,12 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import java.time.Duration.ofDays
 import java.time.Duration.ofHours
 import java.time.Duration.ofMinutes
 import java.time.Instant
+import javax.sql.DataSource
 
 class OutboxPurgerAutoConfigurationTest : FunSpec({
 
@@ -22,6 +24,7 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
         .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
         .withBean(OutboxStore::class.java, { stubStore() })
         .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+        .withBean(DataSource::class.java, { SimpleDriverDataSource() })
 
     test("purger bean is created by default") {
         contextRunner.run { ctx ->

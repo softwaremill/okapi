@@ -10,10 +10,12 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import javax.sql.DataSource
 
 private val fixedClock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC)
 private val stubDeliveryInfo =
@@ -43,8 +45,9 @@ class SpringOutboxPublisherTest :
                 override fun countByStatuses() = emptyMap<OutboxStatus, Long>()
             }
 
+        val testDataSource: DataSource = SimpleDriverDataSource()
         val corePublisher = OutboxPublisher(outboxStore, fixedClock)
-        val publisher = SpringOutboxPublisher(corePublisher)
+        val publisher = SpringOutboxPublisher(corePublisher, testDataSource)
 
         beforeEach {
             capturedEntries.clear()
@@ -53,16 +56,21 @@ class SpringOutboxPublisherTest :
             }
             TransactionSynchronizationManager.setActualTransactionActive(false)
             TransactionSynchronizationManager.setCurrentTransactionReadOnly(false)
+            if (TransactionSynchronizationManager.hasResource(testDataSource)) {
+                TransactionSynchronizationManager.unbindResource(testDataSource)
+            }
         }
 
         given("publish() with active read-write transaction") {
             `when`("called") {
                 TransactionSynchronizationManager.initSynchronization()
                 TransactionSynchronizationManager.setActualTransactionActive(true)
+                TransactionSynchronizationManager.bindResource(testDataSource, Any())
 
                 val outboxId = publisher.publish(testMessage, stubDeliveryInfo)
                 val snapshot = capturedEntries.toList()
 
+                TransactionSynchronizationManager.unbindResource(testDataSource)
                 TransactionSynchronizationManager.clearSynchronization()
                 TransactionSynchronizationManager.setActualTransactionActive(false)
 
@@ -98,12 +106,14 @@ class SpringOutboxPublisherTest :
                     TransactionSynchronizationManager.initSynchronization()
                     TransactionSynchronizationManager.setActualTransactionActive(true)
                     TransactionSynchronizationManager.setCurrentTransactionReadOnly(true)
+                    TransactionSynchronizationManager.bindResource(testDataSource, Any())
 
                     try {
                         shouldThrow<IllegalStateException> {
                             publisher.publish(testMessage, stubDeliveryInfo)
                         }
                     } finally {
+                        TransactionSynchronizationManager.unbindResource(testDataSource)
                         TransactionSynchronizationManager.clearSynchronization()
                         TransactionSynchronizationManager.setActualTransactionActive(false)
                         TransactionSynchronizationManager.setCurrentTransactionReadOnly(false)

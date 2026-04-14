@@ -29,6 +29,7 @@ dependencies {
     testImplementation(libs.exposedJdbc)
     testImplementation(libs.exposedJson)
     testImplementation(libs.exposedJavaTime)
+    testImplementation(libs.exposedSpringTransaction)
 
     // Liquibase (schema migrations in tests)
     testImplementation(libs.liquibaseCore)
@@ -46,4 +47,5 @@ dependencies {
     testImplementation(libs.springContext)
     testImplementation(libs.springTx)
     testImplementation(libs.springBootAutoconfigure)
+    testImplementation(libs.springJdbc)
 }

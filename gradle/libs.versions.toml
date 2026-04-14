@@ -15,6 +15,7 @@ vanniktechPublish = "0.36.0"
 wiremock = "3.13.2"
 slf4j = "2.0.17"
 assertj = "3.27.7"
+h2 = "2.3.232"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -26,6 +27,7 @@ exposedCore = { module = "org.jetbrains.exposed:exposed-core", version.ref = "ex
 exposedJdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposed" }
 exposedJson = { module = "org.jetbrains.exposed:exposed-json", version.ref = "exposed" }
 exposedJavaTime = { module = "org.jetbrains.exposed:exposed-java-time", version.ref = "exposed" }
+exposedSpringTransaction = { module = "org.jetbrains.exposed:spring7-transaction", version.ref = "exposed" }
 jacksonModuleKotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin", version.ref = "jackson" }
 jacksonDatatypeJsr310 = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310", version.ref = "jackson" }
 liquibaseCore = { module = "org.liquibase:liquibase-core", version.ref = "liquibase" }
@@ -37,6 +39,7 @@ mysql = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }
 kafkaClients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafkaClients" }
 springContext = { module = "org.springframework:spring-context", version.ref = "spring" }
 springTx = { module = "org.springframework:spring-tx", version.ref = "spring" }
+springJdbc = { module = "org.springframework:spring-jdbc", version.ref = "spring" }
 springBootAutoconfigure = { module = "org.springframework.boot:spring-boot-autoconfigure", version.ref = "springBoot" }
 springBootStarterValidation = { module = "org.springframework.boot:spring-boot-starter-validation", version.ref = "springBoot" }
 springBootTest = { module = "org.springframework.boot:spring-boot-test", version.ref = "springBoot" }
@@ -44,6 +47,7 @@ assertjCore = { module = "org.assertj:assertj-core", version.ref = "assertj" }
 wiremock = { module = "org.wiremock:wiremock", version.ref = "wiremock" }
 slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4jSimple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
+h2 = { module = "com.h2database:h2", version.ref = "h2" }
 
 [plugins]
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }

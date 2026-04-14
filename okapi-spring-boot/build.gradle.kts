@@ -24,6 +24,7 @@ dependencies {
     testImplementation(libs.kotestAssertionsCore)
     testImplementation(libs.springContext)
     testImplementation(libs.springTx)
+    testImplementation(libs.springJdbc)
     testImplementation(libs.springBootAutoconfigure)
     testImplementation(libs.springBootTest)
     testImplementation(libs.assertjCore)

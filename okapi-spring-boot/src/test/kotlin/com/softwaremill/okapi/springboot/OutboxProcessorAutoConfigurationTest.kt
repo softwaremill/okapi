@@ -10,9 +10,11 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import java.time.Duration.ofMillis
 import java.time.Duration.ofSeconds
 import java.time.Instant
+import javax.sql.DataSource
 
 class OutboxProcessorAutoConfigurationTest : FunSpec({
 
@@ -20,6 +22,7 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
         .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
         .withBean(OutboxStore::class.java, { stubStore() })
         .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+        .withBean(DataSource::class.java, { SimpleDriverDataSource() })
 
     test("processor bean is created by default") {
         contextRunner.run { ctx ->

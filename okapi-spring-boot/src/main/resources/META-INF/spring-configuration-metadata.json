@@ -1,6 +1,11 @@
 {
   "groups": [
     {
+      "name": "okapi",
+      "type": "com.softwaremill.okapi.springboot.OkapiProperties",
+      "description": "Global okapi configuration."
+    },
+    {
       "name": "okapi.purger",
       "type": "com.softwaremill.okapi.springboot.OutboxPurgerProperties",
       "description": "Outbox purger configuration."
@@ -59,6 +64,12 @@
       "type": "java.lang.Integer",
       "defaultValue": 5,
       "description": "Maximum number of delivery retries before marking an entry as failed."
+    },
+    {
+      "name": "okapi.datasource-qualifier",
+      "type": "java.lang.String",
+      "defaultValue": null,
+      "description": "Name of the DataSource bean to use for the outbox. When set, okapi uses this specific DataSource instead of the primary one. Required in multi-datasource setups where the outbox table is not in the primary database."
     }
   ]
 }
