@@ -3,6 +3,7 @@ package com.softwaremill.okapi.springboot
 import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
+import com.softwaremill.okapi.core.OutboxPurgerConfig
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import io.kotest.core.spec.style.FunSpec
@@ -10,6 +11,9 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import java.time.Duration.ofDays
+import java.time.Duration.ofHours
+import java.time.Duration.ofMinutes
 import java.time.Instant
 
 class OutboxPurgerAutoConfigurationTest : FunSpec({
@@ -36,14 +40,14 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
     test("properties are bound from application config") {
         contextRunner
             .withPropertyValues(
-                "okapi.purger.retention-days=14",
-                "okapi.purger.interval-minutes=30",
+                "okapi.purger.retention=14d",
+                "okapi.purger.interval=30m",
                 "okapi.purger.batch-size=200",
             )
             .run { ctx ->
                 val props = ctx.getBean(OutboxPurgerProperties::class.java)
-                props.retentionDays shouldBe 14
-                props.intervalMinutes shouldBe 30
+                props.retention shouldBe ofDays(14)
+                props.interval shouldBe ofMinutes(30)
                 props.batchSize shouldBe 200
             }
     }
@@ -51,8 +55,8 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
     test("default properties when nothing is configured") {
         contextRunner.run { ctx ->
             val props = ctx.getBean(OutboxPurgerProperties::class.java)
-            props.retentionDays shouldBe 7
-            props.intervalMinutes shouldBe 60
+            props.retention shouldBe ofDays(7)
+            props.interval shouldBe ofHours(1)
             props.batchSize shouldBe 100
         }
     }
@@ -64,9 +68,9 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
         }
     }
 
-    test("invalid retention-days triggers constructor validation") {
+    test("invalid retention triggers startup failure") {
         contextRunner
-            .withPropertyValues("okapi.purger.retention-days=0")
+            .withPropertyValues("okapi.purger.retention=0s")
             .run { ctx ->
                 ctx.startupFailure.shouldNotBeNull()
             }
@@ -75,7 +79,7 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
     test("stop callback is always invoked") {
         val scheduler = OutboxPurgerScheduler(
             outboxStore = stubStore(),
-            intervalMinutes = 60,
+            config = OutboxPurgerConfig(interval = ofMinutes(60)),
         )
         scheduler.start()
 

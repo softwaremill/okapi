@@ -4,7 +4,9 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import java.time.Clock
-import java.time.Duration
+import java.time.Duration.ofDays
+import java.time.Duration.ofMillis
+import java.time.Duration.ofMinutes
 import java.time.Instant
 import java.time.ZoneOffset
 import java.util.concurrent.CountDownLatch
@@ -29,9 +31,11 @@ class OutboxPurgerTest : FunSpec({
 
         val purger = OutboxPurger(
             outboxStore = store,
-            retentionDuration = Duration.ofDays(7),
-            intervalMs = 50,
-            batchSize = 100,
+            config = OutboxPurgerConfig(
+                retention = ofDays(7),
+                interval = ofMillis(50),
+                batchSize = 100,
+            ),
             clock = fixedClock,
         )
 
@@ -39,7 +43,7 @@ class OutboxPurgerTest : FunSpec({
         latch.await(2, TimeUnit.SECONDS) shouldBe true
         purger.stop()
 
-        capturedCutoff shouldBe fixedNow.minus(Duration.ofDays(7))
+        capturedCutoff shouldBe fixedNow.minus(ofDays(7))
         capturedLimit shouldBe 100
     }
 
@@ -49,14 +53,18 @@ class OutboxPurgerTest : FunSpec({
         val store = stubStore(onRemove = { _, _ ->
             val count = callCount.incrementAndGet()
             if (count == 1) {
-                100 // first batch: full
+                100
             } else {
                 latch.countDown()
-                42 // second batch: partial, loop stops
+                42
             }
         })
 
-        val purger = OutboxPurger(store, intervalMs = 50, batchSize = 100, clock = fixedClock)
+        val purger = OutboxPurger(
+            outboxStore = store,
+            config = OutboxPurgerConfig(interval = ofMillis(50), batchSize = 100),
+            clock = fixedClock,
+        )
         purger.start()
         latch.await(2, TimeUnit.SECONDS) shouldBe true
         purger.stop()
@@ -70,10 +78,14 @@ class OutboxPurgerTest : FunSpec({
         val store = stubStore(onRemove = { _, _ ->
             val count = callCount.incrementAndGet()
             if (count >= 10) latch.countDown()
-            100 // always full, would loop forever without guard
+            100
         })
 
-        val purger = OutboxPurger(store, intervalMs = 50, batchSize = 100, clock = fixedClock)
+        val purger = OutboxPurger(
+            outboxStore = store,
+            config = OutboxPurgerConfig(interval = ofMillis(50), batchSize = 100),
+            clock = fixedClock,
+        )
         purger.start()
         latch.await(2, TimeUnit.SECONDS) shouldBe true
         purger.stop()
@@ -91,7 +103,11 @@ class OutboxPurgerTest : FunSpec({
             0
         })
 
-        val purger = OutboxPurger(store, intervalMs = 50, batchSize = 100, clock = fixedClock)
+        val purger = OutboxPurger(
+            outboxStore = store,
+            config = OutboxPurgerConfig(interval = ofMillis(50), batchSize = 100),
+            clock = fixedClock,
+        )
         purger.start()
         latch.await(2, TimeUnit.SECONDS) shouldBe true
         purger.stop()
@@ -108,9 +124,13 @@ class OutboxPurgerTest : FunSpec({
             0
         })
 
-        val purger = OutboxPurger(store, intervalMs = 50, batchSize = 100, clock = fixedClock)
+        val purger = OutboxPurger(
+            outboxStore = store,
+            config = OutboxPurgerConfig(interval = ofMillis(50), batchSize = 100),
+            clock = fixedClock,
+        )
         purger.start()
-        purger.start() // second start should be ignored
+        purger.start()
         latch.await(2, TimeUnit.SECONDS) shouldBe true
         purger.stop()
 
@@ -119,7 +139,11 @@ class OutboxPurgerTest : FunSpec({
 
     test("isRunning transitions") {
         val store = stubStore(onRemove = { _, _ -> 0 })
-        val purger = OutboxPurger(store, intervalMs = 60_000, batchSize = 100, clock = fixedClock)
+        val purger = OutboxPurger(
+            outboxStore = store,
+            config = OutboxPurgerConfig(interval = ofMinutes(1), batchSize = 100),
+            clock = fixedClock,
+        )
 
         purger.isRunning() shouldBe false
         purger.start()
@@ -128,26 +152,12 @@ class OutboxPurgerTest : FunSpec({
         purger.isRunning() shouldBe false
     }
 
-    test("constructor rejects invalid batchSize") {
-        shouldThrow<IllegalArgumentException> {
-            OutboxPurger(stubStore(), batchSize = 0, clock = fixedClock)
-        }
-    }
-
-    test("constructor rejects zero retentionDuration") {
-        shouldThrow<IllegalArgumentException> {
-            OutboxPurger(stubStore(), retentionDuration = Duration.ZERO, clock = fixedClock)
-        }
-    }
-
-    test("constructor rejects negative intervalMs") {
-        shouldThrow<IllegalArgumentException> {
-            OutboxPurger(stubStore(), intervalMs = -1, clock = fixedClock)
-        }
-    }
-
     test("start after stop throws") {
-        val purger = OutboxPurger(stubStore(), intervalMs = 60_000, batchSize = 100, clock = fixedClock)
+        val purger = OutboxPurger(
+            outboxStore = stubStore(),
+            config = OutboxPurgerConfig(interval = ofMinutes(1), batchSize = 100),
+            clock = fixedClock,
+        )
 
         purger.start()
         purger.stop()

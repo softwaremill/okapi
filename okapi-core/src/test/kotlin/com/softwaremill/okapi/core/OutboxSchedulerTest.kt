@@ -3,6 +3,8 @@ package com.softwaremill.okapi.core
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import java.time.Duration.ofMillis
+import java.time.Duration.ofMinutes
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -20,7 +22,7 @@ class OutboxSchedulerTest : FunSpec({
 
         val scheduler = OutboxScheduler(
             outboxProcessor = processor,
-            config = OutboxSchedulerConfig(intervalMs = 50, batchSize = 25),
+            config = OutboxSchedulerConfig(interval = ofMillis(50), batchSize = 25),
         )
 
         scheduler.start()
@@ -41,7 +43,7 @@ class OutboxSchedulerTest : FunSpec({
 
         val scheduler = OutboxScheduler(
             outboxProcessor = processor,
-            config = OutboxSchedulerConfig(intervalMs = 50),
+            config = OutboxSchedulerConfig(interval = ofMillis(50)),
         )
 
         scheduler.start()
@@ -61,7 +63,7 @@ class OutboxSchedulerTest : FunSpec({
 
         val scheduler = OutboxScheduler(
             outboxProcessor = processor,
-            config = OutboxSchedulerConfig(intervalMs = 50),
+            config = OutboxSchedulerConfig(interval = ofMillis(50)),
         )
 
         scheduler.start()
@@ -76,7 +78,7 @@ class OutboxSchedulerTest : FunSpec({
         val processor = stubProcessor { _ -> }
         val scheduler = OutboxScheduler(
             outboxProcessor = processor,
-            config = OutboxSchedulerConfig(intervalMs = 60_000),
+            config = OutboxSchedulerConfig(interval = ofMinutes(1)),
         )
 
         scheduler.isRunning() shouldBe false
@@ -90,7 +92,7 @@ class OutboxSchedulerTest : FunSpec({
         val processor = stubProcessor { _ -> }
         val scheduler = OutboxScheduler(
             outboxProcessor = processor,
-            config = OutboxSchedulerConfig(intervalMs = 60_000),
+            config = OutboxSchedulerConfig(interval = ofMinutes(1)),
         )
 
         scheduler.start()
@@ -115,7 +117,7 @@ class OutboxSchedulerTest : FunSpec({
         val scheduler = OutboxScheduler(
             outboxProcessor = processor,
             transactionRunner = txRunner,
-            config = OutboxSchedulerConfig(intervalMs = 50),
+            config = OutboxSchedulerConfig(interval = ofMillis(50)),
         )
 
         scheduler.start()
@@ -132,7 +134,7 @@ class OutboxSchedulerTest : FunSpec({
         val scheduler = OutboxScheduler(
             outboxProcessor = processor,
             transactionRunner = null,
-            config = OutboxSchedulerConfig(intervalMs = 50),
+            config = OutboxSchedulerConfig(interval = ofMillis(50)),
         )
 
         scheduler.start()

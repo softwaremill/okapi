@@ -2,14 +2,13 @@ package com.softwaremill.okapi.core
 
 import org.slf4j.LoggerFactory
 import java.time.Clock
-import java.time.Duration
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Periodically removes DELIVERED outbox entries older than [retentionDuration].
+ * Periodically removes DELIVERED outbox entries older than [OutboxPurgerConfig.retention].
  *
  * Runs on a single daemon thread with explicit [start]/[stop] lifecycle.
  * [start] and [stop] are single-use -- the internal executor cannot be restarted after shutdown.
@@ -19,17 +18,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class OutboxPurger(
     private val outboxStore: OutboxStore,
-    private val retentionDuration: Duration = Duration.ofDays(7),
-    private val intervalMs: Long = 3_600_000L,
-    private val batchSize: Int = 100,
+    private val config: OutboxPurgerConfig = OutboxPurgerConfig(),
     private val clock: Clock = Clock.systemUTC(),
 ) {
-    init {
-        require(retentionDuration > Duration.ZERO) { "retentionDuration must be positive, got: $retentionDuration" }
-        require(intervalMs > 0) { "intervalMs must be positive, got: $intervalMs" }
-        require(batchSize > 0) { "batchSize must be positive, got: $batchSize" }
-    }
-
     private val running = AtomicBoolean(false)
 
     private val scheduler: ScheduledExecutorService =
@@ -41,11 +32,12 @@ class OutboxPurger(
         check(!scheduler.isShutdown) { "OutboxPurger cannot be restarted after stop()" }
         if (!running.compareAndSet(false, true)) return
         logger.info(
-            "Outbox purger started [retention={}, interval={}ms, batchSize={}]",
-            retentionDuration,
-            intervalMs,
-            batchSize,
+            "Outbox purger started [retention={}, interval={}, batchSize={}]",
+            config.retention,
+            config.interval,
+            config.batchSize,
         )
+        val intervalMs = config.interval.toMillis()
         scheduler.scheduleWithFixedDelay(::tick, intervalMs, intervalMs, TimeUnit.MILLISECONDS)
     }
 
@@ -62,14 +54,14 @@ class OutboxPurger(
 
     private fun tick() {
         try {
-            val cutoff = clock.instant().minus(retentionDuration)
+            val cutoff = clock.instant().minus(config.retention)
             var totalDeleted = 0
             var batches = 0
             do {
-                val deleted = outboxStore.removeDeliveredBefore(cutoff, batchSize)
+                val deleted = outboxStore.removeDeliveredBefore(cutoff, config.batchSize)
                 totalDeleted += deleted
                 batches++
-            } while (deleted == batchSize && batches < MAX_BATCHES_PER_TICK)
+            } while (deleted == config.batchSize && batches < MAX_BATCHES_PER_TICK)
 
             if (totalDeleted > 0) {
                 logger.debug("Purged {} delivered entries in {} batches", totalDeleted, batches)

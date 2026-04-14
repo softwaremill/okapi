@@ -3,30 +3,34 @@ package com.softwaremill.okapi.core
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import java.time.Duration
+import java.time.Duration.ofMillis
+import java.time.Duration.ofNanos
+import java.time.Duration.ofSeconds
 
 class OutboxSchedulerConfigTest : FunSpec({
 
     test("default config has valid values") {
         val config = OutboxSchedulerConfig()
-        config.intervalMs shouldBe 1_000L
+        config.interval shouldBe ofSeconds(1)
         config.batchSize shouldBe 10
     }
 
     test("accepts custom valid values") {
-        val config = OutboxSchedulerConfig(intervalMs = 500, batchSize = 50)
-        config.intervalMs shouldBe 500L
+        val config = OutboxSchedulerConfig(interval = ofMillis(500), batchSize = 50)
+        config.interval shouldBe ofMillis(500)
         config.batchSize shouldBe 50
     }
 
-    test("rejects zero intervalMs") {
+    test("rejects zero interval") {
         shouldThrow<IllegalArgumentException> {
-            OutboxSchedulerConfig(intervalMs = 0)
+            OutboxSchedulerConfig(interval = Duration.ZERO)
         }
     }
 
-    test("rejects negative intervalMs") {
+    test("rejects negative interval") {
         shouldThrow<IllegalArgumentException> {
-            OutboxSchedulerConfig(intervalMs = -1)
+            OutboxSchedulerConfig(interval = ofMillis(-1))
         }
     }
 
@@ -39,6 +43,12 @@ class OutboxSchedulerConfigTest : FunSpec({
     test("rejects negative batchSize") {
         shouldThrow<IllegalArgumentException> {
             OutboxSchedulerConfig(batchSize = -5)
+        }
+    }
+
+    test("rejects sub-millisecond interval") {
+        shouldThrow<IllegalArgumentException> {
+            OutboxSchedulerConfig(interval = ofNanos(1))
         }
     }
 })
