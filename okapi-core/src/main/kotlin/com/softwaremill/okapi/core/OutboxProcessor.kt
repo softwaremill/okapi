@@ -36,7 +36,7 @@ class OutboxProcessor(
         try {
             val event = when (updated.status) {
                 OutboxStatus.DELIVERED -> OutboxProcessingEvent.Delivered(updated, duration)
-                OutboxStatus.PENDING -> OutboxProcessingEvent.Retried(updated, duration, updated.lastError ?: "")
+                OutboxStatus.PENDING -> OutboxProcessingEvent.RetryScheduled(updated, duration, updated.lastError ?: "")
                 OutboxStatus.FAILED -> OutboxProcessingEvent.Failed(updated, duration, updated.lastError ?: "")
             }
             listener.onEntryProcessed(event)

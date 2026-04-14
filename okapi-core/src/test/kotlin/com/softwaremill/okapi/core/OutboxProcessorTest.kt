@@ -187,9 +187,9 @@ class OutboxProcessorTest :
                 val capturedEvents = events.toList()
                 val capturedProcessed = processedEntries.toList()
 
-                then("listener receives Retried event with error") {
+                then("listener receives RetryScheduled event with error") {
                     capturedEvents.size shouldBe 1
-                    capturedEvents.first() shouldBe OutboxProcessingEvent.Retried(
+                    capturedEvents.first() shouldBe OutboxProcessingEvent.RetryScheduled(
                         entry = capturedProcessed.first(),
                         duration = Duration.ZERO,
                         error = "timeout",
@@ -300,7 +300,7 @@ class OutboxProcessorTest :
                 then("entry is marked FAILED") {
                     capturedProcessed.first().status shouldBe OutboxStatus.FAILED
                 }
-                then("listener receives Failed event, not Retried") {
+                then("listener receives Failed event, not RetryScheduled") {
                     capturedEvents.size shouldBe 1
                     capturedEvents.first() shouldBe OutboxProcessingEvent.Failed(
                         entry = capturedProcessed.first(),

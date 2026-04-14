@@ -3,7 +3,7 @@ package com.softwaremill.okapi.micrometer
 import com.softwaremill.okapi.core.OutboxProcessingEvent
 import com.softwaremill.okapi.core.OutboxProcessingEvent.Delivered
 import com.softwaremill.okapi.core.OutboxProcessingEvent.Failed
-import com.softwaremill.okapi.core.OutboxProcessingEvent.Retried
+import com.softwaremill.okapi.core.OutboxProcessingEvent.RetryScheduled
 import com.softwaremill.okapi.core.OutboxProcessorListener
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.MeterRegistry
@@ -16,19 +16,19 @@ import java.time.Duration
  *
  * Registered metrics:
  * - `okapi.entries.delivered` — counter
- * - `okapi.entries.retried` — counter
+ * - `okapi.entries.retry_scheduled` — counter
  * - `okapi.entries.failed` — counter
  * - `okapi.batch.duration` — timer
  */
 class MicrometerOutboxListener(registry: MeterRegistry) : OutboxProcessorListener {
     private val deliveredCounter = Counter.builder("okapi.entries.delivered").register(registry)
-    private val retriedCounter = Counter.builder("okapi.entries.retried").register(registry)
+    private val retryScheduledCounter = Counter.builder("okapi.entries.retry_scheduled").register(registry)
     private val failedCounter = Counter.builder("okapi.entries.failed").register(registry)
     private val batchTimer = Timer.builder("okapi.batch.duration").register(registry)
 
     override fun onEntryProcessed(event: OutboxProcessingEvent) = when (event) {
         is Delivered -> deliveredCounter.increment()
-        is Retried -> retriedCounter.increment()
+        is RetryScheduled -> retryScheduledCounter.increment()
         is Failed -> failedCounter.increment()
     }
 
