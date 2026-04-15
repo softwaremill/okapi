@@ -15,6 +15,5 @@ import java.sql.Connection
  * the caller must NOT close it.
  */
 class ExposedConnectionProvider : ConnectionProvider {
-    override fun getConnection(): Connection =
-        TransactionManager.current().connection.connection as Connection
+    override fun getConnection(): Connection = TransactionManager.current().connection.connection as Connection
 }
