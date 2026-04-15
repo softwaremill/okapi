@@ -15,7 +15,7 @@ vanniktechPublish = "0.36.0"
 wiremock = "3.13.2"
 slf4j = "2.0.17"
 assertj = "3.27.7"
-h2 = "2.3.232"
+h2 = "2.4.240"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
