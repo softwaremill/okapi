@@ -95,6 +95,29 @@ Okapi implements the [transactional outbox pattern](https://softwaremill.com/mic
 - **Concurrent processing** — multiple processors can run in parallel using `FOR UPDATE SKIP LOCKED`, so messages are never processed twice simultaneously.
 - **Delivery result classification** — each transport classifies errors as `Success`, `RetriableFailure`, or `PermanentFailure`. For example, HTTP 429 is retriable while HTTP 400 is permanent.
 
+## Observability
+
+Add `okapi-micrometer` to get Micrometer metrics out of the box:
+
+```kotlin
+implementation("com.softwaremill.okapi:okapi-micrometer")
+```
+
+With Spring Boot Actuator, metrics appear automatically on `/actuator/prometheus`:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `okapi.entries.delivered` | Counter | Successfully delivered entries |
+| `okapi.entries.retry_scheduled` | Counter | Failed attempts rescheduled for retry |
+| `okapi.entries.failed` | Counter | Permanently failed entries |
+| `okapi.batch.duration` | Timer | Processing time per batch |
+| `okapi.entries.count` | Gauge | Current entry count per status |
+| `okapi.entries.lag.seconds` | Gauge | Age of the oldest entry per status |
+
+**Without Spring Boot:** create `MicrometerOutboxListener` and `MicrometerOutboxMetrics` manually and pass a `MeterRegistry`.
+
+**Custom listener:** implement `OutboxProcessorListener` to react to delivery events (logging, alerting, custom metrics).
+
 ## Modules
 
 ```mermaid
@@ -103,9 +126,11 @@ graph BT
     MY[okapi-mysql] --> CORE
     HTTP[okapi-http] --> CORE
     KAFKA[okapi-kafka] --> CORE
+    MICRO[okapi-micrometer] --> CORE
     SPRING[okapi-spring-boot] --> CORE
     SPRING -.->|compileOnly| PG
     SPRING -.->|compileOnly| MY
+    SPRING -.->|compileOnly| MICRO
     BOM[okapi-bom]
 
     style CORE fill:#4a9eff,color:#fff
@@ -119,7 +144,8 @@ graph BT
 | `okapi-mysql` | MySQL 8+ storage via Exposed ORM |
 | `okapi-http` | HTTP webhook delivery (JDK HttpClient) |
 | `okapi-kafka` | Kafka topic publishing |
-| `okapi-spring-boot` | Spring Boot autoconfiguration (auto-detects store and transports) |
+| `okapi-micrometer` | Micrometer metrics (counters, timers, gauges) |
+| `okapi-spring-boot` | Spring Boot autoconfiguration (auto-detects store, transports, and metrics) |
 | `okapi-bom` | Bill of Materials for version alignment |
 
 ## Compatibility
