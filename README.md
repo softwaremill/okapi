@@ -167,6 +167,7 @@ graph BT
     HTTP[okapi-http] --> CORE
     KAFKA[okapi-kafka] --> CORE
     MICRO[okapi-micrometer] --> CORE
+    EXP[okapi-exposed] --> CORE
     SPRING[okapi-spring-boot] --> CORE
     SPRING -.->|compileOnly| PG
     SPRING -.->|compileOnly| MY
@@ -180,6 +181,7 @@ graph BT
 | Module | Purpose |
 |--------|---------|
 | `okapi-core` | Transport/storage-agnostic orchestration, scheduling, retry policy, `ConnectionProvider` interface |
+| `okapi-exposed` | Exposed ORM integration — `ExposedConnectionProvider`, `ExposedTransactionRunner`, `ExposedTransactionContextValidator` |
 | `okapi-postgres` | PostgreSQL storage via plain JDBC (`FOR UPDATE SKIP LOCKED`) |
 | `okapi-mysql` | MySQL 8+ storage via plain JDBC |
 | `okapi-http` | HTTP webhook delivery (JDK HttpClient) |
@@ -195,7 +197,7 @@ graph BT
 | Java | 21+ | Required |
 | Spring Boot | 3.5.x, 4.0.x | `okapi-spring-boot` module |
 | Kafka Clients | 3.9.x, 4.x | `okapi-kafka` — you provide `kafka-clients` |
-| Exposed | 1.x | Optional — `ExposedTransactionContextValidator` for Ktor/standalone apps (will move to `okapi-exposed` module) |
+| Exposed | 1.x | `okapi-exposed` module — for Ktor/standalone apps |
 
 ## Build
 

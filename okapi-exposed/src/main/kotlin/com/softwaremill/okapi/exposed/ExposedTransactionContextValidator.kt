@@ -1,5 +1,6 @@
-package com.softwaremill.okapi.core
+package com.softwaremill.okapi.exposed
 
+import com.softwaremill.okapi.core.TransactionContextValidator
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.currentOrNull
 import org.jetbrains.exposed.v1.jdbc.transactions.transactionManager
