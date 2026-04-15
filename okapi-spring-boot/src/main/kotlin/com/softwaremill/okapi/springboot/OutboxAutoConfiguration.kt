@@ -10,11 +10,8 @@ import com.softwaremill.okapi.core.OutboxPurgerConfig
 import com.softwaremill.okapi.core.OutboxSchedulerConfig
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.RetryPolicy
-import com.softwaremill.okapi.micrometer.MicrometerOutboxListener
-import com.softwaremill.okapi.micrometer.MicrometerOutboxMetrics
 import com.softwaremill.okapi.mysql.MysqlOutboxStore
 import com.softwaremill.okapi.postgres.PostgresOutboxStore
-import io.micrometer.core.instrument.MeterRegistry
 import liquibase.integration.spring.SpringLiquibase
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
@@ -189,34 +186,6 @@ class OutboxAutoConfiguration(
         fun okapiMysqlLiquibase(): SpringLiquibase = SpringLiquibase().apply {
             dataSource = resolveDataSource(dataSources, primaryDataSource, okapiProperties)
             changeLog = "classpath:com/softwaremill/okapi/db/mysql/changelog.xml"
-        }
-    }
-
-    @Configuration(proxyBeanMethods = false)
-    @ConditionalOnClass(name = ["io.micrometer.core.instrument.MeterRegistry"])
-    @ConditionalOnBean(MeterRegistry::class)
-    class MicrometerConfiguration {
-        @Bean
-        @ConditionalOnMissingBean
-        fun micrometerOutboxListener(registry: MeterRegistry): MicrometerOutboxListener = MicrometerOutboxListener(registry)
-
-        @Bean
-        @ConditionalOnMissingBean
-        fun micrometerOutboxMetrics(
-            store: OutboxStore,
-            registry: MeterRegistry,
-            transactionManager: ObjectProvider<PlatformTransactionManager>,
-            clock: ObjectProvider<Clock>,
-        ): MicrometerOutboxMetrics {
-            val readOnlyRunner = transactionManager.getIfAvailable()?.let { tm ->
-                SpringTransactionRunner(TransactionTemplate(tm).apply { isReadOnly = true })
-            }
-            return MicrometerOutboxMetrics(
-                store = store,
-                registry = registry,
-                transactionRunner = readOnlyRunner,
-                clock = clock.getIfAvailable { Clock.systemUTC() },
-            )
         }
     }
 

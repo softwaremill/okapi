@@ -21,7 +21,7 @@ import javax.sql.DataSource
 class OutboxProcessorAutoConfigurationTest : FunSpec({
 
     val contextRunner = ApplicationContextRunner()
-        .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+        .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiMicrometerAutoConfiguration::class.java))
         .withBean(OutboxStore::class.java, { stubStore() })
         .withBean(MessageDeliverer::class.java, { stubDeliverer() })
         .withBean(DataSource::class.java, { SimpleDriverDataSource() })
