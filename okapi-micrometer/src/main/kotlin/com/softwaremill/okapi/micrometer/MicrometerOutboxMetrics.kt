@@ -17,7 +17,7 @@ import java.time.Duration
  * - `okapi.entries.lag.seconds` (tag: status) — age of the oldest entry per status
  *
  * Gauge suppliers run on the Prometheus scrape thread, which has no ambient transaction.
- * Store implementations backed by Exposed (e.g. [com.softwaremill.okapi.postgres.PostgresOutboxStore])
+ * Store implementations backed by Exposed (e.g. `PostgresOutboxStore`, `MysqlOutboxStore`)
  * require an active transaction on the calling thread, so a [TransactionRunner] must be supplied
  * when using such stores. A read-only [TransactionRunner] is recommended.
  *

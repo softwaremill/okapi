@@ -5,12 +5,11 @@ import java.time.Duration
 /**
  * Outcome of processing a single [OutboxEntry], emitted by [OutboxProcessor]
  * to [OutboxProcessorListener].
- *
- * Sealed hierarchy enables exhaustive `when` in Kotlin — the compiler warns
- * if a new subtype is added and a consumer does not handle it.
  */
 sealed interface OutboxProcessingEvent {
     val entry: OutboxEntry
+
+    /** Wall-clock duration of the delivery attempt, excluding the database update. */
     val duration: Duration
 
     data class Delivered(override val entry: OutboxEntry, override val duration: Duration) : OutboxProcessingEvent

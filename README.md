@@ -60,7 +60,7 @@ class OrderService(
 }
 ```
 
-Autoconfiguration handles scheduling, retries, and delivery automatically.
+Autoconfiguration handles scheduling, retries, and delivery automatically. For Micrometer metrics, also add `okapi-micrometer` — see [Observability](#observability).
 
 **Using Kafka instead of HTTP?** Swap the deliverer bean and delivery info:
 
@@ -97,26 +97,26 @@ Okapi implements the [transactional outbox pattern](https://softwaremill.com/mic
 
 ## Observability
 
-Add `okapi-micrometer` to get Micrometer metrics out of the box:
+Add `okapi-micrometer` alongside `okapi-spring-boot` (from the Quick Start above) to get Micrometer metrics:
 
 ```kotlin
 implementation("com.softwaremill.okapi:okapi-micrometer")
 ```
 
-With Spring Boot Actuator, metrics appear automatically on `/actuator/prometheus`:
+With Spring Boot Actuator and a Prometheus registry (`micrometer-registry-prometheus`) on the classpath, metrics are automatically exposed on `/actuator/prometheus`. They are also visible via `/actuator/metrics`.
 
 | Metric | Type | Description |
 |--------|------|-------------|
 | `okapi.entries.delivered` | Counter | Successfully delivered entries |
-| `okapi.entries.retry_scheduled` | Counter | Failed attempts rescheduled for retry |
+| `okapi.entries.retry.scheduled` | Counter | Failed attempts rescheduled for retry |
 | `okapi.entries.failed` | Counter | Permanently failed entries |
 | `okapi.batch.duration` | Timer | Processing time per batch |
-| `okapi.entries.count` | Gauge | Current entry count per status |
-| `okapi.entries.lag.seconds` | Gauge | Age of the oldest entry per status |
+| `okapi.entries.count` | Gauge | Current entry count (tag: `status=pending\|delivered\|failed`) |
+| `okapi.entries.lag.seconds` | Gauge | Age of oldest entry in seconds (tag: `status`) |
 
-**Without Spring Boot:** create `MicrometerOutboxListener` and `MicrometerOutboxMetrics` manually and pass a `MeterRegistry`.
+**Without Spring Boot:** create `MicrometerOutboxListener` and `MicrometerOutboxMetrics` manually and pass a `MeterRegistry`. `MicrometerOutboxMetrics` requires a `TransactionRunner` for Exposed-backed stores — see the class KDoc for details.
 
-**Custom listener:** implement `OutboxProcessorListener` to react to delivery events (logging, alerting, custom metrics).
+**Custom listener:** implement `OutboxProcessorListener` to react to delivery events (logging, alerting, custom metrics). `OutboxProcessor` accepts a single listener; to combine multiple, implement a composite that delegates to each.
 
 ## Modules
 

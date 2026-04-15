@@ -29,18 +29,18 @@ class MicrometerOutboxListenerTest : FunSpec({
         listener.onEntryProcessed(OutboxProcessingEvent.Delivered(entry, Duration.ofMillis(42)))
 
         registry.counter("okapi.entries.delivered").count() shouldBe 1.0
-        registry.counter("okapi.entries.retry_scheduled").count() shouldBe 0.0
+        registry.counter("okapi.entries.retry.scheduled").count() shouldBe 0.0
         registry.counter("okapi.entries.failed").count() shouldBe 0.0
     }
 
-    test("RetryScheduled event increments retry_scheduled counter") {
+    test("RetryScheduled event increments retry.scheduled counter") {
         val registry = SimpleMeterRegistry()
         val listener = MicrometerOutboxListener(registry)
         val entry = stubEntry().retry(Instant.EPOCH, "timeout")
 
         listener.onEntryProcessed(OutboxProcessingEvent.RetryScheduled(entry, Duration.ofMillis(10), "timeout"))
 
-        registry.counter("okapi.entries.retry_scheduled").count() shouldBe 1.0
+        registry.counter("okapi.entries.retry.scheduled").count() shouldBe 1.0
     }
 
     test("Failed event increments failed counter") {

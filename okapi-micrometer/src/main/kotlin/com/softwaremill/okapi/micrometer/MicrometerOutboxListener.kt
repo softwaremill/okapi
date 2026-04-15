@@ -16,13 +16,16 @@ import java.time.Duration
  *
  * Registered metrics:
  * - `okapi.entries.delivered` — counter
- * - `okapi.entries.retry_scheduled` — counter
+ * - `okapi.entries.retry.scheduled` — counter
  * - `okapi.entries.failed` — counter
  * - `okapi.batch.duration` — timer
+ *
+ * Note: `processedCount` from [onBatchProcessed] is not recorded as a separate metric;
+ * per-entry counters provide sufficient granularity.
  */
 class MicrometerOutboxListener(registry: MeterRegistry) : OutboxProcessorListener {
     private val deliveredCounter = Counter.builder("okapi.entries.delivered").register(registry)
-    private val retryScheduledCounter = Counter.builder("okapi.entries.retry_scheduled").register(registry)
+    private val retryScheduledCounter = Counter.builder("okapi.entries.retry.scheduled").register(registry)
     private val failedCounter = Counter.builder("okapi.entries.failed").register(registry)
     private val batchTimer = Timer.builder("okapi.batch.duration").register(registry)
 

@@ -8,6 +8,9 @@ import java.time.Duration
  * Default no-op implementations allow consumers to override only the
  * methods they care about. Exceptions thrown by implementations are
  * caught and logged — they never break processing.
+ *
+ * [OutboxProcessor] accepts a single listener. To combine multiple listeners,
+ * implement a composite that delegates to each.
  */
 interface OutboxProcessorListener {
     /** Called after each entry is processed (delivered, retried, or failed). */

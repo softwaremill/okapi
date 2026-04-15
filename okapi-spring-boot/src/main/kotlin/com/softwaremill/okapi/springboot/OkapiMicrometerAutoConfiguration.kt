@@ -21,6 +21,9 @@ import java.time.Clock
  * Separated from [OutboxAutoConfiguration] as a top-level autoconfiguration
  * so that [ConditionalOnBean] for [MeterRegistry] evaluates after the meter
  * registry is created by Spring Boot's metrics autoconfiguration.
+ *
+ * Both beans are `@ConditionalOnMissingBean` — define your own [MicrometerOutboxListener]
+ * or [MicrometerOutboxMetrics] bean to override the defaults.
  */
 @AutoConfiguration
 @AutoConfigureAfter(

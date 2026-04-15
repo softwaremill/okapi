@@ -87,7 +87,7 @@ class ObservabilityEndToEndTest : FunSpec({
         // First processNext: HTTP 500 → RetryScheduled
         transaction { processor.processNext() }
 
-        registry.counter("okapi.entries.retry_scheduled").count() shouldBe 1.0
+        registry.counter("okapi.entries.retry.scheduled").count() shouldBe 1.0
         registry.counter("okapi.entries.delivered").count() shouldBe 0.0
         registry.counter("okapi.entries.failed").count() shouldBe 0.0
         registry.timer("okapi.batch.duration").count() shouldBe 1
@@ -100,7 +100,7 @@ class ObservabilityEndToEndTest : FunSpec({
         transaction { processor.processNext() }
 
         registry.counter("okapi.entries.delivered").count() shouldBe 1.0
-        registry.counter("okapi.entries.retry_scheduled").count() shouldBe 1.0 // still 1 from before
+        registry.counter("okapi.entries.retry.scheduled").count() shouldBe 1.0 // still 1 from before
         registry.timer("okapi.batch.duration").count() shouldBe 2
 
         // Gauge: 0 PENDING, 1 DELIVERED
