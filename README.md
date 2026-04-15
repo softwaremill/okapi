@@ -195,6 +195,7 @@ graph BT
 | Java | 21+ | Required |
 | Spring Boot | 3.5.x, 4.0.x | `okapi-spring-boot` module |
 | Kafka Clients | 3.9.x, 4.x | `okapi-kafka` — you provide `kafka-clients` |
+| Exposed | 1.x | Compatible — okapi doesn't depend on Exposed, but works alongside it via `ConnectionProvider` |
 
 ## Build
 
