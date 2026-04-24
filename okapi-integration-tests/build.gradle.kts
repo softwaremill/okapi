@@ -10,6 +10,7 @@ dependencies {
     testImplementation(project(":okapi-kafka"))
     testImplementation(project(":okapi-http"))
     testImplementation(project(":okapi-spring-boot"))
+    testImplementation(project(":okapi-micrometer"))
 
     // Test framework
     testImplementation(libs.kotestRunnerJunit5)
@@ -42,6 +43,9 @@ dependencies {
 
     // WireMock (HTTP E2E tests)
     testImplementation(libs.wiremock)
+
+    // Micrometer (observability E2E tests)
+    testImplementation(libs.micrometerCore)
 
     // Spring (for E2E tests that may need Spring context)
     testImplementation(libs.springContext)

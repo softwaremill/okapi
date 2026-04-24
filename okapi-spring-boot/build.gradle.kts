@@ -19,6 +19,8 @@ dependencies {
     compileOnly(project(":okapi-postgres"))
     compileOnly(project(":okapi-mysql"))
     compileOnly(libs.liquibaseCore)
+    compileOnly(project(":okapi-micrometer"))
+    compileOnly(libs.micrometerCore)
 
     testImplementation(libs.kotestRunnerJunit5)
     testImplementation(libs.kotestAssertionsCore)
@@ -41,6 +43,8 @@ dependencies {
     testImplementation(libs.testcontainersMysql)
     testImplementation(libs.mysql)
     testImplementation(libs.wiremock)
+    testImplementation(project(":okapi-micrometer"))
+    testImplementation(libs.micrometerCore)
 }
 
 // CI version override: ./gradlew :okapi-spring-boot:test -PspringBootVersion=4.0.4 -PspringVersion=7.0.6

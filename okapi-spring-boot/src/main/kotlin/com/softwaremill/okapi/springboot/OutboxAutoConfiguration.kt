@@ -4,6 +4,7 @@ import com.softwaremill.okapi.core.CompositeMessageDeliverer
 import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntryProcessor
 import com.softwaremill.okapi.core.OutboxProcessor
+import com.softwaremill.okapi.core.OutboxProcessorListener
 import com.softwaremill.okapi.core.OutboxPublisher
 import com.softwaremill.okapi.core.OutboxPurgerConfig
 import com.softwaremill.okapi.core.OutboxSchedulerConfig
@@ -87,10 +88,17 @@ class OutboxAutoConfiguration(
 
     @Bean
     @ConditionalOnMissingBean
-    fun outboxProcessor(outboxStore: OutboxStore, outboxEntryProcessor: OutboxEntryProcessor): OutboxProcessor {
+    fun outboxProcessor(
+        outboxStore: OutboxStore,
+        outboxEntryProcessor: OutboxEntryProcessor,
+        listener: ObjectProvider<OutboxProcessorListener>,
+        clock: ObjectProvider<Clock>,
+    ): OutboxProcessor {
         return OutboxProcessor(
             store = outboxStore,
             entryProcessor = outboxEntryProcessor,
+            listener = listener.getIfAvailable(),
+            clock = clock.getIfAvailable { Clock.systemUTC() },
         )
     }
 

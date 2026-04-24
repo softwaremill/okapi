@@ -13,5 +13,6 @@ dependencies {
         api(project(":okapi-http"))
         api(project(":okapi-kafka"))
         api(project(":okapi-spring-boot"))
+        api(project(":okapi-micrometer"))
     }
 }

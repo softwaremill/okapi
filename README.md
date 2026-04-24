@@ -60,7 +60,7 @@ class OrderService(
 }
 ```
 
-Autoconfiguration handles scheduling, retries, and delivery automatically.
+Autoconfiguration handles scheduling, retries, and delivery automatically. For Micrometer metrics, also add `okapi-micrometer` — see [Observability](#observability).
 
 **Using Kafka instead of HTTP?** Swap the deliverer bean and delivery info:
 
@@ -95,6 +95,63 @@ Okapi implements the [transactional outbox pattern](https://softwaremill.com/mic
 - **Concurrent processing** — multiple processors can run in parallel using `FOR UPDATE SKIP LOCKED`, so messages are never processed twice simultaneously.
 - **Delivery result classification** — each transport classifies errors as `Success`, `RetriableFailure`, or `PermanentFailure`. For example, HTTP 429 is retriable while HTTP 400 is permanent.
 
+## Observability
+
+Add `okapi-micrometer` alongside `okapi-spring-boot` (from the Quick Start above) to get Micrometer metrics:
+
+```kotlin
+implementation("com.softwaremill.okapi:okapi-micrometer")
+```
+
+With Spring Boot Actuator and a Prometheus registry (`micrometer-registry-prometheus`) on the classpath, metrics are automatically exposed on `/actuator/prometheus`. They are also visible via `/actuator/metrics`.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `okapi.entries.delivered` | Counter | Successfully delivered entries |
+| `okapi.entries.retry.scheduled` | Counter | Failed attempts rescheduled for retry |
+| `okapi.entries.failed` | Counter | Permanently failed entries |
+| `okapi.batch.duration` | Timer | Processing time per batch |
+| `okapi.entries.count` | Gauge | Current entry count (tag: `status=pending\|delivered\|failed`) |
+| `okapi.entries.lag.seconds` | Gauge | Age of oldest entry in seconds (tag: `status`) |
+
+### Multi-instance deployments
+
+Counters and timers (`okapi.entries.delivered`, `okapi.entries.retry.scheduled`, `okapi.entries.failed`, `okapi.batch.duration`) report work performed by **each instance** — aggregate with `sum`:
+
+```promql
+sum(rate(okapi_entries_delivered_total[5m]))
+```
+
+Gauges (`okapi.entries.count`, `okapi.entries.lag.seconds`) reflect the **shared outbox state** and are reported identically by every instance. Aggregate with `max by (status)`, not `sum`:
+
+```promql
+max by (status) (okapi_entries_count)
+```
+
+Polling cost per instance is `2 queries / okapi.metrics.refresh-interval` (default `2 queries / 15s`).
+
+### Without Spring Boot
+
+`okapi-micrometer` has no Spring dependency. Construct the beans manually and pass a `MeterRegistry`. `MicrometerOutboxMetrics` requires a `TransactionRunner` for Exposed-backed stores — see the class KDoc.
+
+For periodic gauge refresh, use the framework-agnostic `OutboxMetricsRefresher` (single daemon thread):
+
+```kotlin
+val listener = MicrometerOutboxListener(meterRegistry)
+val metrics = MicrometerOutboxMetrics(store, meterRegistry, transactionRunner)
+
+val refresher = OutboxMetricsRefresher(metrics, Duration.ofSeconds(15))
+refresher.start()
+// on application shutdown:
+refresher.close()
+```
+
+Or call `metrics.refresh()` from your own scheduler (Ktor coroutine, `ScheduledExecutorService`, etc.) — `refresh()` is thread-safe.
+
+### Custom listener
+
+Implement `OutboxProcessorListener` to react to delivery events (logging, alerting, custom metrics). `OutboxProcessor` accepts a single listener; to combine multiple, implement a composite that delegates to each.
+
 ## Modules
 
 ```mermaid
@@ -103,9 +160,11 @@ graph BT
     MY[okapi-mysql] --> CORE
     HTTP[okapi-http] --> CORE
     KAFKA[okapi-kafka] --> CORE
+    MICRO[okapi-micrometer] --> CORE
     SPRING[okapi-spring-boot] --> CORE
     SPRING -.->|compileOnly| PG
     SPRING -.->|compileOnly| MY
+    SPRING -.->|compileOnly| MICRO
     BOM[okapi-bom]
 
     style CORE fill:#4a9eff,color:#fff
@@ -119,7 +178,8 @@ graph BT
 | `okapi-mysql` | MySQL 8+ storage via Exposed ORM |
 | `okapi-http` | HTTP webhook delivery (JDK HttpClient) |
 | `okapi-kafka` | Kafka topic publishing |
-| `okapi-spring-boot` | Spring Boot autoconfiguration (auto-detects store and transports) |
+| `okapi-micrometer` | Micrometer metrics (counters, timers, gauges) |
+| `okapi-spring-boot` | Spring Boot autoconfiguration (auto-detects store, transports, and metrics) |
 | `okapi-bom` | Bill of Materials for version alignment |
 
 ## Compatibility
