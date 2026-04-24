@@ -31,7 +31,9 @@ class PostgresTestSupport {
 
     fun truncate() {
         jdbc.withTransaction {
-            jdbc.getConnection().createStatement().use { it.execute("TRUNCATE TABLE outbox") }
+            jdbc.withConnection { conn ->
+                conn.createStatement().use { it.execute("TRUNCATE TABLE outbox") }
+            }
         }
     }
 

@@ -30,26 +30,28 @@ class MysqlOutboxStore(
                 delivery_metadata = VALUES(delivery_metadata)
         """.trimIndent()
 
-        connectionProvider.getConnection().prepareStatement(sql).use { stmt ->
-            stmt.setString(1, entry.outboxId.raw.toString())
-            stmt.setString(2, entry.messageType)
-            stmt.setString(3, entry.payload)
-            stmt.setString(4, entry.deliveryType)
-            stmt.setString(5, entry.status.name)
-            stmt.setTimestamp(6, Timestamp.from(entry.createdAt))
-            stmt.setTimestamp(7, Timestamp.from(entry.updatedAt))
-            stmt.setInt(8, entry.retries)
-            if (entry.lastAttempt != null) {
-                stmt.setTimestamp(
-                    9,
-                    Timestamp.from(entry.lastAttempt),
-                )
-            } else {
-                stmt.setNull(9, java.sql.Types.TIMESTAMP)
+        connectionProvider.withConnection { conn ->
+            conn.prepareStatement(sql).use { stmt ->
+                stmt.setString(1, entry.outboxId.raw.toString())
+                stmt.setString(2, entry.messageType)
+                stmt.setString(3, entry.payload)
+                stmt.setString(4, entry.deliveryType)
+                stmt.setString(5, entry.status.name)
+                stmt.setTimestamp(6, Timestamp.from(entry.createdAt))
+                stmt.setTimestamp(7, Timestamp.from(entry.updatedAt))
+                stmt.setInt(8, entry.retries)
+                if (entry.lastAttempt != null) {
+                    stmt.setTimestamp(
+                        9,
+                        Timestamp.from(entry.lastAttempt),
+                    )
+                } else {
+                    stmt.setNull(9, java.sql.Types.TIMESTAMP)
+                }
+                if (entry.lastError != null) stmt.setString(10, entry.lastError) else stmt.setNull(10, java.sql.Types.VARCHAR)
+                stmt.setString(11, entry.deliveryMetadata)
+                stmt.executeUpdate()
             }
-            if (entry.lastError != null) stmt.setString(10, entry.lastError) else stmt.setNull(10, java.sql.Types.VARCHAR)
-            stmt.setString(11, entry.deliveryMetadata)
-            stmt.executeUpdate()
         }
         return entry
     }
@@ -67,11 +69,13 @@ class MysqlOutboxStore(
             FOR UPDATE SKIP LOCKED
         """.trimIndent()
 
-        return connectionProvider.getConnection().prepareStatement(sql).use { stmt ->
-            stmt.setString(1, OutboxStatus.PENDING.name)
-            stmt.setInt(2, limit)
-            stmt.executeQuery().use { rs ->
-                generateSequence { if (rs.next()) rs.toOutboxEntry() else null }.toList()
+        return connectionProvider.withConnection { conn ->
+            conn.prepareStatement(sql).use { stmt ->
+                stmt.setString(1, OutboxStatus.PENDING.name)
+                stmt.setInt(2, limit)
+                stmt.executeQuery().use { rs ->
+                    generateSequence { if (rs.next()) rs.toOutboxEntry() else null }.toList()
+                }
             }
         }
     }
@@ -92,11 +96,13 @@ class MysqlOutboxStore(
             )
         """.trimIndent()
 
-        return connectionProvider.getConnection().prepareStatement(sql).use { stmt ->
-            stmt.setString(1, OutboxStatus.DELIVERED.name)
-            stmt.setTimestamp(2, Timestamp.from(time))
-            stmt.setInt(3, limit)
-            stmt.executeUpdate()
+        return connectionProvider.withConnection { conn ->
+            conn.prepareStatement(sql).use { stmt ->
+                stmt.setString(1, OutboxStatus.DELIVERED.name)
+                stmt.setTimestamp(2, Timestamp.from(time))
+                stmt.setInt(3, limit)
+                stmt.executeUpdate()
+            }
         }
     }
 
@@ -105,12 +111,14 @@ class MysqlOutboxStore(
         val placeholders = statuses.joinToString(",") { "?" }
         val sql = "SELECT status, MIN(created_at) AS min_created_at FROM outbox WHERE status IN ($placeholders) GROUP BY status"
 
-        connectionProvider.getConnection().prepareStatement(sql).use { stmt ->
-            statuses.forEachIndexed { i, s -> stmt.setString(i + 1, s.name) }
-            stmt.executeQuery().use { rs ->
-                while (rs.next()) {
-                    val s = OutboxStatus.from(rs.getString("status"))
-                    result[s] = rs.getTimestamp("min_created_at").toInstant()
+        connectionProvider.withConnection { conn ->
+            conn.prepareStatement(sql).use { stmt ->
+                statuses.forEachIndexed { i, s -> stmt.setString(i + 1, s.name) }
+                stmt.executeQuery().use { rs ->
+                    while (rs.next()) {
+                        val s = OutboxStatus.from(rs.getString("status"))
+                        result[s] = rs.getTimestamp("min_created_at").toInstant()
+                    }
                 }
             }
         }
@@ -121,10 +129,12 @@ class MysqlOutboxStore(
         val sql = "SELECT status, COUNT(*) AS count FROM outbox GROUP BY status"
         val counts = mutableMapOf<OutboxStatus, Long>()
 
-        connectionProvider.getConnection().prepareStatement(sql).use { stmt ->
-            stmt.executeQuery().use { rs ->
-                while (rs.next()) {
-                    counts[OutboxStatus.from(rs.getString("status"))] = rs.getLong("count")
+        connectionProvider.withConnection { conn ->
+            conn.prepareStatement(sql).use { stmt ->
+                stmt.executeQuery().use { rs ->
+                    while (rs.next()) {
+                        counts[OutboxStatus.from(rs.getString("status"))] = rs.getLong("count")
+                    }
                 }
             }
         }

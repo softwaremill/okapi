@@ -6,13 +6,20 @@ import java.sql.Connection
 import javax.sql.DataSource
 
 /**
- * Spring-aware [ConnectionProvider] that retrieves the JDBC connection
- * bound to the current Spring-managed transaction.
+ * Spring-aware [ConnectionProvider] backed by [DataSourceUtils].
  *
- * Uses [DataSourceUtils.getConnection] — the standard Spring mechanism
- * that works transparently with any [org.springframework.transaction.PlatformTransactionManager]:
- * JPA, JDBC, jOOQ, MyBatis, Exposed, etc.
+ * [DataSourceUtils.releaseConnection] is a no-op when the connection is bound to an active
+ * Spring transaction (Spring owns its lifecycle), and returns the connection to the pool
+ * otherwise. Without the release, each call outside a Spring transaction would leak a
+ * pooled connection.
  */
 class SpringConnectionProvider(private val dataSource: DataSource) : ConnectionProvider {
-    override fun getConnection(): Connection = DataSourceUtils.getConnection(dataSource)
+    override fun <T> withConnection(block: (Connection) -> T): T {
+        val connection = DataSourceUtils.getConnection(dataSource)
+        return try {
+            block(connection)
+        } finally {
+            DataSourceUtils.releaseConnection(connection, dataSource)
+        }
+    }
 }

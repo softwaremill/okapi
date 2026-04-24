@@ -42,7 +42,10 @@ import javax.sql.DataSource
  *   If both are present, Postgres takes priority. Override by defining your own `@Bean OutboxStore`.
  * - [Clock] — defaults to [Clock.systemUTC]
  * - [RetryPolicy] — defaults to `maxRetries = 5`
- * - [PlatformTransactionManager] — if absent, each store call runs in its own transaction
+ * - [PlatformTransactionManager] — when present, scheduler/purger wrap each tick in a Spring
+ *   transaction. When absent, store calls run in JDBC auto-commit mode, which narrows
+ *   `FOR UPDATE SKIP LOCKED` to the claim itself and allows duplicate delivery across
+ *   processor instances; configure one for any multi-instance deployment.
  *
  * Multi-datasource support:
  * - Set `okapi.datasource-qualifier` to the bean name of the [DataSource] that holds the outbox table.

@@ -22,7 +22,6 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.doubles.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.shouldBe
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import java.time.Clock
 import java.util.concurrent.TimeUnit
 
@@ -31,8 +30,8 @@ class ObservabilityEndToEndTest : FunSpec({
     val wiremock = WireMockServer(wireMockConfig().dynamicPort())
     val clock = Clock.systemUTC()
 
-    val exposedTransactionRunner = object : TransactionRunner {
-        override fun <T> runInTransaction(block: () -> T): T = transaction { block() }
+    val jdbcTransactionRunner = object : TransactionRunner {
+        override fun <T> runInTransaction(block: () -> T): T = db.jdbc.withTransaction { block() }
     }
 
     beforeSpec {
@@ -57,10 +56,10 @@ class ObservabilityEndToEndTest : FunSpec({
 
     test("full pipeline: publish, deliver, verify Micrometer counters and gauges") {
         val registry = SimpleMeterRegistry()
-        val store = PostgresOutboxStore(clock)
+        val store = PostgresOutboxStore(db.jdbc, clock)
         val publisher = OutboxPublisher(store, clock)
         val listener = MicrometerOutboxListener(registry)
-        val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = exposedTransactionRunner, clock = clock)
+        val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = jdbcTransactionRunner, clock = clock)
 
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
         val entryProcessor = OutboxEntryProcessor(HttpMessageDeliverer(urlResolver), RetryPolicy(maxRetries = 3), clock)
@@ -82,10 +81,10 @@ class ObservabilityEndToEndTest : FunSpec({
         )
 
         // Publish 1 message
-        transaction { publisher.publish(OutboxMessage("order.created", """{"orderId":"e2e-1"}"""), deliveryInfo()) }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", """{"orderId":"e2e-1"}"""), deliveryInfo()) }
 
         // First processNext: HTTP 500 → RetryScheduled
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { processor.processNext() }
 
         registry.counter("okapi.entries.retry.scheduled").count() shouldBe 1.0
         registry.counter("okapi.entries.delivered").count() shouldBe 0.0
@@ -97,7 +96,7 @@ class ObservabilityEndToEndTest : FunSpec({
         registry.find("okapi.entries.count").tag("status", "pending").gauge()!!.value() shouldBe 1.0
 
         // Second processNext: HTTP 200 → Delivered
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { processor.processNext() }
 
         registry.counter("okapi.entries.delivered").count() shouldBe 1.0
         registry.counter("okapi.entries.retry.scheduled").count() shouldBe 1.0 // still 1 from before
@@ -111,10 +110,10 @@ class ObservabilityEndToEndTest : FunSpec({
 
     test("permanent failure: HTTP 400 → Failed counter incremented, gauge reflects FAILED") {
         val registry = SimpleMeterRegistry()
-        val store = PostgresOutboxStore(clock)
+        val store = PostgresOutboxStore(db.jdbc, clock)
         val publisher = OutboxPublisher(store, clock)
         val listener = MicrometerOutboxListener(registry)
-        val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = exposedTransactionRunner, clock = clock)
+        val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = jdbcTransactionRunner, clock = clock)
 
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
         val entryProcessor = OutboxEntryProcessor(HttpMessageDeliverer(urlResolver), RetryPolicy(maxRetries = 3), clock)
@@ -125,8 +124,8 @@ class ObservabilityEndToEndTest : FunSpec({
                 .willReturn(aResponse().withStatus(400)),
         )
 
-        transaction { publisher.publish(OutboxMessage("order.created", """{"orderId":"e2e-2"}"""), deliveryInfo()) }
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", """{"orderId":"e2e-2"}"""), deliveryInfo()) }
+        db.jdbc.withTransaction { processor.processNext() }
 
         registry.counter("okapi.entries.failed").count() shouldBe 1.0
         registry.counter("okapi.entries.delivered").count() shouldBe 0.0
@@ -137,7 +136,7 @@ class ObservabilityEndToEndTest : FunSpec({
 
     test("batch duration timer records realistic delivery time") {
         val registry = SimpleMeterRegistry()
-        val store = PostgresOutboxStore(clock)
+        val store = PostgresOutboxStore(db.jdbc, clock)
         val publisher = OutboxPublisher(store, clock)
         val listener = MicrometerOutboxListener(registry)
 
@@ -150,8 +149,8 @@ class ObservabilityEndToEndTest : FunSpec({
                 .willReturn(aResponse().withStatus(200).withFixedDelay(50)),
         )
 
-        transaction { publisher.publish(OutboxMessage("order.created", """{"orderId":"e2e-3"}"""), deliveryInfo()) }
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", """{"orderId":"e2e-3"}"""), deliveryInfo()) }
+        db.jdbc.withTransaction { processor.processNext() }
 
         val timer = registry.timer("okapi.batch.duration")
         timer.count() shouldBe 1
@@ -160,12 +159,12 @@ class ObservabilityEndToEndTest : FunSpec({
 
     test("lag gauge reflects real time difference for pending entries") {
         val registry = SimpleMeterRegistry()
-        val store = PostgresOutboxStore(clock)
+        val store = PostgresOutboxStore(db.jdbc, clock)
         val publisher = OutboxPublisher(store, clock)
-        val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = exposedTransactionRunner, clock = clock)
+        val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = jdbcTransactionRunner, clock = clock)
 
         // Publish but don't process — entry stays PENDING
-        transaction { publisher.publish(OutboxMessage("order.created", """{"orderId":"e2e-4"}"""), deliveryInfo()) }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", """{"orderId":"e2e-4"}"""), deliveryInfo()) }
 
         // Small sleep to create measurable lag
         Thread.sleep(100)

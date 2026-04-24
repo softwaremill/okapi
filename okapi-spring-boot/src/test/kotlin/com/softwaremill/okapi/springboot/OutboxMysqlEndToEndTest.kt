@@ -72,7 +72,9 @@ class OutboxMysqlEndToEndTest :
 
         beforeEach {
             wiremock.resetAll()
-            jdbc.withTransaction { jdbc.getConnection().createStatement().use { it.execute("DELETE FROM outbox") } }
+            jdbc.withTransaction {
+                jdbc.withConnection { conn -> conn.createStatement().use { it.execute("DELETE FROM outbox") } }
+            }
         }
 
         given("a message published within a transaction") {
@@ -199,8 +201,11 @@ class OutboxMysqlEndToEndTest :
 private class TestJdbcConnectionProvider(private val dataSource: javax.sql.DataSource) : ConnectionProvider {
     private val threadLocalConnection = ThreadLocal<java.sql.Connection>()
 
-    override fun getConnection(): java.sql.Connection = threadLocalConnection.get()
-        ?: throw IllegalStateException("No connection bound to current thread. Use withTransaction { } in tests.")
+    override fun <T> withConnection(block: (java.sql.Connection) -> T): T {
+        val connection = threadLocalConnection.get()
+            ?: throw IllegalStateException("No connection bound to current thread. Use withTransaction { } in tests.")
+        return block(connection)
+    }
 
     fun <T> withTransaction(block: () -> T): T {
         val conn = dataSource.connection

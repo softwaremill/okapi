@@ -6,13 +6,17 @@ import javax.sql.DataSource
 
 /**
  * Test helper that provides a [ConnectionProvider] backed by a [ThreadLocal] connection.
- * Use [withTransaction] to bind a JDBC connection for the duration of a block.
+ * Use [withTransaction] to bind a JDBC connection for the duration of a block;
+ * that outer scope owns commit/rollback and close.
  */
 class JdbcConnectionProvider(private val dataSource: DataSource) : ConnectionProvider {
     private val threadLocalConnection = ThreadLocal<Connection>()
 
-    override fun getConnection(): Connection = threadLocalConnection.get()
-        ?: throw IllegalStateException("No connection bound to current thread. Use withTransaction { } in tests.")
+    override fun <T> withConnection(block: (Connection) -> T): T {
+        val connection = threadLocalConnection.get()
+            ?: throw IllegalStateException("No connection bound to current thread. Use withTransaction { } in tests.")
+        return block(connection)
+    }
 
     fun <T> withTransaction(block: () -> T): T = withTransaction(transactionIsolation = null, block)
 

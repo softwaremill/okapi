@@ -7,13 +7,18 @@ import java.sql.Connection
 /**
  * Exposed implementation of [ConnectionProvider].
  *
- * Retrieves the JDBC [Connection] from the current Exposed transaction.
- * Use this when your application manages transactions via Exposed's
- * `transaction(database) { }` blocks (e.g., Ktor + Exposed apps).
+ * Reads the JDBC [Connection] from Exposed's active `TransactionManager.current()` and
+ * passes it to the caller's block. Exposed owns the connection's lifecycle — it commits
+ * or rolls back, and returns the connection to the pool when the enclosing
+ * `transaction(database) { }` block completes — so this provider performs no cleanup.
  *
- * The returned connection is **borrowed** from Exposed's active transaction —
- * the caller must NOT close it.
+ * Use when your application manages transactions via Exposed (e.g. Ktor + Exposed apps).
+ * Must be called from within an active Exposed transaction; otherwise
+ * `TransactionManager.current()` throws.
  */
 class ExposedConnectionProvider : ConnectionProvider {
-    override fun getConnection(): Connection = TransactionManager.current().connection.connection as Connection
+    override fun <T> withConnection(block: (Connection) -> T): T {
+        val connection = TransactionManager.current().connection.connection as Connection
+        return block(connection)
+    }
 }

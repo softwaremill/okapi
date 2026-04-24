@@ -31,7 +31,9 @@ class MysqlTestSupport {
 
     fun truncate() {
         jdbc.withTransaction {
-            jdbc.getConnection().createStatement().use { it.execute("DELETE FROM outbox") }
+            jdbc.withConnection { conn ->
+                conn.createStatement().use { it.execute("DELETE FROM outbox") }
+            }
         }
     }
 

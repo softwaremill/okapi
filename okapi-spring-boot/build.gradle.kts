@@ -10,7 +10,7 @@ dependencies {
 
     compileOnly(libs.springContext)
     compileOnly(libs.springTx)
-    implementation(libs.springJdbc)
+    compileOnly(libs.springJdbc)
     compileOnly(libs.springBootAutoconfigure)
 
     // Validation annotations for @ConfigurationProperties classes
@@ -25,6 +25,7 @@ dependencies {
 
     testImplementation(libs.kotestRunnerJunit5)
     testImplementation(libs.kotestAssertionsCore)
+    testImplementation(libs.h2)
     testImplementation(libs.springContext)
     testImplementation(libs.springTx)
     testImplementation(libs.springJdbc)
