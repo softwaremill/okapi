@@ -19,7 +19,7 @@ import java.time.Duration
  *
  * Connection errors are treated as retriable.
  */
-class HttpMessageDeliverer(
+class HttpMessageDeliverer @JvmOverloads constructor(
     private val urlResolver: ServiceUrlResolver,
     private val httpClient: HttpClient = defaultHttpClient(),
     private val retriableStatusCodes: Set<Int> = DEFAULT_RETRIABLE_STATUS_CODES,

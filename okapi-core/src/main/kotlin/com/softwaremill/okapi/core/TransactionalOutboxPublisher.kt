@@ -13,6 +13,7 @@ class TransactionalOutboxPublisher(
     private val delegate: OutboxPublisher,
     private val validator: TransactionContextValidator,
 ) {
+    @JvmName("publish")
     fun publish(outboxMessage: OutboxMessage, deliveryInfo: DeliveryInfo): OutboxId {
         check(validator.isInActiveReadWriteTransaction()) { validator.failureMessage }
         return delegate.publish(outboxMessage, deliveryInfo)

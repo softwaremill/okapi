@@ -18,6 +18,7 @@ class OutboxProcessor(
     private val listener: OutboxProcessorListener? = null,
     private val clock: Clock = Clock.systemUTC(),
 ) {
+    @JvmOverloads
     fun processNext(limit: Int = 10) {
         val batchStart = clock.instant()
         var count = 0

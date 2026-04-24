@@ -9,6 +9,7 @@ import java.time.Instant
  * or [toFailed] — each returning a new immutable copy.
  */
 data class OutboxEntry(
+    @get:JvmName("getOutboxId")
     val outboxId: OutboxId,
     val messageType: String,
     val payload: String,
@@ -47,6 +48,7 @@ data class OutboxEntry(
 
     companion object {
         /** Creates a new PENDING entry from a [message] and [deliveryInfo]. */
+        @JvmStatic
         fun createPending(message: OutboxMessage, deliveryInfo: DeliveryInfo, now: Instant): OutboxEntry =
             createPending(message, deliveryType = deliveryInfo.type, deliveryMetadata = deliveryInfo.serialize(), now = now)
 

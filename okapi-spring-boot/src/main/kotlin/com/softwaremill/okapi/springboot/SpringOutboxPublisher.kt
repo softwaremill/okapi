@@ -30,6 +30,7 @@ class SpringOutboxPublisher(delegate: OutboxPublisher, dataSource: DataSource) {
      *
      * @throws IllegalStateException if no active read-write transaction is present.
      */
+    @JvmName("publish")
     fun publish(outboxMessage: OutboxMessage, deliveryInfo: DeliveryInfo): OutboxId =
         transactionalPublisher.publish(outboxMessage, deliveryInfo)
 }

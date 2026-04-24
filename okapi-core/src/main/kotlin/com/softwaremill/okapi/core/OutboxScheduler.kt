@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - `okapi-spring-boot`: `SmartLifecycle`
  * - `okapi-ktor`: `ApplicationStarted` / `ApplicationStopped`
  */
-class OutboxScheduler(
+class OutboxScheduler @JvmOverloads constructor(
     private val outboxProcessor: OutboxProcessor,
     private val transactionRunner: TransactionRunner? = null,
     private val config: OutboxSchedulerConfig = OutboxSchedulerConfig(),
