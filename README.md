@@ -114,6 +114,12 @@ With Spring Boot Actuator and a Prometheus registry (`micrometer-registry-promet
 | `okapi.entries.count` | Gauge | Current entry count (tag: `status=pending\|delivered\|failed`) |
 | `okapi.entries.lag.seconds` | Gauge | Age of oldest entry in seconds (tag: `status`) |
 
+### Configuration
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `okapi.metrics.refresh-interval` | `PT15S` (15s) | How often gauge metrics poll the outbox store. Each refresh runs one transaction with two queries. |
+
 ### Multi-instance deployments
 
 Counters and timers (`okapi.entries.delivered`, `okapi.entries.retry.scheduled`, `okapi.entries.failed`, `okapi.batch.duration`) report work performed by **each instance** — aggregate with `sum`:

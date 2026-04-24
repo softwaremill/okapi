@@ -14,6 +14,11 @@
       "name": "okapi.processor",
       "type": "com.softwaremill.okapi.springboot.OutboxProcessorProperties",
       "description": "Outbox processor configuration."
+    },
+    {
+      "name": "okapi.metrics",
+      "type": "com.softwaremill.okapi.springboot.OkapiMetricsProperties",
+      "description": "Okapi Micrometer metrics configuration (okapi-micrometer module)."
     }
   ],
   "properties": [
@@ -70,6 +75,12 @@
       "type": "java.lang.String",
       "defaultValue": null,
       "description": "Name of the DataSource bean to use for the outbox. When set, okapi uses this specific DataSource instead of the primary one. Required in multi-datasource setups where the outbox table is not in the primary database."
+    },
+    {
+      "name": "okapi.metrics.refresh-interval",
+      "type": "java.time.Duration",
+      "defaultValue": "15s",
+      "description": "How often gauge metrics (okapi.entries.count, okapi.entries.lag.seconds) are refreshed from the outbox store. Each refresh runs one transaction with two queries. Requires okapi-micrometer on the classpath."
     }
   ]
 }
