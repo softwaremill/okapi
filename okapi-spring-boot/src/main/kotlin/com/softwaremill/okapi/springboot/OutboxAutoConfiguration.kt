@@ -42,7 +42,10 @@ import javax.sql.DataSource
  *   If both are present, Postgres takes priority. Override by defining your own `@Bean OutboxStore`.
  * - [Clock] — defaults to [Clock.systemUTC]
  * - [RetryPolicy] — defaults to `maxRetries = 5`
- * - [PlatformTransactionManager] — if absent, each store call runs in its own transaction
+ * - [PlatformTransactionManager] — when present, scheduler/purger wrap each tick in a Spring
+ *   transaction. When absent, store calls run in JDBC auto-commit mode, which narrows
+ *   `FOR UPDATE SKIP LOCKED` to the claim itself and allows duplicate delivery across
+ *   processor instances; configure one for any multi-instance deployment.
  *
  * Multi-datasource support:
  * - Set `okapi.datasource-qualifier` to the bean name of the [DataSource] that holds the outbox table.
@@ -126,10 +129,12 @@ class OutboxAutoConfiguration(
     fun outboxPurgerScheduler(
         props: OutboxPurgerProperties,
         outboxStore: OutboxStore,
+        transactionManager: ObjectProvider<PlatformTransactionManager>,
         clock: ObjectProvider<Clock>,
     ): OutboxPurgerScheduler {
         return OutboxPurgerScheduler(
             outboxStore = outboxStore,
+            transactionTemplate = transactionManager.getIfAvailable()?.let { TransactionTemplate(it) },
             config = OutboxPurgerConfig(
                 retention = props.retention,
                 interval = props.interval,
@@ -153,8 +158,10 @@ class OutboxAutoConfiguration(
     ) {
         @Bean
         @ConditionalOnMissingBean(OutboxStore::class)
-        fun outboxStore(clock: ObjectProvider<Clock>): PostgresOutboxStore =
-            PostgresOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
+        fun outboxStore(clock: ObjectProvider<Clock>): PostgresOutboxStore = PostgresOutboxStore(
+            connectionProvider = SpringConnectionProvider(resolveDataSource(dataSources, primaryDataSource, okapiProperties)),
+            clock = clock.getIfAvailable { Clock.systemUTC() },
+        )
 
         @Bean("okapiPostgresLiquibase")
         @ConditionalOnClass(SpringLiquibase::class)
@@ -176,8 +183,10 @@ class OutboxAutoConfiguration(
     ) {
         @Bean
         @ConditionalOnMissingBean(OutboxStore::class)
-        fun outboxStore(clock: ObjectProvider<Clock>): MysqlOutboxStore =
-            MysqlOutboxStore(clock = clock.getIfAvailable { Clock.systemUTC() })
+        fun outboxStore(clock: ObjectProvider<Clock>): MysqlOutboxStore = MysqlOutboxStore(
+            connectionProvider = SpringConnectionProvider(resolveDataSource(dataSources, primaryDataSource, okapiProperties)),
+            clock = clock.getIfAvailable { Clock.systemUTC() },
+        )
 
         @Bean("okapiMysqlLiquibase")
         @ConditionalOnClass(SpringLiquibase::class)

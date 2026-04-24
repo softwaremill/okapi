@@ -78,8 +78,8 @@ springOutboxPublisher.publish(
 
 **Using MySQL instead of PostgreSQL?** Replace `okapi-postgres` with `okapi-mysql` in your dependencies — no code changes needed.
 
-> **Note:** `okapi-postgres` and `okapi-mysql` require Exposed ORM dependencies in your project.
-> Spring and Kafka versions are not forced by okapi — you control them.
+> **Note:** Spring and Kafka versions are not forced by okapi — you control them.
+> Okapi uses plain JDBC internally — it works with any `PlatformTransactionManager` (JPA, JDBC, jOOQ, Exposed, etc.).
 
 ## How It Works
 
@@ -167,6 +167,7 @@ graph BT
     HTTP[okapi-http] --> CORE
     KAFKA[okapi-kafka] --> CORE
     MICRO[okapi-micrometer] --> CORE
+    EXP[okapi-exposed] --> CORE
     SPRING[okapi-spring-boot] --> CORE
     SPRING -.->|compileOnly| PG
     SPRING -.->|compileOnly| MY
@@ -179,9 +180,10 @@ graph BT
 
 | Module | Purpose |
 |--------|---------|
-| `okapi-core` | Transport/storage-agnostic orchestration, scheduling, retry policy |
-| `okapi-postgres` | PostgreSQL storage via Exposed ORM (`FOR UPDATE SKIP LOCKED`) |
-| `okapi-mysql` | MySQL 8+ storage via Exposed ORM |
+| `okapi-core` | Transport/storage-agnostic orchestration, scheduling, retry policy, `ConnectionProvider` interface |
+| `okapi-exposed` | Exposed ORM integration — `ExposedConnectionProvider`, `ExposedTransactionRunner`, `ExposedTransactionContextValidator` |
+| `okapi-postgres` | PostgreSQL storage via plain JDBC (`FOR UPDATE SKIP LOCKED`) |
+| `okapi-mysql` | MySQL 8+ storage via plain JDBC |
 | `okapi-http` | HTTP webhook delivery (JDK HttpClient) |
 | `okapi-kafka` | Kafka topic publishing |
 | `okapi-micrometer` | Micrometer metrics (counters, timers, gauges) |
@@ -195,7 +197,7 @@ graph BT
 | Java | 21+ | Required |
 | Spring Boot | 3.5.x, 4.0.x | `okapi-spring-boot` module |
 | Kafka Clients | 3.9.x, 4.x | `okapi-kafka` — you provide `kafka-clients` |
-| Exposed | 1.x | `okapi-postgres`, `okapi-mysql` — you provide Exposed |
+| Exposed | 1.x | `okapi-exposed` module — for Ktor/standalone apps |
 
 ## Build
 

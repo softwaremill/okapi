@@ -4,6 +4,7 @@ import com.softwaremill.okapi.core.OutboxPurger
 import com.softwaremill.okapi.core.OutboxPurgerConfig
 import com.softwaremill.okapi.core.OutboxStore
 import org.springframework.context.SmartLifecycle
+import org.springframework.transaction.support.TransactionTemplate
 import java.time.Clock
 
 /**
@@ -14,12 +15,14 @@ import java.time.Clock
  */
 class OutboxPurgerScheduler(
     outboxStore: OutboxStore,
+    transactionTemplate: TransactionTemplate? = null,
     config: OutboxPurgerConfig = OutboxPurgerConfig(),
     clock: Clock = Clock.systemUTC(),
 ) : SmartLifecycle {
 
     private val purger = OutboxPurger(
         outboxStore = outboxStore,
+        transactionRunner = transactionTemplate?.let { SpringTransactionRunner(it) },
         config = config,
         clock = clock,
     )

@@ -1,25 +1,27 @@
 package com.softwaremill.okapi.test.support
 
+import com.mysql.cj.jdbc.MysqlDataSource
 import liquibase.Liquibase
 import liquibase.database.DatabaseFactory
 import liquibase.database.jvm.JdbcConnection
 import liquibase.resource.ClassLoaderResourceAccessor
-import org.jetbrains.exposed.v1.jdbc.Database
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.testcontainers.containers.MySQLContainer
 import java.sql.DriverManager
+import javax.sql.DataSource
 
 class MysqlTestSupport {
     val container = MySQLContainer<Nothing>("mysql:8.0")
+    lateinit var dataSource: DataSource
+    lateinit var jdbc: JdbcConnectionProvider
 
     fun start() {
         container.start()
-        Database.connect(
-            url = container.jdbcUrl,
-            driver = container.driverClassName,
-            user = container.username,
-            password = container.password,
-        )
+        dataSource = MysqlDataSource().apply {
+            setURL(container.jdbcUrl)
+            user = container.username
+            setPassword(container.password)
+        }
+        jdbc = JdbcConnectionProvider(dataSource)
         runLiquibase()
     }
 
@@ -28,7 +30,11 @@ class MysqlTestSupport {
     }
 
     fun truncate() {
-        transaction { exec("DELETE FROM outbox") }
+        jdbc.withTransaction {
+            jdbc.withConnection { conn ->
+                conn.createStatement().use { it.execute("DELETE FROM outbox") }
+            }
+        }
     }
 
     private fun runLiquibase() {

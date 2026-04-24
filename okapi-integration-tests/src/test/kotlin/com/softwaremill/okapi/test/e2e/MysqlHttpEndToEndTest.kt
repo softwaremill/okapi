@@ -21,7 +21,6 @@ import com.softwaremill.okapi.mysql.MysqlOutboxStore
 import com.softwaremill.okapi.test.support.MysqlTestSupport
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.maps.shouldContain
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import java.time.Clock
 
 class MysqlHttpEndToEndTest : FunSpec({
@@ -45,7 +44,7 @@ class MysqlHttpEndToEndTest : FunSpec({
 
     fun buildPipeline(): Triple<OutboxPublisher, OutboxProcessor, MysqlOutboxStore> {
         val clock = Clock.systemUTC()
-        val store = MysqlOutboxStore(clock)
+        val store = MysqlOutboxStore(db.jdbc, clock)
         val publisher = OutboxPublisher(store, clock)
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
         val entryProcessor = OutboxEntryProcessor(
@@ -70,15 +69,15 @@ class MysqlHttpEndToEndTest : FunSpec({
                 .willReturn(aResponse().withStatus(200)),
         )
 
-        transaction { publisher.publish(OutboxMessage("order.created", payload), deliveryInfo()) }
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", payload), deliveryInfo()) }
+        db.jdbc.withTransaction { processor.processNext() }
 
         wiremock.verify(
             postRequestedFor(urlEqualTo("/api/notify"))
                 .withRequestBody(equalTo(payload)),
         )
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = db.jdbc.withTransaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.DELIVERED to 1L)
     }
 
@@ -90,10 +89,10 @@ class MysqlHttpEndToEndTest : FunSpec({
                 .willReturn(aResponse().withStatus(500)),
         )
 
-        transaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
+        db.jdbc.withTransaction { processor.processNext() }
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = db.jdbc.withTransaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.PENDING to 1L)
         counts shouldContain (OutboxStatus.DELIVERED to 0L)
     }
@@ -106,10 +105,10 @@ class MysqlHttpEndToEndTest : FunSpec({
                 .willReturn(aResponse().withStatus(400)),
         )
 
-        transaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
+        db.jdbc.withTransaction { processor.processNext() }
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = db.jdbc.withTransaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.FAILED to 1L)
         counts shouldContain (OutboxStatus.PENDING to 0L)
     }
@@ -122,10 +121,10 @@ class MysqlHttpEndToEndTest : FunSpec({
                 .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
         )
 
-        transaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
-        transaction { processor.processNext() }
+        db.jdbc.withTransaction { publisher.publish(OutboxMessage("order.created", """{"id":"1"}"""), deliveryInfo()) }
+        db.jdbc.withTransaction { processor.processNext() }
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = db.jdbc.withTransaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.PENDING to 1L)
     }
 })

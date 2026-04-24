@@ -1,4 +1,4 @@
-package com.softwaremill.okapi.core
+package com.softwaremill.okapi.exposed
 
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.shouldBe

@@ -5,6 +5,7 @@ import com.softwaremill.okapi.core.OutboxMessage
 import com.softwaremill.okapi.core.OutboxPublisher
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.postgres.PostgresOutboxStore
+import com.softwaremill.okapi.springboot.SpringConnectionProvider
 import com.softwaremill.okapi.springboot.SpringOutboxPublisher
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
@@ -14,7 +15,6 @@ import liquibase.Liquibase
 import liquibase.database.DatabaseFactory
 import liquibase.database.jvm.JdbcConnection
 import liquibase.resource.ClassLoaderResourceAccessor
-import org.jetbrains.exposed.v1.spring7.transaction.SpringTransactionManager
 import org.postgresql.ds.PGSimpleDataSource
 import org.springframework.jdbc.datasource.DataSourceTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
@@ -31,8 +31,7 @@ import javax.sql.DataSource
  * - **outboxContainer**: hosts the outbox table (Liquibase migration applied)
  * - **otherContainer**: a second database with no outbox table
  *
- * The outbox DataSource uses [SpringTransactionManager] (Exposed-compatible),
- * while the other DataSource uses plain [DataSourceTransactionManager].
+ * Both DataSources use plain [DataSourceTransactionManager].
  */
 class MultiDataSourceTransactionTest : FunSpec({
 
@@ -74,16 +73,14 @@ class MultiDataSourceTransactionTest : FunSpec({
         // Run Liquibase migration only on the outbox database
         runLiquibase(outboxContainer)
 
-        // SpringTransactionManager (Exposed) for the outbox DataSource —
-        // PostgresOutboxStore uses Exposed internally, so the transaction must be Exposed-compatible
-        val outboxTxManager = SpringTransactionManager(outboxDataSource)
+        val outboxTxManager = DataSourceTransactionManager(outboxDataSource)
         outboxTxTemplate = TransactionTemplate(outboxTxManager)
 
         // Plain DataSourceTransactionManager for the other DataSource
         val otherTxManager = DataSourceTransactionManager(otherDataSource)
         otherTxTemplate = TransactionTemplate(otherTxManager)
 
-        store = PostgresOutboxStore(clock)
+        store = PostgresOutboxStore(SpringConnectionProvider(outboxDataSource), clock)
         val corePublisher = OutboxPublisher(store, clock)
         publisher = SpringOutboxPublisher(delegate = corePublisher, dataSource = outboxDataSource)
     }

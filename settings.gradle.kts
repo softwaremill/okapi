@@ -10,6 +10,7 @@ plugins {
 }
 
 include("okapi-core")
+include("okapi-exposed")
 include("okapi-postgres")
 include("okapi-mysql")
 include("okapi-http")

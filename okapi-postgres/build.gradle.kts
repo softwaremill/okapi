@@ -3,18 +3,10 @@ plugins {
     id("buildsrc.convention.publish")
 }
 
-description = "PostgreSQL outbox store using Exposed"
+description = "PostgreSQL outbox store using plain JDBC"
 
 dependencies {
     implementation(project(":okapi-core"))
-
-    compileOnly(libs.exposedCore)
-    compileOnly(libs.exposedJdbc)
-    compileOnly(libs.exposedJson)
-    compileOnly(libs.exposedJavaTime)
-
-    implementation(libs.jacksonModuleKotlin)
-    implementation(libs.jacksonDatatypeJsr310)
 
     compileOnly(libs.liquibaseCore)
 
@@ -22,8 +14,4 @@ dependencies {
     testImplementation(libs.kotestAssertionsCore)
     testImplementation(libs.testcontainersPostgresql)
     testImplementation(libs.postgresql)
-    testImplementation(libs.exposedCore)
-    testImplementation(libs.exposedJdbc)
-    testImplementation(libs.exposedJson)
-    testImplementation(libs.exposedJavaTime)
 }

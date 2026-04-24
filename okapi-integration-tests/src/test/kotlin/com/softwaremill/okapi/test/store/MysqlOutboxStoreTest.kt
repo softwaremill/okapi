@@ -12,7 +12,13 @@ class MysqlOutboxStoreTest : FunSpec({
 
     outboxStoreContractTests(
         dbName = "mysql",
-        storeFactory = { MysqlOutboxStore(Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC)) },
+        storeFactory = {
+            MysqlOutboxStore(
+                connectionProvider = db.jdbc,
+                clock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC),
+            )
+        },
+        jdbcProvider = { db.jdbc },
         startDb = { db.start() },
         stopDb = { db.stop() },
         truncate = { db.truncate() },

@@ -5,11 +5,11 @@ import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxMessage
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.test.support.JdbcConnectionProvider
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.maps.shouldContain
 import io.kotest.matchers.shouldBe
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import java.time.Instant
 
 private class StubDeliveryInfo(
@@ -33,14 +33,17 @@ private fun createTestEntry(
 fun FunSpec.outboxStoreContractTests(
     dbName: String,
     storeFactory: () -> OutboxStore,
+    jdbcProvider: () -> JdbcConnectionProvider,
     startDb: () -> Unit,
     stopDb: () -> Unit,
     truncate: () -> Unit,
 ) {
     lateinit var store: OutboxStore
+    lateinit var jdbc: JdbcConnectionProvider
 
     beforeSpec {
         startDb()
+        jdbc = jdbcProvider()
         store = storeFactory()
     }
 
@@ -55,9 +58,9 @@ fun FunSpec.outboxStoreContractTests(
     test("[$dbName] persist and read back via claimPending") {
         val entry = createTestEntry()
 
-        transaction { store.persist(entry) }
+        jdbc.withTransaction { store.persist(entry) }
 
-        val claimed = transaction { store.claimPending(10) }
+        val claimed = jdbc.withTransaction { store.claimPending(10) }
 
         claimed shouldHaveSize 1
         val found = claimed.first()
@@ -75,18 +78,17 @@ fun FunSpec.outboxStoreContractTests(
         val t2 = Instant.parse("2024-01-02T00:00:00Z")
         val t3 = Instant.parse("2024-01-03T00:00:00Z")
 
-        // Insert in non-sequential order to verify ordering
         val e2 = createTestEntry(now = t2, messageType = "type.second")
         val e3 = createTestEntry(now = t3, messageType = "type.third")
         val e1 = createTestEntry(now = t1, messageType = "type.first")
 
-        transaction {
+        jdbc.withTransaction {
             store.persist(e2)
             store.persist(e3)
             store.persist(e1)
         }
 
-        val claimed = transaction { store.claimPending(10) }
+        val claimed = jdbc.withTransaction { store.claimPending(10) }
 
         claimed shouldHaveSize 3
         claimed[0].messageType shouldBe "type.first"
@@ -95,7 +97,7 @@ fun FunSpec.outboxStoreContractTests(
     }
 
     test("[$dbName] claimPending respects limit") {
-        transaction {
+        jdbc.withTransaction {
             repeat(5) { i ->
                 val entry = createTestEntry(
                     now = Instant.parse("2024-01-01T00:00:00Z").plusSeconds(i.toLong()),
@@ -105,7 +107,7 @@ fun FunSpec.outboxStoreContractTests(
             }
         }
 
-        val claimed = transaction { store.claimPending(2) }
+        val claimed = jdbc.withTransaction { store.claimPending(2) }
 
         claimed shouldHaveSize 2
     }
@@ -120,19 +122,18 @@ fun FunSpec.outboxStoreContractTests(
             messageType = "type.delivered",
         )
 
-        transaction {
+        jdbc.withTransaction {
             store.persist(pendingEntry)
             store.persist(toBeDelivered)
         }
 
-        // Claim the second entry and mark it delivered
-        transaction {
+        jdbc.withTransaction {
             val claimed = store.claimPending(10)
             val deliveredCandidate = claimed.first { it.outboxId == toBeDelivered.outboxId }
             store.updateAfterProcessing(deliveredCandidate.toDelivered(Instant.parse("2024-01-02T00:00:00Z")))
         }
 
-        val claimed = transaction { store.claimPending(10) }
+        val claimed = jdbc.withTransaction { store.claimPending(10) }
 
         claimed shouldHaveSize 1
         claimed.first().messageType shouldBe "type.pending"
@@ -141,15 +142,15 @@ fun FunSpec.outboxStoreContractTests(
     test("[$dbName] updateAfterProcessing persists status change") {
         val entry = createTestEntry()
 
-        transaction { store.persist(entry) }
+        jdbc.withTransaction { store.persist(entry) }
 
-        transaction {
+        jdbc.withTransaction {
             val claimed = store.claimPending(10)
             val delivered = claimed.first().toDelivered(Instant.parse("2024-01-02T00:00:00Z"))
             store.updateAfterProcessing(delivered)
         }
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = jdbc.withTransaction { store.countByStatuses() }
 
         counts shouldContain (OutboxStatus.DELIVERED to 1L)
         counts shouldContain (OutboxStatus.PENDING to 0L)
@@ -165,13 +166,12 @@ fun FunSpec.outboxStoreContractTests(
             messageType = "type.recent",
         )
 
-        transaction {
+        jdbc.withTransaction {
             store.persist(oldEntry)
             store.persist(recentEntry)
         }
 
-        // Mark both as delivered with different lastAttempt timestamps
-        transaction {
+        jdbc.withTransaction {
             val claimed = store.claimPending(10)
             val old = claimed.first { it.outboxId == oldEntry.outboxId }
             val recent = claimed.first { it.outboxId == recentEntry.outboxId }
@@ -179,10 +179,9 @@ fun FunSpec.outboxStoreContractTests(
             store.updateAfterProcessing(recent.toDelivered(Instant.parse("2024-01-11T00:00:00Z")))
         }
 
-        // Remove delivered before Jan 5 — should delete old (lastAttempt=Jan 2) but keep recent (lastAttempt=Jan 11)
-        transaction { store.removeDeliveredBefore(Instant.parse("2024-01-05T00:00:00Z"), limit = 100) }
+        jdbc.withTransaction { store.removeDeliveredBefore(Instant.parse("2024-01-05T00:00:00Z"), limit = 100) }
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = jdbc.withTransaction { store.countByStatuses() }
         counts shouldContain (OutboxStatus.DELIVERED to 1L)
     }
 
@@ -204,14 +203,14 @@ fun FunSpec.outboxStoreContractTests(
             messageType = "type.failed",
         )
 
-        transaction {
+        jdbc.withTransaction {
             store.persist(pending1)
             store.persist(pending2)
             store.persist(toDeliver)
             store.persist(toFail)
         }
 
-        transaction {
+        jdbc.withTransaction {
             val claimed = store.claimPending(10)
             val deliverEntry = claimed.first { it.outboxId == toDeliver.outboxId }
             val failEntry = claimed.first { it.outboxId == toFail.outboxId }
@@ -219,7 +218,7 @@ fun FunSpec.outboxStoreContractTests(
             store.updateAfterProcessing(failEntry.toFailed(Instant.parse("2024-01-02T00:00:00Z"), "some error"))
         }
 
-        val counts = transaction { store.countByStatuses() }
+        val counts = jdbc.withTransaction { store.countByStatuses() }
 
         counts shouldContain (OutboxStatus.PENDING to 2L)
         counts shouldContain (OutboxStatus.DELIVERED to 1L)
@@ -227,7 +226,7 @@ fun FunSpec.outboxStoreContractTests(
     }
 
     test("[$dbName] claimPending returns empty when no PENDING entries") {
-        val claimed = transaction { store.claimPending(10) }
+        val claimed = jdbc.withTransaction { store.claimPending(10) }
 
         claimed shouldHaveSize 0
     }

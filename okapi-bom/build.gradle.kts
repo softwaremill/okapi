@@ -8,6 +8,7 @@ description = "BOM for consistent versioning of Okapi modules"
 dependencies {
     constraints {
         api(project(":okapi-core"))
+        api(project(":okapi-exposed"))
         api(project(":okapi-postgres"))
         api(project(":okapi-mysql"))
         api(project(":okapi-http"))
