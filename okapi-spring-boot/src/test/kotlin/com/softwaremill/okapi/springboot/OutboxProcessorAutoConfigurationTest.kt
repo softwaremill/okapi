@@ -7,6 +7,7 @@ import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.micrometer.MicrometerOutboxListener
 import com.softwaremill.okapi.micrometer.MicrometerOutboxMetrics
+import com.softwaremill.okapi.micrometer.OutboxMetricsRefresher
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -14,6 +15,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import java.time.Duration.ofMillis
+import java.time.Duration.ofMinutes
 import java.time.Duration.ofSeconds
 import java.time.Instant
 import javax.sql.DataSource
@@ -88,7 +90,7 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
         }
     }
 
-    test("listener is wired into processor when MeterRegistry is present") {
+    test("listener, metrics and refresher are wired when MeterRegistry is present") {
         contextRunner
             .withBean(io.micrometer.core.instrument.MeterRegistry::class.java, {
                 io.micrometer.core.instrument.simple.SimpleMeterRegistry()
@@ -96,6 +98,30 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             .run { ctx ->
                 ctx.getBean(MicrometerOutboxListener::class.java).shouldNotBeNull()
                 ctx.getBean(MicrometerOutboxMetrics::class.java).shouldNotBeNull()
+                ctx.getBean(OutboxMetricsRefresher::class.java).shouldNotBeNull()
+            }
+    }
+
+    test("metrics refresh-interval property is bound") {
+        contextRunner
+            .withBean(io.micrometer.core.instrument.MeterRegistry::class.java, {
+                io.micrometer.core.instrument.simple.SimpleMeterRegistry()
+            })
+            .withPropertyValues("okapi.metrics.refresh-interval=1m")
+            .run { ctx ->
+                val props = ctx.getBean(OkapiMetricsProperties::class.java)
+                props.refreshInterval shouldBe ofMinutes(1)
+            }
+    }
+
+    test("metrics refresh-interval defaults to 15s") {
+        contextRunner
+            .withBean(io.micrometer.core.instrument.MeterRegistry::class.java, {
+                io.micrometer.core.instrument.simple.SimpleMeterRegistry()
+            })
+            .run { ctx ->
+                val props = ctx.getBean(OkapiMetricsProperties::class.java)
+                props.refreshInterval shouldBe ofSeconds(15)
             }
     }
 })

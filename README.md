@@ -114,9 +114,43 @@ With Spring Boot Actuator and a Prometheus registry (`micrometer-registry-promet
 | `okapi.entries.count` | Gauge | Current entry count (tag: `status=pending\|delivered\|failed`) |
 | `okapi.entries.lag.seconds` | Gauge | Age of oldest entry in seconds (tag: `status`) |
 
-**Without Spring Boot:** create `MicrometerOutboxListener` and `MicrometerOutboxMetrics` manually and pass a `MeterRegistry`. `MicrometerOutboxMetrics` requires a `TransactionRunner` for Exposed-backed stores — see the class KDoc for details.
+### Multi-instance deployments
 
-**Custom listener:** implement `OutboxProcessorListener` to react to delivery events (logging, alerting, custom metrics). `OutboxProcessor` accepts a single listener; to combine multiple, implement a composite that delegates to each.
+Counters and timers (`okapi.entries.delivered`, `okapi.entries.retry.scheduled`, `okapi.entries.failed`, `okapi.batch.duration`) report work performed by **each instance** — aggregate with `sum`:
+
+```promql
+sum(rate(okapi_entries_delivered_total[5m]))
+```
+
+Gauges (`okapi.entries.count`, `okapi.entries.lag.seconds`) reflect the **shared outbox state** and are reported identically by every instance. Aggregate with `max by (status)`, not `sum`:
+
+```promql
+max by (status) (okapi_entries_count)
+```
+
+Polling cost per instance is `2 queries / okapi.metrics.refresh-interval` (default `2 queries / 15s`).
+
+### Without Spring Boot
+
+`okapi-micrometer` has no Spring dependency. Construct the beans manually and pass a `MeterRegistry`. `MicrometerOutboxMetrics` requires a `TransactionRunner` for Exposed-backed stores — see the class KDoc.
+
+For periodic gauge refresh, use the framework-agnostic `OutboxMetricsRefresher` (single daemon thread):
+
+```kotlin
+val listener = MicrometerOutboxListener(meterRegistry)
+val metrics = MicrometerOutboxMetrics(store, meterRegistry, transactionRunner)
+
+val refresher = OutboxMetricsRefresher(metrics, Duration.ofSeconds(15))
+refresher.start()
+// on application shutdown:
+refresher.close()
+```
+
+Or call `metrics.refresh()` from your own scheduler (Ktor coroutine, `ScheduledExecutorService`, etc.) — `refresh()` is thread-safe.
+
+### Custom listener
+
+Implement `OutboxProcessorListener` to react to delivery events (logging, alerting, custom metrics). `OutboxProcessor` accepts a single listener; to combine multiple, implement a composite that delegates to each.
 
 ## Modules
 

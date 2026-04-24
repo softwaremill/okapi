@@ -60,7 +60,7 @@ class ObservabilityEndToEndTest : FunSpec({
         val store = PostgresOutboxStore(clock)
         val publisher = OutboxPublisher(store, clock)
         val listener = MicrometerOutboxListener(registry)
-        MicrometerOutboxMetrics(store, registry, transactionRunner = exposedTransactionRunner, clock = clock)
+        val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = exposedTransactionRunner, clock = clock)
 
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
         val entryProcessor = OutboxEntryProcessor(HttpMessageDeliverer(urlResolver), RetryPolicy(maxRetries = 3), clock)
@@ -92,9 +92,9 @@ class ObservabilityEndToEndTest : FunSpec({
         registry.counter("okapi.entries.failed").count() shouldBe 0.0
         registry.timer("okapi.batch.duration").count() shouldBe 1
 
-        // Gauge: 1 PENDING entry
-        val pendingGauge = registry.find("okapi.entries.count").tag("status", "pending").gauge()
-        pendingGauge!!.value() shouldBe 1.0
+        // Gauge snapshot is push-based — refresh before reading
+        metrics.refresh()
+        registry.find("okapi.entries.count").tag("status", "pending").gauge()!!.value() shouldBe 1.0
 
         // Second processNext: HTTP 200 → Delivered
         transaction { processor.processNext() }
@@ -103,10 +103,10 @@ class ObservabilityEndToEndTest : FunSpec({
         registry.counter("okapi.entries.retry.scheduled").count() shouldBe 1.0 // still 1 from before
         registry.timer("okapi.batch.duration").count() shouldBe 2
 
-        // Gauge: 0 PENDING, 1 DELIVERED
-        pendingGauge.value() shouldBe 0.0
-        val deliveredGauge = registry.find("okapi.entries.count").tag("status", "delivered").gauge()
-        deliveredGauge!!.value() shouldBe 1.0
+        // Refresh again and verify new gauge snapshot
+        metrics.refresh()
+        registry.find("okapi.entries.count").tag("status", "pending").gauge()!!.value() shouldBe 0.0
+        registry.find("okapi.entries.count").tag("status", "delivered").gauge()!!.value() shouldBe 1.0
     }
 
     test("permanent failure: HTTP 400 → Failed counter incremented, gauge reflects FAILED") {
@@ -114,7 +114,7 @@ class ObservabilityEndToEndTest : FunSpec({
         val store = PostgresOutboxStore(clock)
         val publisher = OutboxPublisher(store, clock)
         val listener = MicrometerOutboxListener(registry)
-        MicrometerOutboxMetrics(store, registry, transactionRunner = exposedTransactionRunner, clock = clock)
+        val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = exposedTransactionRunner, clock = clock)
 
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
         val entryProcessor = OutboxEntryProcessor(HttpMessageDeliverer(urlResolver), RetryPolicy(maxRetries = 3), clock)
@@ -131,8 +131,8 @@ class ObservabilityEndToEndTest : FunSpec({
         registry.counter("okapi.entries.failed").count() shouldBe 1.0
         registry.counter("okapi.entries.delivered").count() shouldBe 0.0
 
-        val failedGauge = registry.find("okapi.entries.count").tag("status", "failed").gauge()
-        failedGauge!!.value() shouldBe 1.0
+        metrics.refresh()
+        registry.find("okapi.entries.count").tag("status", "failed").gauge()!!.value() shouldBe 1.0
     }
 
     test("batch duration timer records realistic delivery time") {
@@ -162,7 +162,7 @@ class ObservabilityEndToEndTest : FunSpec({
         val registry = SimpleMeterRegistry()
         val store = PostgresOutboxStore(clock)
         val publisher = OutboxPublisher(store, clock)
-        MicrometerOutboxMetrics(store, registry, transactionRunner = exposedTransactionRunner, clock = clock)
+        val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = exposedTransactionRunner, clock = clock)
 
         // Publish but don't process — entry stays PENDING
         transaction { publisher.publish(OutboxMessage("order.created", """{"orderId":"e2e-4"}"""), deliveryInfo()) }
@@ -170,6 +170,7 @@ class ObservabilityEndToEndTest : FunSpec({
         // Small sleep to create measurable lag
         Thread.sleep(100)
 
+        metrics.refresh()
         val lagGauge = registry.find("okapi.entries.lag.seconds").tag("status", "pending").gauge()
         lagGauge!!.value() shouldBeGreaterThanOrEqual 0.05 // at least 50ms lag
     }
