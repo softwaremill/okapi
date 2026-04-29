@@ -13,12 +13,16 @@ import java.sql.Connection
  * `transaction(database) { }` block completes — so this provider performs no cleanup.
  *
  * Use when your application manages transactions via Exposed (e.g. Ktor + Exposed apps).
- * Must be called from within an active Exposed transaction; otherwise
- * `TransactionManager.current()` throws.
+ * Must be called from within an active Exposed transaction; otherwise [withConnection]
+ * throws an [IllegalStateException] pointing the caller at the missing `transaction { }`
+ * block, instead of letting Exposed's own less specific error surface.
  */
 class ExposedConnectionProvider : ConnectionProvider {
     override fun <T> withConnection(block: (Connection) -> T): T {
-        val connection = TransactionManager.current().connection.connection as Connection
-        return block(connection)
+        val transaction = TransactionManager.currentOrNull()
+            ?: throw IllegalStateException(
+                "ExposedConnectionProvider.withConnection must be called within an Exposed transaction { } block",
+            )
+        return block(transaction.connection.connection as Connection)
     }
 }
