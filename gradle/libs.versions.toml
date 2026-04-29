@@ -1,22 +1,22 @@
 [versions]
-kotlin = "2.3.20"
+kotlin = "2.3.21"
 kotest = "6.1.11"
 ktlint = "12.1.2"
 exposed = "1.2.0"
-jackson = "2.21.2"
+jackson = "2.21.3"
 liquibase = "5.0.2"
 testcontainers = "1.21.4"
-postgresql = "42.7.10"
-mysql = "9.6.0"
+postgresql = "42.7.11"
+mysql = "9.7.0"
 kafkaClients = "4.2.0"
 spring = "7.0.7"
-springBoot = "4.0.5"
+springBoot = "4.0.6"
 vanniktechPublish = "0.36.0"
 wiremock = "3.13.2"
 slf4j = "2.0.17"
 assertj = "3.27.7"
 h2 = "2.4.240"
-micrometer = "1.15.6"
+micrometer = "1.16.5"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
