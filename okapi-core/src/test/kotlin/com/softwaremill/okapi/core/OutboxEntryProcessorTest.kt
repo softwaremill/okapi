@@ -90,6 +90,50 @@ class OutboxEntryProcessorTest :
             }
         }
 
+        given("processBatch() — mixed results") {
+            `when`("called with three entries returning Success, RetriableFailure, PermanentFailure") {
+                val deliverer = object : MessageDeliverer {
+                    override val type = "stub"
+                    private val results = listOf(
+                        DeliveryResult.Success,
+                        DeliveryResult.RetriableFailure("retry me"),
+                        DeliveryResult.PermanentFailure("never"),
+                    )
+                    private var idx = 0
+                    override fun deliver(entry: OutboxEntry): DeliveryResult = results[idx++]
+                }
+                val processor = OutboxEntryProcessor(deliverer, retryPolicy, fixedClock)
+                val entries = listOf(pendingEntry(), pendingEntry(), pendingEntry())
+                val results = processor.processBatch(entries)
+
+                then("preserves input order") {
+                    results.size shouldBe 3
+                }
+                then("first entry is DELIVERED") {
+                    results[0].status shouldBe OutboxStatus.DELIVERED
+                }
+                then("second entry is PENDING (retriable, retries remaining)") {
+                    results[1].status shouldBe OutboxStatus.PENDING
+                    results[1].lastError shouldBe "retry me"
+                }
+                then("third entry is FAILED (permanent)") {
+                    results[2].status shouldBe OutboxStatus.FAILED
+                    results[2].lastError shouldBe "never"
+                }
+            }
+        }
+
+        given("processBatch() — empty input") {
+            `when`("called with empty list") {
+                val processor = OutboxEntryProcessor(stubDeliverer(DeliveryResult.Success), retryPolicy, fixedClock)
+                val results = processor.processBatch(emptyList())
+
+                then("returns empty list without invoking deliverer") {
+                    results shouldBe emptyList()
+                }
+            }
+        }
+
         given("process() — PermanentFailure") {
             `when`("called with retries=0") {
                 val processor =
