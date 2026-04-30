@@ -17,6 +17,8 @@ slf4j = "2.0.17"
 assertj = "3.27.7"
 h2 = "2.4.240"
 micrometer = "1.16.5"
+jmh = "1.37"
+jmhGradlePlugin = "0.7.3"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -51,6 +53,9 @@ wiremock = { module = "org.wiremock:wiremock", version.ref = "wiremock" }
 slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4jSimple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 h2 = { module = "com.h2database:h2", version.ref = "h2" }
+jmhCore = { module = "org.openjdk.jmh:jmh-core", version.ref = "jmh" }
+jmhGeneratorAnnprocess = { module = "org.openjdk.jmh:jmh-generator-annprocess", version.ref = "jmh" }
 
 [plugins]
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
+jmh = { id = "me.champeau.jmh", version.ref = "jmhGradlePlugin" }

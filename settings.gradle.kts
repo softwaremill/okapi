@@ -19,5 +19,6 @@ include("okapi-spring-boot")
 include("okapi-bom")
 include("okapi-integration-tests")
 include("okapi-micrometer")
+include("okapi-benchmarks")
 
 rootProject.name = "okapi"
