@@ -48,3 +48,6 @@ CLAUDE.md
 docs/specs/
 docs/plans/
 docs/superpowers/
+
+# benchmark logs (verbose console output; JSON results are kept)
+benchmarks/*.log
