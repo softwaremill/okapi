@@ -199,12 +199,27 @@ graph BT
 | Kafka Clients | 3.9.x, 4.x | `okapi-kafka` — you provide `kafka-clients` |
 | Exposed | 1.x | `okapi-exposed` module — for Ktor/standalone apps |
 
+## Performance
+
+Throughput baseline (single instance, sync sequential delivery, MacBook M3 Max, JDK 25 LTS, April 2026):
+
+| Transport | batchSize=10 | batchSize=100 |
+|-----------|--------------|----------------|
+| Kafka (`acks=all`, localhost broker) | ~110 msg/s | ~115 msg/s |
+| HTTP @ webhook latency 20 ms | ~33 msg/s | ~36 msg/s |
+| HTTP @ webhook latency 100 ms | ~9 msg/s | ~9 msg/s |
+
+These numbers reflect the current sync-sequential delivery model. Throughput is bounded by per-message round-trip time × batch size. Performance work to lift these limits (async batch delivery, multi-threaded scheduler) is tracked under the [KOJAK-14 epic](https://softwaremill.atlassian.net/browse/KOJAK-14).
+
+Full methodology, raw JMH results, and reproduction instructions: [`benchmarks/`](benchmarks/).
+
 ## Build
 
 ```sh
-./gradlew build          # Build all modules
-./gradlew test           # Run tests (Docker required — Testcontainers)
-./gradlew ktlintFormat   # Format code
+./gradlew build                  # Build all modules
+./gradlew test                   # Run tests (Docker required — Testcontainers)
+./gradlew ktlintFormat           # Format code
+./gradlew :okapi-benchmarks:jmh  # Run JMH benchmarks (~30 min, see benchmarks/README.md)
 ```
 
 Requires JDK 21.
