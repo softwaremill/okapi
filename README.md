@@ -95,6 +95,52 @@ Okapi implements the [transactional outbox pattern](https://softwaremill.com/mic
 - **Concurrent processing** — multiple processors can run in parallel using `FOR UPDATE SKIP LOCKED`, so messages are never processed twice simultaneously.
 - **Delivery result classification** — each transport classifies errors as `Success`, `RetriableFailure`, or `PermanentFailure`. For example, HTTP 429 is retriable while HTTP 400 is permanent.
 
+## Database migrations
+
+Okapi ships Liquibase changelogs that create the `outbox` table and its indexes:
+
+- `classpath:com/softwaremill/okapi/db/changelog.xml` — PostgreSQL (from `okapi-postgres`)
+- `classpath:com/softwaremill/okapi/db/mysql/changelog.xml` — MySQL (from `okapi-mysql`)
+
+When `okapi-spring-boot` is on the classpath, these run automatically against the configured `DataSource` on application startup. Without Spring Boot, point your own Liquibase setup at the paths above.
+
+### Tracking tables
+
+To keep okapi's migration history isolated from the host application's, okapi tracks its changesets in **dedicated tables** by default:
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `okapi.liquibase.changelog-table` | `okapi_databasechangelog` | Liquibase changeset history for okapi |
+| `okapi.liquibase.changelog-lock-table` | `okapi_databasechangeloglock` | Liquibase concurrency lock for okapi |
+
+These properties affect only the autoconfigured `okapiPostgresLiquibase` / `okapiMysqlLiquibase` beans. If you run Liquibase yourself, configure the table names there directly.
+
+### Upgrading from 0.2.x
+
+Releases up to 0.2.x wrote to the shared `databasechangelog` / `databasechangeloglock` tables. From 0.3.0 the defaults switch to `okapi_*`. Two upgrade paths:
+
+**Stay on shared tables** (simplest, zero-downtime) — opt out of the new defaults:
+
+```yaml
+okapi:
+  liquibase:
+    changelog-table: databasechangelog
+    changelog-lock-table: databasechangeloglock
+```
+
+**Migrate to dedicated tables** — run before the first 0.3.0 startup (PostgreSQL syntax shown):
+
+```sql
+CREATE TABLE okapi_databasechangelog (LIKE databasechangelog INCLUDING ALL);
+CREATE TABLE okapi_databasechangeloglock (LIKE databasechangeloglock INCLUDING ALL);
+INSERT INTO okapi_databasechangelog
+    SELECT * FROM databasechangelog WHERE filename LIKE '%com/softwaremill/okapi/%';
+INSERT INTO okapi_databasechangeloglock SELECT * FROM databasechangeloglock;
+DELETE FROM databasechangelog WHERE filename LIKE '%com/softwaremill/okapi/%';
+```
+
+Without one of these steps, Liquibase will see an empty changelog table on the first 0.3.0 startup and try to re-run okapi's migrations — which fails because the `outbox` table already exists.
+
 ## Observability
 
 Add `okapi-micrometer` alongside `okapi-spring-boot` (from the Quick Start above) to get Micrometer metrics:

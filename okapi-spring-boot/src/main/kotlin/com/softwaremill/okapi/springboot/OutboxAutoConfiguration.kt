@@ -170,6 +170,8 @@ class OutboxAutoConfiguration(
         fun okapiPostgresLiquibase(): SpringLiquibase = SpringLiquibase().apply {
             dataSource = resolveDataSource(dataSources, primaryDataSource, okapiProperties)
             changeLog = "classpath:com/softwaremill/okapi/db/changelog.xml"
+            databaseChangeLogTable = okapiProperties.liquibase.changelogTable
+            databaseChangeLogLockTable = okapiProperties.liquibase.changelogLockTable
         }
     }
 
@@ -195,6 +197,8 @@ class OutboxAutoConfiguration(
         fun okapiMysqlLiquibase(): SpringLiquibase = SpringLiquibase().apply {
             dataSource = resolveDataSource(dataSources, primaryDataSource, okapiProperties)
             changeLog = "classpath:com/softwaremill/okapi/db/mysql/changelog.xml"
+            databaseChangeLogTable = okapiProperties.liquibase.changelogTable
+            databaseChangeLogLockTable = okapiProperties.liquibase.changelogLockTable
         }
     }
 
