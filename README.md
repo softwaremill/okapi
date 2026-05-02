@@ -97,29 +97,37 @@ Okapi implements the [transactional outbox pattern](https://softwaremill.com/mic
 
 ## Database migrations
 
-Okapi ships Liquibase changelogs that create the `outbox` table and its indexes:
+Okapi ships Liquibase changelogs that create the outbox table and its indexes:
 
 - `classpath:com/softwaremill/okapi/db/changelog.xml` — PostgreSQL (from `okapi-postgres`)
 - `classpath:com/softwaremill/okapi/db/mysql/changelog.xml` — MySQL (from `okapi-mysql`)
 
-When `okapi-spring-boot` is on the classpath, these run automatically against the configured `DataSource` on application startup. Without Spring Boot, point your own Liquibase setup at the paths above.
+When `okapi-spring-boot` is on the classpath, these run automatically against the configured `DataSource` on application startup. Without Spring Boot, point your own Liquibase setup at the paths above and pass an `outboxTable` change-log parameter (see below).
 
-### Tracking tables
+### Configuration
 
-To keep okapi's migration history isolated from the host application's, okapi tracks its changesets in **dedicated tables** by default:
+Okapi's table names are fixed under the `okapi_` prefix so its schema stays out of the way of any pre-existing tables in the host application (`outbox`, `databasechangelog`, etc.):
+
+| Table | Purpose |
+|-------|---------|
+| `okapi_outbox` | Domain table holding outbox entries (created by the bundled Liquibase changesets, queried by `PostgresOutboxStore` / `MysqlOutboxStore`). |
+| `okapi_databasechangelog` | Liquibase changeset history for okapi (configurable). |
+| `okapi_databasechangeloglock` | Liquibase concurrency lock for okapi (configurable). |
+
+The Liquibase tracking-table names are configurable in case the host application wants to share them with its own Liquibase setup:
 
 | Property | Default | Description |
 |----------|---------|-------------|
 | `okapi.liquibase.changelog-table` | `okapi_databasechangelog` | Liquibase changeset history for okapi |
 | `okapi.liquibase.changelog-lock-table` | `okapi_databasechangeloglock` | Liquibase concurrency lock for okapi |
 
-These properties affect only the autoconfigured `okapiPostgresLiquibase` / `okapiMysqlLiquibase` beans. If you run Liquibase yourself, configure the table names there directly.
+These properties affect the autoconfigured `okapiPostgresLiquibase` / `okapiMysqlLiquibase` beans only. If you run Liquibase yourself, configure the table names there directly. The domain table name (`okapi_outbox`) is fixed.
 
 ### Upgrading from 0.2.x
 
-Releases up to 0.2.x wrote to the shared `databasechangelog` / `databasechangeloglock` tables. From 0.3.0 the defaults switch to `okapi_*`. Two upgrade paths:
+Releases up to 0.2.x wrote to shared tables `databasechangelog` / `databasechangeloglock` and the domain table `outbox`. From 0.3.0 these are renamed to `okapi_*`. Two upgrade paths:
 
-**Stay on shared tables** (simplest, zero-downtime) — opt out of the new defaults:
+**Stay on the existing changelog tables** (simplest for the Liquibase tracking pair, zero-downtime) — opt out of the new defaults:
 
 ```yaml
 okapi:
@@ -128,9 +136,17 @@ okapi:
     changelog-lock-table: databasechangeloglock
 ```
 
+The domain table `outbox` cannot be opted out via configuration — see the migration steps below.
+
 **Migrate to dedicated tables** — run before the first 0.3.0 startup (PostgreSQL syntax shown):
 
 ```sql
+-- Outbox domain table: rename in place. Indexes follow the table.
+ALTER TABLE outbox RENAME TO okapi_outbox;
+ALTER INDEX idx_outbox_status_last_attempt RENAME TO idx_okapi_outbox_status_last_attempt;
+ALTER INDEX idx_outbox_status_created_at  RENAME TO idx_okapi_outbox_status_created_at;
+
+-- Liquibase tracking: split okapi rows into the new tables.
 CREATE TABLE okapi_databasechangelog (LIKE databasechangelog INCLUDING ALL);
 CREATE TABLE okapi_databasechangeloglock (LIKE databasechangeloglock INCLUDING ALL);
 INSERT INTO okapi_databasechangelog
@@ -139,7 +155,9 @@ INSERT INTO okapi_databasechangeloglock SELECT * FROM databasechangeloglock;
 DELETE FROM databasechangelog WHERE filename LIKE '%com/softwaremill/okapi/%';
 ```
 
-Without one of these steps, Liquibase will see an empty changelog table on the first 0.3.0 startup and try to re-run okapi's migrations — which fails because the `outbox` table already exists.
+Without one of these steps, Liquibase will see an empty changelog table on the first 0.3.0 startup and try to re-run okapi's migrations — which fails if rows already exist under the legacy `outbox` table while okapi now writes to `okapi_outbox`.
+
+Full release history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Observability
 

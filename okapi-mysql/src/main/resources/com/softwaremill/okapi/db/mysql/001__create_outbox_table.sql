@@ -1,7 +1,7 @@
 --liquibase formatted sql
 --changeset outbox:001
 
-CREATE TABLE IF NOT EXISTS outbox
+CREATE TABLE IF NOT EXISTS okapi_outbox
 (
     id                CHAR(36)     NOT NULL PRIMARY KEY,
     message_type      VARCHAR(255) NOT NULL,

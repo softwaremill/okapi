@@ -19,7 +19,7 @@ class MysqlOutboxStore(
 
     override fun persist(entry: OutboxEntry): OutboxEntry {
         val sql = """
-            INSERT INTO outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata)
+            INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
                 status = VALUES(status),
@@ -61,8 +61,8 @@ class MysqlOutboxStore(
         // that FOR UPDATE SKIP LOCKED only row-locks the rows actually returned
         // by LIMIT, rather than every row matching the WHERE clause.
         val sql = """
-            SELECT * FROM outbox
-            FORCE INDEX (idx_outbox_status_created_at)
+            SELECT * FROM okapi_outbox
+            FORCE INDEX (idx_okapi_outbox_status_created_at)
             WHERE status = ?
             ORDER BY created_at ASC
             LIMIT ?
@@ -84,9 +84,9 @@ class MysqlOutboxStore(
 
     override fun removeDeliveredBefore(time: Instant, limit: Int): Int {
         val sql = """
-            DELETE FROM outbox WHERE id IN (
+            DELETE FROM okapi_outbox WHERE id IN (
                 SELECT id FROM (
-                    SELECT id FROM outbox
+                    SELECT id FROM okapi_outbox
                     WHERE status = ?
                     AND last_attempt < ?
                     ORDER BY id
@@ -109,7 +109,7 @@ class MysqlOutboxStore(
     override fun findOldestCreatedAt(statuses: Set<OutboxStatus>): Map<OutboxStatus, Instant> {
         val result = statuses.associateWith { clock.instant() }.toMutableMap()
         val placeholders = statuses.joinToString(",") { "?" }
-        val sql = "SELECT status, MIN(created_at) AS min_created_at FROM outbox WHERE status IN ($placeholders) GROUP BY status"
+        val sql = "SELECT status, MIN(created_at) AS min_created_at FROM okapi_outbox WHERE status IN ($placeholders) GROUP BY status"
 
         connectionProvider.withConnection { conn ->
             conn.prepareStatement(sql).use { stmt ->
@@ -126,7 +126,7 @@ class MysqlOutboxStore(
     }
 
     override fun countByStatuses(): Map<OutboxStatus, Long> {
-        val sql = "SELECT status, COUNT(*) AS count FROM outbox GROUP BY status"
+        val sql = "SELECT status, COUNT(*) AS count FROM okapi_outbox GROUP BY status"
         val counts = mutableMapOf<OutboxStatus, Long>()
 
         connectionProvider.withConnection { conn ->

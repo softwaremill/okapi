@@ -83,7 +83,8 @@ class LiquibaseE2ETest : FunSpec({
                 val tables = listTables(ds)
                 tables shouldContain "okapi_databasechangelog"
                 tables shouldContain "okapi_databasechangeloglock"
-                tables shouldContain "outbox"
+                tables shouldContain "okapi_outbox"
+                tables shouldNotContain "outbox"
                 tables shouldNotContain "databasechangelog"
                 tables shouldNotContain "databasechangeloglock"
             }
@@ -103,7 +104,7 @@ class LiquibaseE2ETest : FunSpec({
                     val tables = listTables(ds)
                     tables shouldContain "my_outbox_changelog"
                     tables shouldContain "my_outbox_changelog_lock"
-                    tables shouldContain "outbox"
+                    tables shouldContain "okapi_outbox"
                     tables shouldNotContain "okapi_databasechangelog"
                 }
         }
@@ -160,7 +161,8 @@ class LiquibaseE2ETest : FunSpec({
                 val tables = listTables(ds)
                 tables shouldContain "okapi_databasechangelog"
                 tables shouldContain "okapi_databasechangeloglock"
-                tables shouldContain "outbox"
+                tables shouldContain "okapi_outbox"
+                tables shouldNotContain "outbox"
                 tables shouldNotContain "databasechangelog"
                 tables shouldNotContain "databasechangeloglock"
             }
@@ -180,7 +182,7 @@ class LiquibaseE2ETest : FunSpec({
                     val tables = listTables(ds)
                     tables shouldContain "my_outbox_changelog"
                     tables shouldContain "my_outbox_changelog_lock"
-                    tables shouldContain "outbox"
+                    tables shouldContain "okapi_outbox"
                     tables shouldNotContain "okapi_databasechangelog"
                 }
         }

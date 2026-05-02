@@ -124,6 +124,18 @@ class LiquibaseAutoConfigurationTest : FunSpec({
                 props.liquibase.changelogLockTable shouldBe "app_changelog_lock"
             }
     }
+
+    test("blank changelog-table property triggers startup failure") {
+        // Pins that init { require(isNotBlank()) } actually propagates through Spring's
+        // Binder — without this, a future refactor of OkapiProperties.Liquibase that bypasses
+        // the constructor could silently let blank table names through.
+        contextRunner
+            .withPropertyValues("okapi.liquibase.changelog-table= ")
+            .run { ctx ->
+                val rootCause = generateSequence(ctx.startupFailure) { it.cause }.last()
+                rootCause.message shouldBe "okapi.liquibase.changelog-table must not be blank."
+            }
+    }
 })
 
 private fun stubStore() = object : OutboxStore {
