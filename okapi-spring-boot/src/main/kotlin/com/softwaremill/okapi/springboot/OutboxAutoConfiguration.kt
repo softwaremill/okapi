@@ -163,6 +163,13 @@ class OutboxAutoConfiguration(
             clock = clock.getIfAvailable { Clock.systemUTC() },
         )
 
+        /**
+         * Runs okapi's bundled PostgreSQL changelog (creates `okapi_outbox` and its indexes)
+         * on application startup. Tracks its history in dedicated tables to keep okapi's
+         * migrations isolated from the host application's. Override the tracking-table names
+         * via `okapi.liquibase.changelog-table` / `okapi.liquibase.changelog-lock-table`
+         * (see [OkapiProperties.Liquibase]).
+         */
         @Bean("okapiPostgresLiquibase")
         @ConditionalOnClass(SpringLiquibase::class)
         @ConditionalOnBean(value = [DataSource::class, PostgresOutboxStore::class])
@@ -170,6 +177,8 @@ class OutboxAutoConfiguration(
         fun okapiPostgresLiquibase(): SpringLiquibase = SpringLiquibase().apply {
             dataSource = resolveDataSource(dataSources, primaryDataSource, okapiProperties)
             changeLog = "classpath:com/softwaremill/okapi/db/changelog.xml"
+            databaseChangeLogTable = okapiProperties.liquibase.changelogTable
+            databaseChangeLogLockTable = okapiProperties.liquibase.changelogLockTable
         }
     }
 
@@ -188,6 +197,13 @@ class OutboxAutoConfiguration(
             clock = clock.getIfAvailable { Clock.systemUTC() },
         )
 
+        /**
+         * Runs okapi's bundled MySQL changelog (creates `okapi_outbox` and its indexes)
+         * on application startup. Tracks its history in dedicated tables to keep okapi's
+         * migrations isolated from the host application's. Override the tracking-table names
+         * via `okapi.liquibase.changelog-table` / `okapi.liquibase.changelog-lock-table`
+         * (see [OkapiProperties.Liquibase]).
+         */
         @Bean("okapiMysqlLiquibase")
         @ConditionalOnClass(SpringLiquibase::class)
         @ConditionalOnBean(value = [DataSource::class, MysqlOutboxStore::class])
@@ -195,6 +211,8 @@ class OutboxAutoConfiguration(
         fun okapiMysqlLiquibase(): SpringLiquibase = SpringLiquibase().apply {
             dataSource = resolveDataSource(dataSources, primaryDataSource, okapiProperties)
             changeLog = "classpath:com/softwaremill/okapi/db/mysql/changelog.xml"
+            databaseChangeLogTable = okapiProperties.liquibase.changelogTable
+            databaseChangeLogLockTable = okapiProperties.liquibase.changelogLockTable
         }
     }
 

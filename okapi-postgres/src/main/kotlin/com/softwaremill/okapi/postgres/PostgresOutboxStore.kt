@@ -19,7 +19,7 @@ class PostgresOutboxStore(
 
     override fun persist(entry: OutboxEntry): OutboxEntry {
         val sql = """
-            INSERT INTO outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata)
+            INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata)
             VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
             ON CONFLICT (id) DO UPDATE SET
                 status = EXCLUDED.status,
@@ -58,7 +58,7 @@ class PostgresOutboxStore(
 
     override fun claimPending(limit: Int): List<OutboxEntry> {
         val sql = """
-            SELECT * FROM outbox
+            SELECT * FROM okapi_outbox
             WHERE status = ?
             ORDER BY created_at ASC
             LIMIT ?
@@ -80,8 +80,8 @@ class PostgresOutboxStore(
 
     override fun removeDeliveredBefore(time: Instant, limit: Int): Int {
         val sql = """
-            DELETE FROM outbox WHERE id IN (
-                SELECT id FROM outbox
+            DELETE FROM okapi_outbox WHERE id IN (
+                SELECT id FROM okapi_outbox
                 WHERE status = ?
                 AND last_attempt < ?
                 ORDER BY id
@@ -103,7 +103,7 @@ class PostgresOutboxStore(
     override fun findOldestCreatedAt(statuses: Set<OutboxStatus>): Map<OutboxStatus, Instant> {
         val result = statuses.associateWith { clock.instant() }.toMutableMap()
         val placeholders = statuses.joinToString(",") { "?" }
-        val sql = "SELECT status, MIN(created_at) AS min_created_at FROM outbox WHERE status IN ($placeholders) GROUP BY status"
+        val sql = "SELECT status, MIN(created_at) AS min_created_at FROM okapi_outbox WHERE status IN ($placeholders) GROUP BY status"
 
         connectionProvider.withConnection { conn ->
             conn.prepareStatement(sql).use { stmt ->
@@ -120,7 +120,7 @@ class PostgresOutboxStore(
     }
 
     override fun countByStatuses(): Map<OutboxStatus, Long> {
-        val sql = "SELECT status, COUNT(*) AS count FROM outbox GROUP BY status"
+        val sql = "SELECT status, COUNT(*) AS count FROM okapi_outbox GROUP BY status"
         val counts = mutableMapOf<OutboxStatus, Long>()
 
         connectionProvider.withConnection { conn ->

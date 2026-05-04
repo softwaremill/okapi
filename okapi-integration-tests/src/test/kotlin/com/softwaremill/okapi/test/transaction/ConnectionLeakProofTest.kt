@@ -49,7 +49,7 @@ class ConnectionLeakProofTest : FunSpec({
 
     beforeEach {
         counter.delegate.connection.use { conn ->
-            conn.createStatement().use { it.execute("TRUNCATE TABLE outbox") }
+            conn.createStatement().use { it.execute("TRUNCATE TABLE okapi_outbox") }
         }
         counter.opened.set(0)
         counter.closed.set(0)

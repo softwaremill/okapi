@@ -39,7 +39,7 @@ class PostgresBenchmarkSupport {
     fun truncate() {
         jdbc.withTransaction {
             jdbc.withConnection { conn ->
-                conn.createStatement().use { it.execute("TRUNCATE TABLE outbox") }
+                conn.createStatement().use { it.execute("TRUNCATE TABLE okapi_outbox") }
             }
         }
     }
