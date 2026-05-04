@@ -59,7 +59,7 @@ class OutboxProcessorTest :
                         retryPolicy = RetryPolicy(maxRetries = 3),
                         clock = fixedClock,
                     )
-                OutboxProcessor(store, entryProcessor).processNext(limit = 10)
+                val returnedCount = OutboxProcessor(store, entryProcessor).processNext(limit = 10)
                 val results = processedEntries.toList()
 
                 then("both entries are updated") {
@@ -67,6 +67,25 @@ class OutboxProcessorTest :
                 }
                 then("both are DELIVERED") {
                     results.all { it.status == OutboxStatus.DELIVERED } shouldBe true
+                }
+                then("processNext returns the count of processed entries") {
+                    returnedCount shouldBe 2
+                }
+            }
+        }
+
+        given("processNext() with empty store — return value") {
+            `when`("called") {
+                pendingEntries = emptyList()
+                val entryProcessor = OutboxEntryProcessor(
+                    deliverer = stubDeliverer(DeliveryResult.Success),
+                    retryPolicy = RetryPolicy(maxRetries = 3),
+                    clock = fixedClock,
+                )
+                val returnedCount = OutboxProcessor(store, entryProcessor).processNext()
+
+                then("returns 0") {
+                    returnedCount shouldBe 0
                 }
             }
         }

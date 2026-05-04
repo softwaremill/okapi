@@ -6,11 +6,17 @@ import java.time.Duration
 
 /**
  * Orchestrates a single processing cycle: claims pending entries from [OutboxStore],
- * delegates each to [OutboxEntryProcessor], and persists the result.
+ * delegates batch delivery to [OutboxEntryProcessor], and persists each result.
  *
  * An optional [OutboxProcessorListener] is notified after each entry and after the
  * full batch. Exceptions in the listener are caught and logged — they never break
  * processing. Transaction management is the caller's responsibility.
+ *
+ * In the batch processing path, the per-entry `duration` reported in
+ * [OutboxProcessingEvent] reflects the **wall-clock duration of the whole batch**
+ * (because transports may overlap their per-entry I/O internally — e.g. Kafka's
+ * fire-flush-await — making per-entry timing meaningless). Use
+ * [OutboxProcessorListener.onBatchProcessed] when you need batch-level timing.
  */
 class OutboxProcessor(
     private val store: OutboxStore,
@@ -18,19 +24,28 @@ class OutboxProcessor(
     private val listener: OutboxProcessorListener? = null,
     private val clock: Clock = Clock.systemUTC(),
 ) {
+    /**
+     * Claims up to [limit] pending entries, processes them as a batch, and persists
+     * each result. Returns the number of entries processed (0 if the store had nothing).
+     */
     @JvmOverloads
-    fun processNext(limit: Int = 10) {
+    fun processNext(limit: Int = 10): Int {
         val batchStart = clock.instant()
-        var count = 0
-        store.claimPending(limit).forEach { entry ->
-            val entryStart = clock.instant()
-            val updated = entryProcessor.process(entry)
-            val deliveryDuration = Duration.between(entryStart, clock.instant())
-            store.updateAfterProcessing(updated)
-            count++
-            notifyEntry(updated, deliveryDuration)
+        val claimed = store.claimPending(limit)
+        if (claimed.isEmpty()) {
+            notifyBatch(0, Duration.between(batchStart, clock.instant()))
+            return 0
         }
-        notifyBatch(count, Duration.between(batchStart, clock.instant()))
+
+        val processed = entryProcessor.processBatch(claimed)
+        val batchDuration = Duration.between(batchStart, clock.instant())
+
+        processed.forEach { updated ->
+            store.updateAfterProcessing(updated)
+            notifyEntry(updated, batchDuration)
+        }
+        notifyBatch(processed.size, Duration.between(batchStart, clock.instant()))
+        return processed.size
     }
 
     private fun notifyEntry(updated: OutboxEntry, duration: Duration) {
