@@ -8,22 +8,15 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.errors.InterruptException
 import org.apache.kafka.common.errors.RetriableException
+import org.slf4j.LoggerFactory
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Future
 
 /**
  * [MessageDeliverer] that publishes outbox entries to Kafka topics.
  *
- * - Single-entry [deliver] uses a synchronous send-and-wait round trip.
- * - [deliverBatch] uses **fire-flush-await**: all entries are enqueued via
- *   `producer.send()` (non-blocking), then a single `producer.flush()` call
- *   drives them out in one batched network round trip, then per-entry
- *   `Future.get()` collects results without further blocking.
- *
- * Kafka [RetriableException]s (including [InterruptException] and
- * `BufferExhaustedException`/`TimeoutException` since Kafka 3.0) map to
- * [DeliveryResult.RetriableFailure]; all other errors map to
- * [DeliveryResult.PermanentFailure].
+ * Kafka [RetriableException]s map to [DeliveryResult.RetriableFailure];
+ * all other errors map to [DeliveryResult.PermanentFailure].
  */
 class KafkaMessageDeliverer(
     private val producer: Producer<String, String>,
@@ -35,25 +28,22 @@ class KafkaMessageDeliverer(
         DeliveryResult.Success
     } catch (e: ExecutionException) {
         classifyException(e.cause ?: e)
+    } catch (e: InterruptedException) {
+        Thread.currentThread().interrupt()
+        DeliveryResult.RetriableFailure(e.message ?: e.javaClass.simpleName)
     } catch (e: Exception) {
         classifyException(e)
     }
 
     /**
-     * Sends all entries in a fire-flush-await pattern:
+     * Uses fire-flush-await: send all entries, then a single `flush()` (which
+     * bypasses `linger.ms`), then collect outcomes via non-blocking `Future.get()`
+     * since completion is already settled. A failing `send()` does not abort the
+     * batch; the result list mirrors input order.
      *
-     * 1. **Fire** — call `producer.send()` for every entry, capturing either the
-     *    in-flight `Future` or a synchronous exception (e.g. `BufferExhaustedException`,
-     *    `SerializationException`). One failing send does not abort the batch.
-     * 2. **Flush** — `producer.flush()` waits for all in-flight records to be
-     *    acknowledged or fail, in a single call regardless of `linger.ms`.
-     * 3. **Await** — call `Future.get()` per entry to read the outcome. After
-     *    `flush()` these calls are non-blocking — completion is already settled.
-     *
-     * Per-entry classification preserved; the result list mirrors the input order.
-     * If the calling thread is interrupted during `flush()`, the interrupt flag is
-     * restored and processing continues — incomplete futures will surface as
-     * `RetriableFailure` via `InterruptException` from `get()`.
+     * If `flush()` itself fails (interrupt, fatal producer state), per-entry
+     * futures still surface their own exception via `get()` and are classified
+     * individually — the batch as a whole is never abandoned.
      */
     override fun deliverBatch(entries: List<OutboxEntry>): List<Pair<OutboxEntry, DeliveryResult>> {
         if (entries.isEmpty()) return emptyList()
@@ -66,6 +56,9 @@ class KafkaMessageDeliverer(
             producer.flush()
         } catch (e: InterruptException) {
             Thread.currentThread().interrupt()
+            logger.warn("Kafka producer.flush() interrupted; per-entry futures will surface the cause", e)
+        } catch (e: Exception) {
+            logger.warn("Kafka producer.flush() failed for batch of {}; classifying per-entry from future state", entries.size, e)
         }
 
         return inflight.map { (entry, outcome) -> entry to awaitOne(outcome) }
@@ -74,7 +67,9 @@ class KafkaMessageDeliverer(
     private fun fireOne(entry: OutboxEntry): SendOutcome = try {
         SendOutcome.Sent(producer.send(buildRecord(entry)))
     } catch (e: Exception) {
-        SendOutcome.ImmediateFailure(classifyException(e))
+        val classified = classifyException(e)
+        logger.debug("Kafka send rejected synchronously for entry {}: {}", entry.outboxId, e.toString())
+        SendOutcome.ImmediateFailure(classified)
     }
 
     private fun awaitOne(outcome: SendOutcome): DeliveryResult = when (outcome) {
@@ -84,6 +79,12 @@ class KafkaMessageDeliverer(
             DeliveryResult.Success
         } catch (e: ExecutionException) {
             classifyException(e.cause ?: e)
+        } catch (e: InterruptedException) {
+            // Thread was interrupted while waiting for an in-flight future. The interrupt may have
+            // come from flush() (already restored the flag) or from an outer cancellation; either
+            // way, the entry is unsent — retry semantics, not a poison pill.
+            Thread.currentThread().interrupt()
+            DeliveryResult.RetriableFailure(e.message ?: e.javaClass.simpleName)
         } catch (e: Exception) {
             classifyException(e)
         }
@@ -96,14 +97,22 @@ class KafkaMessageDeliverer(
         }
     }
 
-    private fun classifyException(e: Throwable): DeliveryResult = if (e is RetriableException) {
-        DeliveryResult.RetriableFailure(e.message ?: "Retriable Kafka error")
-    } else {
-        DeliveryResult.PermanentFailure(e.message ?: "Permanent Kafka error")
+    private fun classifyException(e: Throwable): DeliveryResult {
+        val message = e.message ?: e.javaClass.simpleName
+        return if (e is RetriableException) {
+            DeliveryResult.RetriableFailure(message)
+        } else {
+            DeliveryResult.PermanentFailure(message)
+        }
     }
 
     private sealed interface SendOutcome {
-        data class Sent(val future: Future<RecordMetadata>) : SendOutcome
+        @JvmInline
+        value class Sent(val future: Future<RecordMetadata>) : SendOutcome
         data class ImmediateFailure(val result: DeliveryResult) : SendOutcome
+    }
+
+    companion object {
+        private val logger = LoggerFactory.getLogger(KafkaMessageDeliverer::class.java)
     }
 }
