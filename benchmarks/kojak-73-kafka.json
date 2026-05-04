@@ -1,0 +1,157 @@
+[
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.KafkaThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/25.0.2-tem/bin/java",
+        "jvmArgs" : [
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-LTS",
+        "warmupIterations" : 1,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 2,
+        "measurementTime" : "15 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 0.680696006383041,
+            "scoreError" : "NaN",
+            "scoreConfidence" : [
+                "NaN",
+                "NaN"
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.6561445592105263,
+                "50.0" : 0.680696006383041,
+                "90.0" : 0.7052474535555555,
+                "95.0" : 0.7052474535555555,
+                "99.0" : 0.7052474535555555,
+                "99.9" : 0.7052474535555555,
+                "99.99" : 0.7052474535555555,
+                "99.999" : 0.7052474535555555,
+                "99.9999" : 0.7052474535555555,
+                "100.0" : 0.7052474535555555
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.7052474535555555,
+                    0.6561445592105263
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.KafkaThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/25.0.2-tem/bin/java",
+        "jvmArgs" : [
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-LTS",
+        "warmupIterations" : 1,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 2,
+        "measurementTime" : "15 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "50"
+        },
+        "primaryMetric" : {
+            "score" : 0.26791908345521237,
+            "scoreError" : "NaN",
+            "scoreConfidence" : [
+                "NaN",
+                "NaN"
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.2562269965675676,
+                "50.0" : 0.26791908345521237,
+                "90.0" : 0.27961117034285715,
+                "95.0" : 0.27961117034285715,
+                "99.0" : 0.27961117034285715,
+                "99.9" : 0.27961117034285715,
+                "99.99" : 0.27961117034285715,
+                "99.999" : 0.27961117034285715,
+                "99.9999" : 0.27961117034285715,
+                "100.0" : 0.27961117034285715
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.27961117034285715,
+                    0.2562269965675676
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.KafkaThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/25.0.2-tem/bin/java",
+        "jvmArgs" : [
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-LTS",
+        "warmupIterations" : 1,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 2,
+        "measurementTime" : "15 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100"
+        },
+        "primaryMetric" : {
+            "score" : 0.21151745586904763,
+            "scoreError" : "NaN",
+            "scoreConfidence" : [
+                "NaN",
+                "NaN"
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.21086217661904763,
+                "50.0" : 0.21151745586904763,
+                "90.0" : 0.2121727351190476,
+                "95.0" : 0.2121727351190476,
+                "99.0" : 0.2121727351190476,
+                "99.9" : 0.2121727351190476,
+                "99.99" : 0.2121727351190476,
+                "99.999" : 0.2121727351190476,
+                "99.9999" : 0.2121727351190476,
+                "100.0" : 0.2121727351190476
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.2121727351190476,
+                    0.21086217661904763
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    }
+]
+
+
