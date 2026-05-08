@@ -43,6 +43,8 @@ dependencies {
     testImplementation(libs.wiremock)
     testImplementation(project(":okapi-micrometer"))
     testImplementation(libs.micrometerCore)
+    // Brings in the metrics auto-config jar so @AutoConfigureAfter targets are resolvable in tests.
+    testImplementation(libs.springBootStarterActuator)
 }
 
 // CI version override: ./gradlew :okapi-spring-boot:test -PspringBootVersion=4.0.4 -PspringVersion=7.0.6

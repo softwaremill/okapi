@@ -8,10 +8,13 @@ import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.micrometer.MicrometerOutboxListener
 import com.softwaremill.okapi.micrometer.MicrometerOutboxMetrics
 import com.softwaremill.okapi.micrometer.OutboxMetricsRefresher
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import org.springframework.boot.autoconfigure.AutoConfigurations
+import org.springframework.boot.autoconfigure.AutoConfigureAfter
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import java.time.Duration.ofMillis
@@ -123,6 +126,28 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
                 val props = ctx.getBean(OkapiMetricsProperties::class.java)
                 props.refreshInterval shouldBe ofSeconds(15)
             }
+    }
+
+    // @AutoConfigureAfter(name = ...) silently drops entries whose class is missing — if none resolve, the ordering hint is a no-op.
+    test("AutoConfigureAfter on OkapiMicrometerAutoConfiguration resolves on the runtime classpath") {
+        val annotation = OkapiMicrometerAutoConfiguration::class.java.getAnnotation(AutoConfigureAfter::class.java)
+        annotation.shouldNotBeNull()
+
+        val declaredNames = annotation.name.toList()
+        declaredNames.shouldNotBeEmpty()
+
+        val classLoader = OkapiMicrometerAutoConfiguration::class.java.classLoader
+        val resolvable = declaredNames.filter { name ->
+            runCatching { Class.forName(name, false, classLoader) }.isSuccess
+        }
+
+        withClue(
+            "None of the @AutoConfigureAfter targets $declaredNames resolve on this Spring Boot runtime; " +
+                "the ordering hint is silently ignored and OkapiMicrometerAutoConfiguration may be evaluated " +
+                "before MeterRegistry is registered.",
+        ) {
+            resolvable.shouldNotBeEmpty()
+        }
     }
 })
 
