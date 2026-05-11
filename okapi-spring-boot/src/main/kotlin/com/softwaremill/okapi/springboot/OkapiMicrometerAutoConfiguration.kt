@@ -31,7 +31,12 @@ import java.time.Clock
  */
 @AutoConfiguration
 @AutoConfigureAfter(
-    name = ["org.springframework.boot.micrometer.metrics.autoconfigure.CompositeMeterRegistryAutoConfiguration"],
+    name = [
+        // Spring Boot 3.5.x
+        "org.springframework.boot.actuate.autoconfigure.metrics.CompositeMeterRegistryAutoConfiguration",
+        // Spring Boot 4.0.x
+        "org.springframework.boot.micrometer.metrics.autoconfigure.CompositeMeterRegistryAutoConfiguration",
+    ],
 )
 @ConditionalOnClass(name = ["io.micrometer.core.instrument.MeterRegistry"])
 @ConditionalOnBean(MeterRegistry::class)
