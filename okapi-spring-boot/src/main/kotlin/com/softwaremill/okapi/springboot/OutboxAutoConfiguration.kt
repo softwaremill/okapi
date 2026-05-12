@@ -13,9 +13,10 @@ import com.softwaremill.okapi.core.RetryPolicy
 import com.softwaremill.okapi.mysql.MysqlOutboxStore
 import com.softwaremill.okapi.postgres.PostgresOutboxStore
 import liquibase.integration.spring.SpringLiquibase
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
+import org.springframework.boot.autoconfigure.AutoConfigureAfter
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -26,6 +27,8 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import java.time.Clock
 import javax.sql.DataSource
+
+private val LIQUIBASE_DISABLED_LOGGER = LoggerFactory.getLogger("com.softwaremill.okapi.springboot.OutboxAutoConfiguration")
 
 /**
  * Spring Boot autoconfiguration for the outbox processing pipeline.
@@ -50,8 +53,25 @@ import javax.sql.DataSource
  * Multi-datasource support:
  * - Set `okapi.datasource-qualifier` to the bean name of the [DataSource] that holds the outbox table.
  *   When not set, the primary (or single) DataSource is used.
+ *
+ * Liquibase coexistence:
+ * - Auto-config is ordered after Spring Boot's `LiquibaseAutoConfiguration` (3.x and 4.x package
+ *   paths covered) so that the application's own auto-configured `liquibase` bean registers first.
+ *   Spring Boot's `@ConditionalOnMissingBean(SpringLiquibase::class)` then sees its own bean and
+ *   stops looking, leaving okapi free to add its uniquely-named `okapiPostgresLiquibase` /
+ *   `okapiMysqlLiquibase` next to it. Both run on startup with their own changelogs.
+ * - Set `okapi.liquibase.enabled=false` to opt out entirely (e.g. when including okapi's
+ *   changelog from the application's master changelog).
  */
 @AutoConfiguration
+@AutoConfigureAfter(
+    name = [
+        // Spring Boot 3.x — package path
+        "org.springframework.boot.autoconfigure.liquibase.LiquibaseAutoConfiguration",
+        // Spring Boot 4.x — package was reorganized into a separate module
+        "org.springframework.boot.liquibase.autoconfigure.LiquibaseAutoConfiguration",
+    ],
+)
 @EnableConfigurationProperties(OkapiProperties::class, OutboxPurgerProperties::class, OutboxProcessorProperties::class)
 class OutboxAutoConfiguration(
     private val dataSources: Map<String, DataSource>,
@@ -145,8 +165,7 @@ class OutboxAutoConfiguration(
     }
 
     /**
-     * Auto-configures [PostgresOutboxStore] and Liquibase schema migration
-     * when `outbox-postgres` is on the classpath.
+     * Auto-configures [PostgresOutboxStore] when `okapi-postgres` is on the classpath.
      * Skipped if the application provides its own [OutboxStore] bean.
      */
     @Configuration(proxyBeanMethods = false)
@@ -162,24 +181,6 @@ class OutboxAutoConfiguration(
             connectionProvider = SpringConnectionProvider(resolveDataSource(dataSources, primaryDataSource, okapiProperties)),
             clock = clock.getIfAvailable { Clock.systemUTC() },
         )
-
-        /**
-         * Runs okapi's bundled PostgreSQL changelog (creates `okapi_outbox` and its indexes)
-         * on application startup. Tracks its history in dedicated tables to keep okapi's
-         * migrations isolated from the host application's. Override the tracking-table names
-         * via `okapi.liquibase.changelog-table` / `okapi.liquibase.changelog-lock-table`
-         * (see [OkapiProperties.Liquibase]).
-         */
-        @Bean("okapiPostgresLiquibase")
-        @ConditionalOnClass(SpringLiquibase::class)
-        @ConditionalOnBean(value = [DataSource::class, PostgresOutboxStore::class])
-        @ConditionalOnMissingBean(name = ["okapiPostgresLiquibase"])
-        fun okapiPostgresLiquibase(): SpringLiquibase = SpringLiquibase().apply {
-            dataSource = resolveDataSource(dataSources, primaryDataSource, okapiProperties)
-            changeLog = "classpath:com/softwaremill/okapi/db/changelog.xml"
-            databaseChangeLogTable = okapiProperties.liquibase.changelogTable
-            databaseChangeLogLockTable = okapiProperties.liquibase.changelogLockTable
-        }
     }
 
     /** When both Postgres and MySQL modules are on the classpath, [PostgresStoreConfiguration] takes priority. */
@@ -196,17 +197,78 @@ class OutboxAutoConfiguration(
             connectionProvider = SpringConnectionProvider(resolveDataSource(dataSources, primaryDataSource, okapiProperties)),
             clock = clock.getIfAvailable { Clock.systemUTC() },
         )
+    }
 
-        /**
-         * Runs okapi's bundled MySQL changelog (creates `okapi_outbox` and its indexes)
-         * on application startup. Tracks its history in dedicated tables to keep okapi's
-         * migrations isolated from the host application's. Override the tracking-table names
-         * via `okapi.liquibase.changelog-table` / `okapi.liquibase.changelog-lock-table`
-         * (see [OkapiProperties.Liquibase]).
-         */
+    /**
+     * Auto-configures okapi's PostgreSQL Liquibase migration.
+     *
+     * **Why a separate class with class-level [ConditionalOnClass]:** placing
+     * `@ConditionalOnClass(SpringLiquibase::class)` on the class level (rather than on the
+     * `@Bean` method) ensures Spring evaluates the condition via string-name classpath lookup
+     * **before** any introspection of the class's methods. Without this, JVM
+     * `Class.getDeclaredMethods()` would resolve [SpringLiquibase] in the method return type
+     * during configuration parsing — which fails with `NoClassDefFoundError` whenever
+     * `liquibase-core` is absent from the consumer's classpath (it is `compileOnly` in
+     * okapi-spring-boot, e.g. Flyway-only consumers do not pull it in).
+     *
+     * **Coexistence with the host application's own [SpringLiquibase]:**
+     * `@ConditionalOnMissingBean(SpringLiquibase::class)` is intentionally **not** used —
+     * okapi's bean is named `okapiPostgresLiquibase` and runs its own bundled changelog with
+     * dedicated tracking tables (`okapi_databasechangelog`/`okapi_databasechangeloglock` by
+     * default). It coexists alongside Spring Boot's auto-configured `liquibase` bean. Disable
+     * okapi's bean via `okapi.liquibase.enabled=false` if the host already includes okapi's
+     * changelog from its own master.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(SpringLiquibase::class, PostgresOutboxStore::class)
+    @ConditionalOnProperty(prefix = "okapi.liquibase", name = ["enabled"], havingValue = "true", matchIfMissing = true)
+    class PostgresLiquibaseConfiguration(
+        private val dataSources: Map<String, DataSource>,
+        private val primaryDataSource: DataSource,
+        private val okapiProperties: OkapiProperties,
+    ) {
+        @Bean("okapiPostgresLiquibase")
+        @ConditionalOnMissingBean(name = ["okapiPostgresLiquibase"])
+        fun okapiPostgresLiquibase(): SpringLiquibase = SpringLiquibase().apply {
+            dataSource = resolveDataSource(dataSources, primaryDataSource, okapiProperties)
+            changeLog = "classpath:com/softwaremill/okapi/db/changelog.xml"
+            databaseChangeLogTable = okapiProperties.liquibase.changelogTable
+            databaseChangeLogLockTable = okapiProperties.liquibase.changelogLockTable
+        }
+    }
+
+    /**
+     * Logs a single startup warning when okapi's Liquibase auto-config is explicitly opted out
+     * (`okapi.liquibase.enabled=false`). Without this, a user who flipped the flag months ago
+     * has no breadcrumb when they later see "relation okapi_outbox does not exist" at first
+     * publish — the link to the opt-out is in the startup log, not the error.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(prefix = "okapi.liquibase", name = ["enabled"], havingValue = "false")
+    class LiquibaseDisabledNotice {
+        init {
+            LIQUIBASE_DISABLED_LOGGER.warn(
+                "okapi.liquibase.enabled=false — okapi will NOT create or migrate the okapi_outbox schema. " +
+                    "Ensure your application's migration tool applies " +
+                    "classpath:com/softwaremill/okapi/db/changelog.xml " +
+                    "(or classpath:com/softwaremill/okapi/db/mysql/changelog.xml for MySQL).",
+            )
+        }
+    }
+
+    /**
+     * Auto-configures okapi's MySQL Liquibase migration. See [PostgresLiquibaseConfiguration]
+     * for rationale on the class-level conditional placement.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(SpringLiquibase::class, MysqlOutboxStore::class)
+    @ConditionalOnProperty(prefix = "okapi.liquibase", name = ["enabled"], havingValue = "true", matchIfMissing = true)
+    class MysqlLiquibaseConfiguration(
+        private val dataSources: Map<String, DataSource>,
+        private val primaryDataSource: DataSource,
+        private val okapiProperties: OkapiProperties,
+    ) {
         @Bean("okapiMysqlLiquibase")
-        @ConditionalOnClass(SpringLiquibase::class)
-        @ConditionalOnBean(value = [DataSource::class, MysqlOutboxStore::class])
         @ConditionalOnMissingBean(name = ["okapiMysqlLiquibase"])
         fun okapiMysqlLiquibase(): SpringLiquibase = SpringLiquibase().apply {
             dataSource = resolveDataSource(dataSources, primaryDataSource, okapiProperties)
