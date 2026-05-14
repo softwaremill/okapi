@@ -1,5 +1,6 @@
 package com.softwaremill.okapi.kafka
 
+import com.softwaremill.okapi.core.DeliveryOutcome
 import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
@@ -45,7 +46,7 @@ class KafkaMessageDeliverer(
      * futures still surface their own exception via `get()` and are classified
      * individually — the batch as a whole is never abandoned.
      */
-    override fun deliverBatch(entries: List<OutboxEntry>): List<Pair<OutboxEntry, DeliveryResult>> {
+    override fun deliverBatch(entries: List<OutboxEntry>): List<DeliveryOutcome> {
         if (entries.isEmpty()) return emptyList()
 
         val inflight: List<Pair<OutboxEntry, SendOutcome>> = entries.map { entry ->
@@ -61,7 +62,7 @@ class KafkaMessageDeliverer(
             logger.warn("Kafka producer.flush() failed for batch of {}; classifying per-entry from future state", entries.size, e)
         }
 
-        return inflight.map { (entry, outcome) -> entry to awaitOne(outcome) }
+        return inflight.map { (entry, outcome) -> DeliveryOutcome(entry, awaitOne(outcome)) }
     }
 
     private fun fireOne(entry: OutboxEntry): SendOutcome = try {

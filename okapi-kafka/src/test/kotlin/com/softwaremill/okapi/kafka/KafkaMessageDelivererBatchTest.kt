@@ -1,5 +1,6 @@
 package com.softwaremill.okapi.kafka
 
+import com.softwaremill.okapi.core.DeliveryOutcome
 import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxMessage
@@ -39,7 +40,7 @@ class KafkaMessageDelivererBatchTest : FunSpec({
         val results = deliverer.deliverBatch(entries)
 
         results.size shouldBe 3
-        results.map { it.first } shouldBe entries
+        results.map { it.entry } shouldBe entries
         results.forEach { (_, r) -> r shouldBe DeliveryResult.Success }
         producer.history().size shouldBe 3
     }
@@ -85,7 +86,7 @@ class KafkaMessageDelivererBatchTest : FunSpec({
 
         val results = deliverer.deliverBatch(listOf(entry("a")))
 
-        results[0].second.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
+        results[0].result.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
     }
 
     test("deliverBatch with future-based RetriableException classifies as RetriableFailure") {
@@ -102,9 +103,9 @@ class KafkaMessageDelivererBatchTest : FunSpec({
         val results = deliverer.deliverBatch(entries)
 
         results.size shouldBe 2
-        results[0].second shouldBe DeliveryResult.Success
-        results[1].second.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
-        (results[1].second as DeliveryResult.RetriableFailure).error shouldContain "transient"
+        results[0].result shouldBe DeliveryResult.Success
+        results[1].result.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
+        (results[1].result as DeliveryResult.RetriableFailure).error shouldContain "transient"
     }
 
     test("deliverBatch handles mixed sync-throw + async outcomes in one batch with positional integrity") {
@@ -130,13 +131,13 @@ class KafkaMessageDelivererBatchTest : FunSpec({
 
         results.size shouldBe 3
         // Positional integrity: result[i] corresponds to entries[i] regardless of outcome variant
-        results.map { it.first } shouldBe entries
+        results.map { it.entry } shouldBe entries
 
-        results[0].second shouldBe DeliveryResult.Success
-        results[1].second.shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
-        (results[1].second as DeliveryResult.PermanentFailure).error shouldContain "forbidden"
-        results[2].second.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
-        (results[2].second as DeliveryResult.RetriableFailure).error shouldContain "async fail"
+        results[0].result shouldBe DeliveryResult.Success
+        results[1].result.shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
+        (results[1].result as DeliveryResult.PermanentFailure).error shouldContain "forbidden"
+        results[2].result.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
+        (results[2].result as DeliveryResult.RetriableFailure).error shouldContain "async fail"
     }
 
     test("deliverBatch poison-pill metadata yields PermanentFailure for bad entry, others unaffected") {
@@ -149,10 +150,10 @@ class KafkaMessageDelivererBatchTest : FunSpec({
         val results = deliverer.deliverBatch(listOf(good1, poisoned, good2))
 
         results.size shouldBe 3
-        results.map { it.first } shouldBe listOf(good1, poisoned, good2)
-        results[0].second shouldBe DeliveryResult.Success
-        results[1].second.shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
-        results[2].second shouldBe DeliveryResult.Success
+        results.map { it.entry } shouldBe listOf(good1, poisoned, good2)
+        results[0].result shouldBe DeliveryResult.Success
+        results[1].result.shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
+        results[2].result shouldBe DeliveryResult.Success
         // Only the good entries actually reached the producer
         producer.history().size shouldBe 2
     }
@@ -173,8 +174,8 @@ class KafkaMessageDelivererBatchTest : FunSpec({
         val results = deliverer.deliverBatch(entries)
 
         results.size shouldBe 2
-        results[0].second shouldBe DeliveryResult.Success
-        results[1].second.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
+        results[0].result shouldBe DeliveryResult.Success
+        results[1].result.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
     }
 
     test("deliverBatch interrupted during flush re-arms interrupt flag and classifies pending futures as Retriable") {
@@ -190,7 +191,7 @@ class KafkaMessageDelivererBatchTest : FunSpec({
         val deliverer = KafkaMessageDeliverer(producer)
         val entries = listOf(entry("a"))
 
-        val results: List<Pair<OutboxEntry, DeliveryResult>>
+        val results: List<DeliveryOutcome>
         try {
             results = deliverer.deliverBatch(entries)
         } finally {
@@ -199,6 +200,6 @@ class KafkaMessageDelivererBatchTest : FunSpec({
         }
 
         results.size shouldBe 1
-        results[0].second.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
+        results[0].result.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
     }
 })

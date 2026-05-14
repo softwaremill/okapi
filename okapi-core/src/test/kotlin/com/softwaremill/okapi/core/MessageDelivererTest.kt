@@ -29,12 +29,12 @@ class MessageDelivererTest : FunSpec({
         val results = deliverer.deliverBatch(entries)
 
         results.size shouldBe 3
-        results[0].first shouldBe entries[0]
-        results[0].second shouldBe DeliveryResult.Success
-        results[1].first shouldBe entries[1]
-        results[1].second shouldBe DeliveryResult.RetriableFailure("err1")
-        results[2].first shouldBe entries[2]
-        results[2].second shouldBe DeliveryResult.PermanentFailure("err2")
+        results[0].entry shouldBe entries[0]
+        results[0].result shouldBe DeliveryResult.Success
+        results[1].entry shouldBe entries[1]
+        results[1].result shouldBe DeliveryResult.RetriableFailure("err1")
+        results[2].entry shouldBe entries[2]
+        results[2].result shouldBe DeliveryResult.PermanentFailure("err2")
     }
 
     test("default deliverBatch on empty input returns empty list without calling deliver") {

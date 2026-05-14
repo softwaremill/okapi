@@ -33,5 +33,5 @@ interface MessageDeliverer {
      * surface as [DeliveryResult.RetriableFailure] or [DeliveryResult.PermanentFailure]
      * on the affected entries.
      */
-    fun deliverBatch(entries: List<OutboxEntry>): List<Pair<OutboxEntry, DeliveryResult>> = entries.map { entry -> entry to deliver(entry) }
+    fun deliverBatch(entries: List<OutboxEntry>): List<DeliveryOutcome> = entries.map { entry -> DeliveryOutcome(entry, deliver(entry)) }
 }
