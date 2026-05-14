@@ -206,10 +206,10 @@ Throughput on a single instance (MacBook M3 Max, JDK 25 LTS, May 2026):
 | Transport | batchSize=10 | batchSize=100 |
 |-----------|--------------|----------------|
 | Kafka (`acks=all`, localhost broker, async batch via `deliverBatch`) | **~1,470 msg/s** | **~4,720 msg/s** |
-| HTTP @ webhook latency 20 ms (sync sequential — KOJAK-74 in progress) | ~33 msg/s | ~36 msg/s |
-| HTTP @ webhook latency 100 ms (sync sequential — KOJAK-74 in progress) | ~9 msg/s | ~9 msg/s |
+| HTTP @ webhook latency 20 ms (sync sequential — parallel `sendAsync` planned) | ~33 msg/s | ~36 msg/s |
+| HTTP @ webhook latency 100 ms (sync sequential — parallel `sendAsync` planned) | ~9 msg/s | ~9 msg/s |
 
-Kafka throughput jumped 13-41× over the original sync-sequential baseline thanks to the [KOJAK-73](https://softwaremill.atlassian.net/browse/KOJAK-73) `deliverBatch` fire-flush-await pattern. HTTP is next ([KOJAK-74](https://softwaremill.atlassian.net/browse/KOJAK-74)) and multi-threaded scheduler scaling ([KOJAK-77](https://softwaremill.atlassian.net/browse/KOJAK-77)) is in the roadmap. The full optimization plan lives under the [KOJAK-14 epic](https://softwaremill.atlassian.net/browse/KOJAK-14).
+Kafka throughput jumped 13-41× over the original sync-sequential baseline thanks to the `deliverBatch` fire-flush-await pattern. HTTP parallel `sendAsync` is next; multi-threaded scheduler scaling is in the roadmap.
 
 Full methodology, raw JMH results, before/after per change: [`benchmarks/`](benchmarks/).
 

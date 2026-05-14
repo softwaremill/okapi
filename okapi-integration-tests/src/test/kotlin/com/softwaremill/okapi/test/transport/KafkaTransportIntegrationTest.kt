@@ -17,17 +17,17 @@ import java.util.UUID
 
 class KafkaTransportIntegrationTest : FunSpec({
     val kafka = KafkaTestSupport()
-    var producer: KafkaProducer<String, String>? = null
+    lateinit var producer: KafkaProducer<String, String>
     lateinit var deliverer: KafkaMessageDeliverer
 
     beforeSpec {
         kafka.start()
         producer = kafka.createProducer()
-        deliverer = KafkaMessageDeliverer(producer!!)
+        deliverer = KafkaMessageDeliverer(producer)
     }
 
     afterSpec {
-        producer?.close()
+        producer.close()
         kafka.stop()
     }
 
@@ -120,5 +120,36 @@ class KafkaTransportIntegrationTest : FunSpec({
         val result = deliverer.deliver(entry)
 
         result shouldBe DeliveryResult.Success
+    }
+
+    test("deliverBatch sends all entries to topic and returns Success in input order") {
+        val topic = "batch-topic-${UUID.randomUUID()}"
+        val entries = (0 until 25).map { i ->
+            entryWithInfo(topic = topic, payload = """{"seq":$i}""")
+        }
+
+        val results = deliverer.deliverBatch(entries)
+
+        results.size shouldBe entries.size
+        results.forEachIndexed { i, (entry, result) ->
+            entry.outboxId shouldBe entries[i].outboxId
+            result shouldBe DeliveryResult.Success
+        }
+
+        val consumer = kafka.createConsumer(groupId = "test-batch-${UUID.randomUUID()}")
+        consumer.subscribe(listOf(topic))
+        val received = mutableListOf<String>()
+        val deadline = Instant.now().plusSeconds(15)
+        while (received.size < entries.size && Instant.now().isBefore(deadline)) {
+            consumer.poll(Duration.ofSeconds(2)).forEach { received.add(it.value()) }
+        }
+        consumer.close()
+
+        received.size shouldBe entries.size
+    }
+
+    test("deliverBatch on empty input returns empty list without contacting broker") {
+        val results = deliverer.deliverBatch(emptyList())
+        results.size shouldBe 0
     }
 })

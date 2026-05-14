@@ -8,6 +8,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import org.apache.kafka.clients.producer.MockProducer
 import org.apache.kafka.common.errors.AuthenticationException
+import org.apache.kafka.common.errors.InterruptException
 import org.apache.kafka.common.errors.NetworkException
 import org.apache.kafka.common.errors.RecordTooLargeException
 import org.apache.kafka.common.serialization.StringSerializer
@@ -44,5 +45,34 @@ class KafkaMessageDelivererTest : FunSpec({
         producer.sendException = RecordTooLargeException("too big")
         val deliverer = KafkaMessageDeliverer(producer)
         deliverer.deliver(entry()).shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
+    }
+
+    test("Kafka InterruptException on send → RetriableFailure (interrupt flag restored)") {
+        val producer = MockProducer(true, null, StringSerializer(), StringSerializer())
+        producer.sendException = InterruptException("interrupted")
+        val deliverer = KafkaMessageDeliverer(producer)
+        try {
+            deliverer.deliver(entry()).shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
+            Thread.currentThread().isInterrupted shouldBe true
+        } finally {
+            // Clear the interrupt flag so it doesn't leak to subsequent tests.
+            Thread.interrupted()
+        }
+    }
+
+    test("Kafka InterruptException on send in deliverBatch → RetriableFailure per entry") {
+        val producer = MockProducer(true, null, StringSerializer(), StringSerializer())
+        producer.sendException = InterruptException("interrupted")
+        val deliverer = KafkaMessageDeliverer(producer)
+        try {
+            val results = deliverer.deliverBatch(listOf(entry(), entry()))
+            results.size shouldBe 2
+            results.forEach { (_, result) ->
+                result.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
+            }
+            Thread.currentThread().isInterrupted shouldBe true
+        } finally {
+            Thread.interrupted()
+        }
     }
 })

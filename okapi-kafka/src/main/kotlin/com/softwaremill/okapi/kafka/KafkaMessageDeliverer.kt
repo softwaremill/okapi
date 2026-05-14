@@ -15,8 +15,11 @@ import java.util.concurrent.Future
 /**
  * [MessageDeliverer] that publishes outbox entries to Kafka topics.
  *
- * Kafka [RetriableException]s map to [DeliveryResult.RetriableFailure];
- * all other errors map to [DeliveryResult.PermanentFailure].
+ * Exception classification:
+ * - Kafka [RetriableException] → [DeliveryResult.RetriableFailure]
+ * - Thread interrupts ([InterruptException], [InterruptedException]) →
+ *   [DeliveryResult.RetriableFailure] (interrupt flag restored)
+ * - all other errors → [DeliveryResult.PermanentFailure]
  */
 class KafkaMessageDeliverer(
     private val producer: Producer<String, String>,
@@ -27,10 +30,7 @@ class KafkaMessageDeliverer(
         producer.send(buildRecord(entry)).get()
         DeliveryResult.Success
     } catch (e: ExecutionException) {
-        classifyException(e.cause ?: e)
-    } catch (e: InterruptedException) {
-        Thread.currentThread().interrupt()
-        DeliveryResult.RetriableFailure(e.message ?: e.javaClass.simpleName)
+        classifyExecutionException(e)
     } catch (e: Exception) {
         classifyException(e)
     }
@@ -68,7 +68,7 @@ class KafkaMessageDeliverer(
         SendOutcome.Sent(producer.send(buildRecord(entry)))
     } catch (e: Exception) {
         val classified = classifyException(e)
-        logger.debug("Kafka send rejected synchronously for entry {}: {}", entry.outboxId, e.toString())
+        logger.debug("Kafka send rejected synchronously for entry {}", entry.outboxId, e)
         SendOutcome.ImmediateFailure(classified)
     }
 
@@ -78,13 +78,7 @@ class KafkaMessageDeliverer(
             outcome.future.get()
             DeliveryResult.Success
         } catch (e: ExecutionException) {
-            classifyException(e.cause ?: e)
-        } catch (e: InterruptedException) {
-            // Thread was interrupted while waiting for an in-flight future. The interrupt may have
-            // come from flush() (already restored the flag) or from an outer cancellation; either
-            // way, the entry is unsent — retry semantics, not a poison pill.
-            Thread.currentThread().interrupt()
-            DeliveryResult.RetriableFailure(e.message ?: e.javaClass.simpleName)
+            classifyExecutionException(e)
         } catch (e: Exception) {
             classifyException(e)
         }
@@ -99,16 +93,21 @@ class KafkaMessageDeliverer(
 
     private fun classifyException(e: Throwable): DeliveryResult {
         val message = e.message ?: e.javaClass.simpleName
-        return if (e is RetriableException) {
-            DeliveryResult.RetriableFailure(message)
-        } else {
-            DeliveryResult.PermanentFailure(message)
+        return when {
+            e is InterruptException || e is InterruptedException -> {
+                Thread.currentThread().interrupt()
+                DeliveryResult.RetriableFailure(message)
+            }
+            e is RetriableException -> DeliveryResult.RetriableFailure(message)
+            else -> DeliveryResult.PermanentFailure(message)
         }
     }
 
+    private fun classifyExecutionException(e: ExecutionException): DeliveryResult = e.cause?.let { classifyException(it) }
+        ?: DeliveryResult.RetriableFailure("ExecutionException with no cause")
+
     private sealed interface SendOutcome {
-        @JvmInline
-        value class Sent(val future: Future<RecordMetadata>) : SendOutcome
+        data class Sent(val future: Future<RecordMetadata>) : SendOutcome
         data class ImmediateFailure(val result: DeliveryResult) : SendOutcome
     }
 
