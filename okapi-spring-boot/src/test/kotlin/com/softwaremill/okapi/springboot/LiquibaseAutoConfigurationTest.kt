@@ -20,12 +20,14 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeSameInstanceAs
 import liquibase.integration.spring.SpringLiquibase
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.config.BeanPostProcessor
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.autoconfigure.AutoConfigureAfter
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.test.context.FilteredClassLoader
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import org.springframework.core.annotation.AnnotatedElementUtils
 import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import java.time.Instant
 import javax.sql.DataSource
@@ -47,16 +49,16 @@ class LiquibaseAutoConfigurationTest : FunSpec({
     val dataSources = mapOf("primary" to dataSource)
 
     fun postgresConfig(props: OkapiProperties = OkapiProperties()) =
-        OutboxAutoConfiguration.PostgresLiquibaseConfiguration(dataSources, dataSource, props)
+        OkapiLiquibaseAutoConfiguration.PostgresLiquibaseConfiguration(dataSources, dataSource, props)
 
     fun mysqlConfig(props: OkapiProperties = OkapiProperties()) =
-        OutboxAutoConfiguration.MysqlLiquibaseConfiguration(dataSources, dataSource, props)
+        OkapiLiquibaseAutoConfiguration.MysqlLiquibaseConfiguration(dataSources, dataSource, props)
 
     // Default contextRunner disables Liquibase to keep slice tests focused on bean wiring rather
     // than actual SpringLiquibase startup against a fake DataSource. Tests that exercise Liquibase
     // explicitly opt back in.
     val contextRunner = ApplicationContextRunner()
-        .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+        .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
         .withBean(OutboxStore::class.java, { stubStore() })
         .withBean(MessageDeliverer::class.java, { stubDeliverer() })
         .withBean(DataSource::class.java, { SimpleDriverDataSource() })
@@ -176,13 +178,13 @@ class LiquibaseAutoConfigurationTest : FunSpec({
             // evaluate is LiquibaseDisabledNotice's @ConditionalOnProperty.
             ApplicationContextRunner()
                 .withClassLoader(FilteredClassLoader(SpringLiquibase::class.java))
-                .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+                .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
                 .withBean(OutboxStore::class.java, { stubStore() })
                 .withBean(MessageDeliverer::class.java, { stubDeliverer() })
                 .withBean(DataSource::class.java, { SimpleDriverDataSource() })
                 .withPropertyValues("okapi.liquibase.enabled=true")
                 .run { ctx ->
-                    ctx.getBeansOfType(OutboxAutoConfiguration.LiquibaseDisabledNotice::class.java)
+                    ctx.getBeansOfType(OkapiLiquibaseAutoConfiguration.LiquibaseDisabledNotice::class.java)
                         .isEmpty() shouldBe true
                 }
         }
@@ -197,7 +199,7 @@ class LiquibaseAutoConfigurationTest : FunSpec({
             // Captures the actual log line so deletion of the warn() body is also caught — not
             // just deletion of the class itself.
             val notice = LoggerFactory.getLogger(
-                "com.softwaremill.okapi.springboot.OutboxAutoConfiguration",
+                "com.softwaremill.okapi.springboot.OkapiLiquibaseAutoConfiguration",
             ) as Logger
             val appender = ListAppender<ILoggingEvent>().apply { start() }
             notice.addAppender(appender)
@@ -205,13 +207,15 @@ class LiquibaseAutoConfigurationTest : FunSpec({
             try {
                 ApplicationContextRunner()
                     .withClassLoader(FilteredClassLoader(SpringLiquibase::class.java))
-                    .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+                    .withConfiguration(
+                        AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java),
+                    )
                     .withBean(OutboxStore::class.java, { stubStore() })
                     .withBean(MessageDeliverer::class.java, { stubDeliverer() })
                     .withBean(DataSource::class.java, { SimpleDriverDataSource() })
                     .withPropertyValues("okapi.liquibase.enabled=false")
                     .run { ctx ->
-                        ctx.getBeansOfType(OutboxAutoConfiguration.LiquibaseDisabledNotice::class.java)
+                        ctx.getBeansOfType(OkapiLiquibaseAutoConfiguration.LiquibaseDisabledNotice::class.java)
                             .size shouldBe 1
                     }
 
@@ -274,6 +278,7 @@ class LiquibaseAutoConfigurationTest : FunSpec({
                 OutboxAutoConfiguration::class.java,
                 OutboxAutoConfiguration.PostgresStoreConfiguration::class.java,
                 OutboxAutoConfiguration.MysqlStoreConfiguration::class.java,
+                OkapiLiquibaseAutoConfiguration::class.java,
             )
             unguardedClasses.forEach { configClass ->
                 withClue(
@@ -290,8 +295,8 @@ class LiquibaseAutoConfigurationTest : FunSpec({
 
         test("PostgresLiquibaseConfiguration / MysqlLiquibaseConfiguration are gated by @ConditionalOnClass(SpringLiquibase)") {
             listOf(
-                OutboxAutoConfiguration.PostgresLiquibaseConfiguration::class.java,
-                OutboxAutoConfiguration.MysqlLiquibaseConfiguration::class.java,
+                OkapiLiquibaseAutoConfiguration.PostgresLiquibaseConfiguration::class.java,
+                OkapiLiquibaseAutoConfiguration.MysqlLiquibaseConfiguration::class.java,
             ).forEach { configClass ->
                 val annotation = configClass.getAnnotation(ConditionalOnClass::class.java)
                 withClue(
@@ -315,8 +320,14 @@ class LiquibaseAutoConfigurationTest : FunSpec({
         //   2. Runtime classpath check: at least one declared name resolves IF Spring Boot's
         //      Liquibase autoconfig is on the classpath at all (3.5.x ships it in
         //      spring-boot-autoconfigure; 4.0.x does not).
-        test("@AutoConfigureAfter on OutboxAutoConfiguration is structurally sound and resolvable when applicable") {
-            val annotation = OutboxAutoConfiguration::class.java.getAnnotation(AutoConfigureAfter::class.java)
+        test("@AutoConfigureAfter on OkapiLiquibaseAutoConfiguration is structurally sound and resolvable when applicable") {
+            // Use AnnotatedElementUtils so the @AutoConfigureAfter meta-annotation declared on
+            // @AutoConfiguration (and aliased via @AliasFor) is also picked up — JDK's plain
+            // getAnnotation(...) only looks at direct annotations.
+            val annotation = AnnotatedElementUtils.findMergedAnnotation(
+                OkapiLiquibaseAutoConfiguration::class.java,
+                AutoConfigureAfter::class.java,
+            )
             annotation.shouldNotBeNull()
 
             val declaredNames = annotation.name.toList()
@@ -324,7 +335,7 @@ class LiquibaseAutoConfigurationTest : FunSpec({
                 declaredNames.shouldNotBeEmpty()
             }
 
-            val classLoader = OutboxAutoConfiguration::class.java.classLoader
+            val classLoader = OkapiLiquibaseAutoConfiguration::class.java.classLoader
             val knownSpringBootLiquibasePaths = listOf(
                 "org.springframework.boot.autoconfigure.liquibase.LiquibaseAutoConfiguration",
                 "org.springframework.boot.liquibase.autoconfigure.LiquibaseAutoConfiguration",
@@ -341,7 +352,7 @@ class LiquibaseAutoConfigurationTest : FunSpec({
             withClue(
                 "@AutoConfigureAfter declares $declaredNames but none resolve on this Spring Boot runtime " +
                     "($resolvableSpringBootPaths is on the classpath); the ordering hint is silently ignored " +
-                    "and OutboxAutoConfiguration may run before Spring Boot's LiquibaseAutoConfiguration, " +
+                    "and OkapiLiquibaseAutoConfiguration may run before Spring Boot's LiquibaseAutoConfiguration, " +
                     "shadowing the host application's liquibase bean.",
             ) {
                 resolvableDeclaredNames.shouldNotBeEmpty()
@@ -356,7 +367,7 @@ class LiquibaseAutoConfigurationTest : FunSpec({
         // These tests pin the architectural decision against that single-token regression.
 
         test("okapiPostgresLiquibase factory uses @ConditionalOnMissingBean(name = ...)") {
-            val method = OutboxAutoConfiguration.PostgresLiquibaseConfiguration::class.java
+            val method = OkapiLiquibaseAutoConfiguration.PostgresLiquibaseConfiguration::class.java
                 .getDeclaredMethod("okapiPostgresLiquibase")
             val cond = method.getAnnotation(ConditionalOnMissingBean::class.java)
             cond.shouldNotBeNull()
@@ -371,12 +382,65 @@ class LiquibaseAutoConfigurationTest : FunSpec({
         }
 
         test("okapiMysqlLiquibase factory uses @ConditionalOnMissingBean(name = ...)") {
-            val method = OutboxAutoConfiguration.MysqlLiquibaseConfiguration::class.java
+            val method = OkapiLiquibaseAutoConfiguration.MysqlLiquibaseConfiguration::class.java
                 .getDeclaredMethod("okapiMysqlLiquibase")
             val cond = method.getAnnotation(ConditionalOnMissingBean::class.java)
             cond.shouldNotBeNull()
             cond.name.toList() shouldContain "okapiMysqlLiquibase"
             cond.value.toList().shouldBeEmpty()
+        }
+
+        test("dual-module classpath: only ONE okapi*Liquibase bean activates — matching OutboxStore winner") {
+            // Pins the OutboxStore-precedence contract for Liquibase auto-config (issue #38
+            // / KOJAK-80). Both `okapi-postgres` and `okapi-mysql` are on the test classpath
+            // (build.gradle.kts:35-36). The `*OutboxStore` factories share
+            // `@ConditionalOnMissingBean(OutboxStore::class)`, so exactly ONE store bean wins.
+            // The Liquibase configs MUST mirror that precedence: registering both
+            // `okapiPostgresLiquibase` and `okapiMysqlLiquibase` against the same DataSource
+            // would let the second-evaluated Liquibase apply wrong-engine DDL at startup and
+            // fail (duplicate index, wrong-engine syntax, or shared tracking-table collisions).
+            //
+            // The production fix lives in [OkapiLiquibaseAutoConfiguration] — a separate
+            // `@AutoConfiguration(after = OutboxAutoConfiguration)` so that the per-engine
+            // `@ConditionalOnBean(<X>OutboxStore)` gates fire AFTER the store factories have
+            // registered their winning bean. Within a single auto-config those gates would
+            // evaluate before sibling beans are visible and would always skip.
+            //
+            // SuppressSpringLiquibaseRun prevents afterPropertiesSet() from trying to migrate
+            // a fake DataSource — we're asserting bean activation, not migration behaviour.
+            ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
+                .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+                .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+                .withInitializer { ctx ->
+                    ctx.beanFactory.addBeanPostProcessor(SuppressSpringLiquibaseRun())
+                }
+                .run { ctx ->
+                    ctx.startupFailure shouldBe null
+
+                    val storeBean = ctx.getBean(OutboxStore::class.java)
+                    val expected = when (storeBean) {
+                        is com.softwaremill.okapi.postgres.PostgresOutboxStore -> "okapiPostgresLiquibase"
+                        is com.softwaremill.okapi.mysql.MysqlOutboxStore -> "okapiMysqlLiquibase"
+                        else -> error("unexpected OutboxStore type ${storeBean::class}")
+                    }
+                    val active = listOf("okapiPostgresLiquibase", "okapiMysqlLiquibase")
+                        .filter { ctx.containsBean(it) }
+
+                    // Diagnostic: when the assertion fails, surface what each registered
+                    // SpringLiquibase bean would have done (changelog path + dataSource
+                    // identity) so the reader sees concretely why dual activation is broken.
+                    val diagnostic = active.joinToString("\n") { name ->
+                        val bean = ctx.getBean(name, SpringLiquibase::class.java)
+                        "  $name → changelog=${bean.changeLog}, dataSource=${System.identityHashCode(bean.dataSource)}"
+                    }
+                    withClue(
+                        "Active OutboxStore is ${storeBean::class.simpleName}; expected exactly the " +
+                            "matching Liquibase bean ($expected) to activate, but found: $active\n$diagnostic",
+                    ) {
+                        active shouldBe listOf(expected)
+                    }
+                }
         }
 
         test("user @Bean(\"okapiPostgresLiquibase\") replaces okapi's default bean") {
@@ -394,7 +458,7 @@ class LiquibaseAutoConfigurationTest : FunSpec({
             val userBean = SpringLiquibase().apply { setShouldRun(false) }
             ApplicationContextRunner()
                 .withClassLoader(FilteredClassLoader(com.softwaremill.okapi.mysql.MysqlOutboxStore::class.java))
-                .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+                .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
                 .withBean(OutboxStore::class.java, { stubStore() })
                 .withBean(MessageDeliverer::class.java, { stubDeliverer() })
                 .withBean(DataSource::class.java, { SimpleDriverDataSource() })
@@ -413,6 +477,18 @@ class LiquibaseAutoConfigurationTest : FunSpec({
 
 private fun ApplicationContextRunner.withOkapiLiquibaseDisabled(): ApplicationContextRunner =
     withPropertyValues("okapi.liquibase.enabled=false")
+
+/**
+ * Disables [SpringLiquibase.afterPropertiesSet] migration runs by flipping `shouldRun=false`
+ * before init methods fire. Lets dual-activation tests inspect registered beans without
+ * actually trying to apply a changelog against a fake DataSource.
+ */
+private class SuppressSpringLiquibaseRun : BeanPostProcessor {
+    override fun postProcessBeforeInitialization(bean: Any, beanName: String): Any {
+        if (bean is SpringLiquibase) bean.setShouldRun(false)
+        return bean
+    }
+}
 
 private fun canLoadClass(fqcn: String, classLoader: ClassLoader): Boolean = try {
     Class.forName(fqcn, false, classLoader)

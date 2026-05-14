@@ -10,6 +10,7 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.shouldBe
 import liquibase.integration.spring.SpringLiquibase
 import org.postgresql.ds.PGSimpleDataSource
 import org.springframework.beans.factory.support.BeanDefinitionBuilder
@@ -70,13 +71,17 @@ class LiquibaseE2ETest : FunSpec({
             }
         }
 
-        // Hide MysqlOutboxStore from the classpath: both `okapi-postgres` and `okapi-mysql` are on
-        // the test classpath, and MysqlStoreConfiguration would otherwise activate first
-        // (alphabetical M < P) and create the wrong outboxStore bean type for okapiPostgresLiquibase
-        // to inject.
+        // Hide MysqlOutboxStore from the classpath so that PostgresStoreConfiguration is the only
+        // store factory that activates and `okapiPostgresLiquibase` is the only Liquibase bean
+        // that registers (its `@ConditionalOnBean(PostgresOutboxStore)` gate matches the winner).
+        // Without this filter the OutboxStore precedence in the test JVM is non-deterministic
+        // between Postgres and MySQL, and these tests need to deterministically exercise the
+        // Postgres path against a real Postgres DataSource. The dual-module coexistence (both
+        // modules visible, only the matching Liquibase activates) is covered by
+        // ["both okapi-postgres and okapi-mysql on classpath: exactly one okapi*Liquibase activates..."].
         fun runner(ds: DataSource) = ApplicationContextRunner()
             .withClassLoader(FilteredClassLoader(MysqlOutboxStore::class.java))
-            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
             .withBean(MessageDeliverer::class.java, { stubDeliverer() })
             .withBean(DataSource::class.java, { ds })
             .withPropertyValues(
@@ -85,6 +90,35 @@ class LiquibaseE2ETest : FunSpec({
             )
 
         beforeEach { resetSchema() }
+
+        test("both okapi-postgres and okapi-mysql on classpath: exactly one okapi*Liquibase activates against a real Postgres database") {
+            // Regression test for issue #38 / KOJAK-80. Before the per-engine
+            // @ConditionalOnBean(<X>OutboxStore) gate on each *LiquibaseConfiguration, both
+            // `okapiPostgresLiquibase` and `okapiMysqlLiquibase` registered against the same
+            // DataSource and the second-evaluated Liquibase failed at startup with a
+            // duplicate-object error from the wrong-engine changelog
+            // (e.g. ERROR: relation "idx_okapi_outbox_status_last_attempt" already exists).
+            //
+            // No FilteredClassLoader here — both `okapi-postgres` and `okapi-mysql` are visible
+            // on the runtime classpath, mirroring a real consumer that pulls in both modules
+            // (intentionally or transitively).
+            val ds = dataSource()
+
+            ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
+                .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+                .withBean(DataSource::class.java, { ds })
+                .withPropertyValues(
+                    "okapi.processor.enabled=false",
+                    "okapi.purger.enabled=false",
+                )
+                .run { ctx ->
+                    ctx.startupFailure.shouldBeNull()
+                    val activeLiquibase = listOf("okapiPostgresLiquibase", "okapiMysqlLiquibase")
+                        .filter { ctx.containsBean(it) }
+                    activeLiquibase.size shouldBe 1
+                }
+        }
 
         test("autoconfig creates okapi_databasechangelog and runs okapi migrations") {
             val ds = dataSource()
@@ -152,6 +186,7 @@ class LiquibaseE2ETest : FunSpec({
                 .withConfiguration(
                     AutoConfigurations.of(
                         OutboxAutoConfiguration::class.java,
+                        OkapiLiquibaseAutoConfiguration::class.java,
                         springBootLiquibaseAutoConfig,
                     ),
                 )
@@ -210,7 +245,7 @@ class LiquibaseE2ETest : FunSpec({
 
             ApplicationContextRunner()
                 .withClassLoader(FilteredClassLoader(MysqlOutboxStore::class.java))
-                .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+                .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
                 .withBean(MessageDeliverer::class.java, { stubDeliverer() })
                 .withInitializer { context ->
                     val bd = BeanDefinitionBuilder.genericBeanDefinition(DataSource::class.java) { primaryDs }
@@ -272,7 +307,7 @@ class LiquibaseE2ETest : FunSpec({
         // try to run Postgres-specific Liquibase changesets against this MySQL container.
         fun runner(ds: DataSource) = ApplicationContextRunner()
             .withClassLoader(FilteredClassLoader(PostgresOutboxStore::class.java))
-            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
             .withBean(MessageDeliverer::class.java, { stubDeliverer() })
             .withBean(DataSource::class.java, { ds })
             .withPropertyValues(
@@ -334,6 +369,7 @@ class LiquibaseE2ETest : FunSpec({
                 .withConfiguration(
                     AutoConfigurations.of(
                         OutboxAutoConfiguration::class.java,
+                        OkapiLiquibaseAutoConfiguration::class.java,
                         springBootLiquibaseAutoConfig,
                     ),
                 )

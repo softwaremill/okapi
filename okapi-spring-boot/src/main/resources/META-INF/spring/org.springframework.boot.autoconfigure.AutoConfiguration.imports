@@ -1,2 +1,3 @@
 com.softwaremill.okapi.springboot.OutboxAutoConfiguration
+com.softwaremill.okapi.springboot.OkapiLiquibaseAutoConfiguration
 com.softwaremill.okapi.springboot.OkapiMicrometerAutoConfiguration
