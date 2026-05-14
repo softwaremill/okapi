@@ -23,7 +23,6 @@ class DataSourceQualifierAutoConfigurationTest : FunSpec({
         .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
         .withBean(OutboxStore::class.java, { stubStore() })
         .withBean(MessageDeliverer::class.java, { stubDeliverer() })
-        .withPropertyValues("okapi.liquibase.enabled=false")
 
     test("no qualifier set, single datasource — uses that datasource") {
         val ds = SimpleDriverDataSource()

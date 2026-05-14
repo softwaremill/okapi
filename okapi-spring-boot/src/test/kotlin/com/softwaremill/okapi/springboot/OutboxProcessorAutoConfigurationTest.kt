@@ -30,9 +30,6 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
         .withBean(OutboxStore::class.java, { stubStore() })
         .withBean(MessageDeliverer::class.java, { stubDeliverer() })
         .withBean(DataSource::class.java, { SimpleDriverDataSource() })
-        // Liquibase migration is exercised end-to-end against real DBs; disable it here so slice
-        // tests don't try to run okapi's Postgres changelog against a fake DataSource.
-        .withPropertyValues("okapi.liquibase.enabled=false")
 
     test("processor bean is created by default") {
         contextRunner.run { ctx ->
@@ -162,9 +159,6 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             .withBean(OutboxStore::class.java, { stubStore() })
             .withBean(MessageDeliverer::class.java, { stubDeliverer() })
             .withBean(DataSource::class.java, { SimpleDriverDataSource() })
-            // Disable okapi's Liquibase so it doesn't try to run against the fake DataSource —
-            // this test isolates the metrics auto-config ordering, not Liquibase.
-            .withPropertyValues("okapi.liquibase.enabled=false")
             .run { ctx ->
                 ctx.getBean(io.micrometer.core.instrument.MeterRegistry::class.java).shouldNotBeNull()
                 ctx.getBean(MicrometerOutboxListener::class.java).shouldNotBeNull()

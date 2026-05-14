@@ -25,7 +25,6 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
         .withBean(OutboxStore::class.java, { stubStore() })
         .withBean(MessageDeliverer::class.java, { stubDeliverer() })
         .withBean(DataSource::class.java, { SimpleDriverDataSource() })
-        .withPropertyValues("okapi.liquibase.enabled=false")
 
     test("purger bean is created by default") {
         contextRunner.run { ctx ->
