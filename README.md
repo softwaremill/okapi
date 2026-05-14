@@ -273,7 +273,7 @@ Throughput baseline (single instance, sync sequential delivery, MacBook M3 Max, 
 | HTTP @ webhook latency 20 ms | ~33 msg/s | ~36 msg/s |
 | HTTP @ webhook latency 100 ms | ~9 msg/s | ~9 msg/s |
 
-These numbers reflect the current sync-sequential delivery model. Throughput is bounded by per-message round-trip time × batch size. Performance work to lift these limits (async batch delivery, multi-threaded scheduler) is tracked in the [project issues](https://github.com/softwaremill/okapi/issues).
+These numbers reflect the current sync-sequential delivery model. Throughput is bounded by per-message round-trip time × batch size.
 
 Full methodology, raw JMH results, and reproduction instructions: [`benchmarks/`](benchmarks/).
 
