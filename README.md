@@ -99,7 +99,7 @@ Okapi implements the [transactional outbox pattern](https://softwaremill.com/mic
 
 Okapi ships Liquibase changelogs that create the outbox table and its indexes:
 
-- `classpath:com/softwaremill/okapi/db/changelog.xml` — PostgreSQL (from `okapi-postgres`)
+- `classpath:com/softwaremill/okapi/db/postgres/changelog.xml` — PostgreSQL (from `okapi-postgres`)
 - `classpath:com/softwaremill/okapi/db/mysql/changelog.xml` — MySQL (from `okapi-mysql`)
 
 When `okapi-spring-boot` is on the classpath, these run automatically against the configured `DataSource` on application startup. Without Spring Boot, point your own Liquibase setup at the paths above and pass an `outboxTable` change-log parameter (see below).

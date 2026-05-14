@@ -91,7 +91,7 @@
       "name": "okapi.liquibase.enabled",
       "type": "java.lang.Boolean",
       "defaultValue": true,
-      "description": "Whether okapi's bundled Liquibase migration runs on startup. Set to false when the host application includes okapi's changelog from its own master changelog (in which case the application is responsible for applying classpath:com/softwaremill/okapi/db/changelog.xml or the MySQL equivalent)."
+      "description": "Whether okapi's bundled Liquibase migration runs on startup. Set to false when the host application includes okapi's changelog from its own master changelog (in which case the application is responsible for applying classpath:com/softwaremill/okapi/db/postgres/changelog.xml or the MySQL equivalent)."
     },
     {
       "name": "okapi.liquibase.changelog-table",

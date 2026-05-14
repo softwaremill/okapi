@@ -47,7 +47,7 @@ class PostgresBenchmarkSupport {
     private fun runLiquibase() {
         val connection = DriverManager.getConnection(container.jdbcUrl, container.username, container.password)
         val db = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(JdbcConnection(connection))
-        Liquibase("com/softwaremill/okapi/db/changelog.xml", ClassLoaderResourceAccessor(), db).use { it.update("") }
+        Liquibase("com/softwaremill/okapi/db/postgres/changelog.xml", ClassLoaderResourceAccessor(), db).use { it.update("") }
         connection.close()
     }
 }

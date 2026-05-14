@@ -90,7 +90,7 @@ class OkapiLiquibaseAutoConfiguration {
         @ConditionalOnMissingBean(name = ["okapiPostgresLiquibase"])
         fun okapiPostgresLiquibase(): SpringLiquibase = SpringLiquibase().apply {
             dataSource = OutboxAutoConfiguration.resolveDataSource(dataSources, primaryDataSource, okapiProperties)
-            changeLog = "classpath:com/softwaremill/okapi/db/changelog.xml"
+            changeLog = "classpath:com/softwaremill/okapi/db/postgres/changelog.xml"
             databaseChangeLogTable = okapiProperties.liquibase.changelogTable
             databaseChangeLogLockTable = okapiProperties.liquibase.changelogLockTable
         }
@@ -132,7 +132,7 @@ class OkapiLiquibaseAutoConfiguration {
             LIQUIBASE_DISABLED_LOGGER.warn(
                 "okapi.liquibase.enabled=false — okapi will NOT create or migrate the okapi_outbox schema. " +
                     "Ensure your application's migration tool applies " +
-                    "classpath:com/softwaremill/okapi/db/changelog.xml " +
+                    "classpath:com/softwaremill/okapi/db/postgres/changelog.xml " +
                     "(or classpath:com/softwaremill/okapi/db/mysql/changelog.xml for MySQL).",
             )
         }

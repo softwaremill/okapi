@@ -229,7 +229,7 @@ class LiquibaseAutoConfigurationTest : FunSpec({
                     warnEvents.size shouldBe 1
                     val message = warnEvents.single().formattedMessage
                     message stringShouldContain "okapi.liquibase.enabled=false"
-                    message stringShouldContain "okapi/db/changelog.xml"
+                    message stringShouldContain "okapi/db/postgres/changelog.xml"
                 }
             } finally {
                 notice.detachAppender(appender)
