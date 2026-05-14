@@ -19,6 +19,11 @@
       "name": "okapi.metrics",
       "type": "com.softwaremill.okapi.springboot.OkapiMetricsProperties",
       "description": "Okapi Micrometer metrics configuration (okapi-micrometer module)."
+    },
+    {
+      "name": "okapi.liquibase",
+      "type": "com.softwaremill.okapi.springboot.OkapiProperties$Liquibase",
+      "description": "Liquibase auto-configuration settings for okapi's bundled migrations."
     }
   ],
   "properties": [
@@ -81,6 +86,24 @@
       "type": "java.time.Duration",
       "defaultValue": "15s",
       "description": "How often gauge metrics (okapi.entries.count, okapi.entries.lag.seconds) are refreshed from the outbox store. Each refresh runs one transaction with two queries. Requires okapi-micrometer on the classpath."
+    },
+    {
+      "name": "okapi.liquibase.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Whether okapi's bundled Liquibase migration runs on startup. Set to false when the host application includes okapi's changelog from its own master changelog (in which case the application is responsible for applying classpath:com/softwaremill/okapi/db/postgres/changelog.xml or the MySQL equivalent)."
+    },
+    {
+      "name": "okapi.liquibase.changelog-table",
+      "type": "java.lang.String",
+      "defaultValue": "okapi_databasechangelog",
+      "description": "Liquibase tracking-table name for okapi's bundled migrations. Defaults to a dedicated table to keep okapi's migration history isolated from the host application's. Override to point at an existing shared table (e.g. databasechangelog)."
+    },
+    {
+      "name": "okapi.liquibase.changelog-lock-table",
+      "type": "java.lang.String",
+      "defaultValue": "okapi_databasechangeloglock",
+      "description": "Liquibase tracking lock-table name for okapi's bundled migrations. Override only when migrating from a setup that shared databasechangeloglock."
     }
   ]
 }

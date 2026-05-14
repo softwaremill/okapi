@@ -45,6 +45,9 @@ dependencies {
     testImplementation(libs.micrometerCore)
     // Brings in the metrics auto-config jar so @AutoConfigureAfter targets are resolvable in tests.
     testImplementation(libs.springBootStarterActuator)
+    // Logback's ListAppender is used to capture and assert WARN-level log output (e.g. the
+    // LiquibaseDisabledNotice breadcrumb) — slf4j-simple does not provide an introspectable appender.
+    testImplementation(libs.logbackClassic)
 }
 
 // CI version override: ./gradlew :okapi-spring-boot:test -PspringBootVersion=4.0.4 -PspringVersion=7.0.6

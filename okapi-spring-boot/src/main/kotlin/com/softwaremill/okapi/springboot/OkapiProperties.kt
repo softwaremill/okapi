@@ -16,14 +16,20 @@ data class OkapiProperties(
     }
 
     /**
-     * Liquibase tracking-table names used by okapi's bundled migrations.
+     * Liquibase auto-configuration settings for okapi's bundled migrations.
      *
-     * Defaults to dedicated tables (`okapi_databasechangelog` / `okapi_databasechangeloglock`)
-     * so okapi's migration history is isolated from the host application's. Override via
-     * `okapi.liquibase.changelog-table` / `okapi.liquibase.changelog-lock-table` to point at
-     * existing tables (e.g. `databasechangelog`) when migrating from a setup that shared them.
+     * - [enabled]: when `false`, okapi's `SpringLiquibase` bean is not registered; the application
+     *   is responsible for applying okapi's changelog (e.g. via its own `<include file="..."/>`).
+     *   Default: `true`. Disable when okapi's bean would shadow the application's own
+     *   `SpringLiquibase` (Spring Boot's `LiquibaseAutoConfiguration` uses
+     *   `@ConditionalOnMissingBean(SpringLiquibase::class)` by type).
+     * - [changelogTable] / [changelogLockTable]: tracking-table names. Defaults to dedicated
+     *   tables (`okapi_databasechangelog` / `okapi_databasechangeloglock`) so okapi's migration
+     *   history is isolated from the host application's. Override to point at existing tables
+     *   (e.g. `databasechangelog`) when migrating from a setup that shared them.
      */
     data class Liquibase(
+        val enabled: Boolean = true,
         val changelogTable: String = "okapi_databasechangelog",
         val changelogLockTable: String = "okapi_databasechangeloglock",
     ) {

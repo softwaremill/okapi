@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+        Marker changelog used by LiquibaseE2ETest to simulate the host application's own
+        Liquibase migration coexisting with okapi's. The presence of `app_table_marker` in
+        the database after startup proves the app's bean was not shadowed by okapi's.
+    -->
+    <changeSet id="app-001" author="okapi-test">
+        <createTable tableName="app_table_marker">
+            <column name="id" type="INT" autoIncrement="true">
+                <constraints primaryKey="true"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

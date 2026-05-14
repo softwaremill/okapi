@@ -99,7 +99,7 @@ Okapi implements the [transactional outbox pattern](https://softwaremill.com/mic
 
 Okapi ships Liquibase changelogs that create the outbox table and its indexes:
 
-- `classpath:com/softwaremill/okapi/db/changelog.xml` — PostgreSQL (from `okapi-postgres`)
+- `classpath:com/softwaremill/okapi/db/postgres/changelog.xml` — PostgreSQL (from `okapi-postgres`)
 - `classpath:com/softwaremill/okapi/db/mysql/changelog.xml` — MySQL (from `okapi-mysql`)
 
 When `okapi-spring-boot` is on the classpath, these run automatically against the configured `DataSource` on application startup. Without Spring Boot, point your own Liquibase setup at the paths above and pass an `outboxTable` change-log parameter (see below).
@@ -273,7 +273,7 @@ Throughput baseline (single instance, sync sequential delivery, MacBook M3 Max, 
 | HTTP @ webhook latency 20 ms | ~33 msg/s | ~36 msg/s |
 | HTTP @ webhook latency 100 ms | ~9 msg/s | ~9 msg/s |
 
-These numbers reflect the current sync-sequential delivery model. Throughput is bounded by per-message round-trip time × batch size. Performance work to lift these limits (async batch delivery, multi-threaded scheduler) is tracked under the [KOJAK-14 epic](https://softwaremill.atlassian.net/browse/KOJAK-14).
+These numbers reflect the current sync-sequential delivery model. Throughput is bounded by per-message round-trip time × batch size.
 
 Full methodology, raw JMH results, and reproduction instructions: [`benchmarks/`](benchmarks/).
 
