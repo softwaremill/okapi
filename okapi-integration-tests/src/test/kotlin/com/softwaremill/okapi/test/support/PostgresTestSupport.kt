@@ -32,7 +32,7 @@ class PostgresTestSupport {
     fun truncate() {
         jdbc.withTransaction {
             jdbc.withConnection { conn ->
-                conn.createStatement().use { it.execute("TRUNCATE TABLE outbox") }
+                conn.createStatement().use { it.execute("TRUNCATE TABLE okapi_outbox") }
             }
         }
     }
@@ -40,7 +40,7 @@ class PostgresTestSupport {
     private fun runLiquibase() {
         val connection = DriverManager.getConnection(container.jdbcUrl, container.username, container.password)
         val db = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(JdbcConnection(connection))
-        Liquibase("com/softwaremill/okapi/db/changelog.xml", ClassLoaderResourceAccessor(), db).use { it.update("") }
+        Liquibase("com/softwaremill/okapi/db/postgres/changelog.xml", ClassLoaderResourceAccessor(), db).use { it.update("") }
         connection.close()
     }
 }

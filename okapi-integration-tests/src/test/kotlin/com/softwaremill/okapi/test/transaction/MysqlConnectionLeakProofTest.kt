@@ -48,7 +48,7 @@ class MysqlConnectionLeakProofTest : FunSpec({
 
     beforeEach {
         counter.delegate.connection.use { conn ->
-            conn.createStatement().use { it.execute("DELETE FROM outbox") }
+            conn.createStatement().use { it.execute("DELETE FROM okapi_outbox") }
         }
         counter.opened.set(0)
         counter.closed.set(0)

@@ -90,4 +90,15 @@ class HttpMessageDelivererTest : FunSpec({
         )
         deliverer.deliver(entry()).shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
     }
+
+    test("corrupt delivery metadata -> PermanentFailure (does not throw)") {
+        val poisoned = entry().copy(deliveryMetadata = "{not valid json")
+        deliverer.deliver(poisoned).shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
+    }
+
+    test("urlResolver throwing -> PermanentFailure (does not throw)") {
+        val throwingResolver = ServiceUrlResolver { name -> error("Unknown service: $name") }
+        val d = HttpMessageDeliverer(throwingResolver)
+        d.deliver(entry()).shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
+    }
 })
