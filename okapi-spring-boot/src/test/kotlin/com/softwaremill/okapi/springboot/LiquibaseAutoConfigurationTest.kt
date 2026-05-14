@@ -17,6 +17,7 @@ import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.kotest.matchers.types.shouldBeSameInstanceAs
 import liquibase.integration.spring.SpringLiquibase
 import org.slf4j.LoggerFactory
@@ -446,26 +447,37 @@ class LiquibaseAutoConfigurationTest : FunSpec({
         test("user @Bean(\"okapiPostgresLiquibase\") replaces okapi's default bean") {
             // Pins that the documented override mechanism actually works: a host app supplying
             // its own bean by the well-known name takes precedence over okapi's auto-configured
-            // factory (because @ConditionalOnMissingBean(name = "okapiPostgresLiquibase") sees
-            // the user's definition and skips okapi's). Switching to type-based
-            // @ConditionalOnMissingBean(SpringLiquibase) silently breaks this — the user's bean
-            // still registers, but okapi's also registers, producing two SpringLiquibase beans.
+            // factory because of @ConditionalOnMissingBean(name = "okapiPostgresLiquibase") on
+            // okapiPostgresLiquibase().
             //
-            // setShouldRun(false) prevents the user's bean from actually running Liquibase
-            // against the fake DataSource. MysqlOutboxStore is hidden via FilteredClassLoader
-            // so the MySQL Liquibase config class is also skipped (otherwise it would try to
-            // run okapi's MySQL changelog against the fake DataSource).
+            // To make this test actually exercise the method-level @ConditionalOnMissingBean,
+            // we must let the auto-config register a real PostgresOutboxStore — otherwise the
+            // class-level @ConditionalOnBean(PostgresOutboxStore::class) on
+            // PostgresLiquibaseConfiguration would skip the entire class before the method-level
+            // gate is ever evaluated, and the test would pass for the wrong reason.
+            //
+            // MysqlOutboxStore is hidden via FilteredClassLoader so MysqlLiquibaseConfiguration's
+            // gate fails (no MysqlOutboxStore class available) and only PostgresLiquibase is in
+            // scope. SuppressSpringLiquibaseRun + setShouldRun(false) prevent any SpringLiquibase
+            // bean from actually running migrations against the fake DataSource.
             val userBean = SpringLiquibase().apply { setShouldRun(false) }
             ApplicationContextRunner()
                 .withClassLoader(FilteredClassLoader(com.softwaremill.okapi.mysql.MysqlOutboxStore::class.java))
                 .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
-                .withBean(OutboxStore::class.java, { stubStore() })
                 .withBean(MessageDeliverer::class.java, { stubDeliverer() })
                 .withBean(DataSource::class.java, { SimpleDriverDataSource() })
                 .withBean("okapiPostgresLiquibase", SpringLiquibase::class.java, { userBean })
+                .withInitializer { ctx ->
+                    ctx.beanFactory.addBeanPostProcessor(SuppressSpringLiquibaseRun())
+                }
                 // okapi.liquibase.enabled defaults to true (no opt-out): the override decision
                 // must come from @ConditionalOnMissingBean, not from the property.
                 .run { ctx ->
+                    // The auto-config registered a real PostgresOutboxStore — confirms that the
+                    // class-level @ConditionalOnBean(PostgresOutboxStore::class) gate passed and
+                    // the method-level @ConditionalOnMissingBean was actually evaluated.
+                    ctx.getBean(OutboxStore::class.java).shouldBeInstanceOf<com.softwaremill.okapi.postgres.PostgresOutboxStore>()
+
                     ctx.getBean("okapiPostgresLiquibase", SpringLiquibase::class.java) shouldBeSameInstanceAs userBean
                     // Exactly one SpringLiquibase bean — the user's. okapi's factory must have been
                     // skipped by @ConditionalOnMissingBean(name = "okapiPostgresLiquibase").
