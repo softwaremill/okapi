@@ -15,6 +15,7 @@ import com.softwaremill.okapi.mysql.MysqlOutboxStore
 import com.softwaremill.okapi.postgres.PostgresOutboxStore
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.BeanFactory
+import org.springframework.beans.factory.BeanNotOfRequiredTypeException
 import org.springframework.beans.factory.NoSuchBeanDefinitionException
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
@@ -95,8 +96,17 @@ class OutboxAutoConfiguration(
     @ConditionalOnExpression("\${okapi.processor.enabled:true} or \${okapi.purger.enabled:true}")
     fun okapiTransactionRunner(
         transactionManager: ObjectProvider<PlatformTransactionManager>,
+        transactionTemplate: ObjectProvider<TransactionTemplate>,
         beanFactory: BeanFactory,
     ): TransactionRunner {
+        // If the user has defined exactly one @Bean TransactionTemplate, honour their settings
+        // (timeout, propagation, isolation, etc.) instead of silently building a fresh one from
+        // the PTM. Same intent as @ConditionalOnMissingBean on this factory, just at a finer
+        // granularity — the user's template is THE source of truth for TX semantics.
+        val userTemplate = transactionTemplate.getIfUnique()
+        if (userTemplate != null) {
+            return SpringTransactionRunner(userTemplate)
+        }
         val ptm = resolvePlatformTransactionManager(transactionManager, beanFactory, okapiProperties)
         validatePtmDataSourceMatch(ptm, resolveDataSource(), okapiProperties)
         // Sets the *initial* TX read-only flag to false. NOTE: with PROPAGATION_REQUIRED (the default),
@@ -245,6 +255,18 @@ class OutboxAutoConfiguration(
                             "'$qualifier' found. Check the bean name or remove the property to fall back to " +
                             "auto-resolution.",
                     ).apply { initCause(e) }
+                } catch (e: BeanNotOfRequiredTypeException) {
+                    // Common typo: qualifier points to e.g. a DataSource bean name instead of a PTM
+                    // bean name. Spring's default message ("Bean named 'X' is expected to be of type ...
+                    // but was actually of type ...") doesn't mention okapi, so users searching for
+                    // "okapi" in startup logs find nothing. Rewrap with okapi-specific context.
+                    throw IllegalStateException(
+                        "okapi.transaction-manager-qualifier='$qualifier' — bean named '$qualifier' exists " +
+                            "but is of type '${e.actualType.name}', not a PlatformTransactionManager. Check " +
+                            "the property value (likely a typo into a DataSource or other bean name) or " +
+                            "remove it to fall back to auto-resolution.",
+                        e,
+                    )
                 }
             }
             val unique = provider.getIfUnique()
@@ -275,8 +297,10 @@ class OutboxAutoConfiguration(
             // verify it matches okapi's outbox DataSource. RTMs whose resource is something else
             // (JpaTransactionManager → EntityManagerFactory, HibernateTransactionManager → SessionFactory)
             // and non-RTM PTMs (Exposed's SpringTransactionManager, JtaTransactionManager) fall through
-            // to the "cannot verify" WARN path.
-            val ptmDataSource = (ptm as? ResourceTransactionManager)?.resourceFactory as? DataSource
+            // to the "cannot verify" WARN path. Capture the actual resourceFactory class so the WARN
+            // reports what the user's PTM actually exposed (not just the static JPA/Hibernate examples).
+            val rtmResourceFactory = (ptm as? ResourceTransactionManager)?.resourceFactory
+            val ptmDataSource = rtmResourceFactory as? DataSource
             if (ptmDataSource != null) {
                 // Spring's recommended pattern wraps the outbox DataSource bean in TransactionAwareDataSourceProxy
                 // (or LazyConnectionDataSourceProxy) for use by query helpers, while passing the raw DataSource
@@ -317,19 +341,42 @@ class OutboxAutoConfiguration(
                 }
                 return
             }
+            val resourceFactoryDescription = when {
+                ptm !is ResourceTransactionManager ->
+                    "does not implement ResourceTransactionManager (no resource factory exposed; same shape as " +
+                        "JtaTransactionManager or Exposed's SpringTransactionManager)"
+                rtmResourceFactory == null ->
+                    "implements ResourceTransactionManager but its getResourceFactory() returned null"
+                else ->
+                    "implements ResourceTransactionManager but its resourceFactory is of type " +
+                        "'${rtmResourceFactory.javaClass.name}', not a JDBC DataSource (typical for JPA's " +
+                        "EntityManagerFactory or Hibernate's SessionFactory)"
+            }
             if (properties.datasourceQualifier != null) {
                 logger.warn(
-                    "okapi.datasource-qualifier='{}' is set, but the resolved PlatformTransactionManager '{}' does " +
-                        "not expose a JDBC DataSource (e.g. JpaTransactionManager exposes EntityManagerFactory, " +
-                        "HibernateTransactionManager exposes SessionFactory; non-ResourceTransactionManager PTMs like " +
-                        "JtaTransactionManager or Exposed's SpringTransactionManager don't expose any resource factory " +
-                        "at all) — okapi cannot verify it brackets the outbox DataSource. If the PTM " +
-                        "is bound to a different DataSource, scheduler ticks will silently run in JDBC auto-commit " +
-                        "mode and FOR UPDATE SKIP LOCKED will collapse, allowing duplicate delivery across processor " +
-                        "instances. Set okapi.transaction-manager-qualifier to disambiguate, or define an explicit " +
-                        "@Bean TransactionRunner.",
+                    "okapi.datasource-qualifier='{}' is set, but the resolved PlatformTransactionManager '{}' {} " +
+                        "— okapi cannot verify it brackets the outbox DataSource. If the PTM is bound to a different " +
+                        "DataSource, scheduler ticks will silently run in JDBC auto-commit mode and FOR UPDATE SKIP " +
+                        "LOCKED will collapse, allowing duplicate delivery across processor instances. Set " +
+                        "okapi.transaction-manager-qualifier to disambiguate, or define an explicit @Bean " +
+                        "TransactionRunner.",
                     properties.datasourceQualifier,
                     ptm.javaClass.name,
+                    resourceFactoryDescription,
+                )
+            } else {
+                // No qualifier set → single-DS assumption. We cannot validate, but a future multi-DS
+                // migration that forgets to set the qualifier would silently break with no diagnostic.
+                // Emit an INFO breadcrumb so an operator debugging duplicate delivery has something
+                // to grep for.
+                logger.info(
+                    "PlatformTransactionManager '{}' {} — okapi cannot verify it brackets the outbox " +
+                        "DataSource. Assuming single-DataSource setup (okapi.datasource-qualifier is " +
+                        "unset). If you have or add multiple DataSources, set okapi.transaction-manager-" +
+                        "qualifier (and okapi.datasource-qualifier) explicitly to avoid silent " +
+                        "PTM↔DataSource mismatch.",
+                    ptm.javaClass.name,
+                    resourceFactoryDescription,
                 )
             }
         }

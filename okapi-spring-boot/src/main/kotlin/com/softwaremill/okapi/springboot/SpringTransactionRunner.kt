@@ -7,7 +7,7 @@ import org.springframework.transaction.support.TransactionTemplate
  * Spring implementation of [TransactionRunner] using [TransactionTemplate].
  */
 class SpringTransactionRunner(
-    private val transactionTemplate: TransactionTemplate,
+    internal val transactionTemplate: TransactionTemplate,
 ) : TransactionRunner {
     override fun <T> runInTransaction(block: () -> T): T = transactionTemplate.execute { block() }!!
 }

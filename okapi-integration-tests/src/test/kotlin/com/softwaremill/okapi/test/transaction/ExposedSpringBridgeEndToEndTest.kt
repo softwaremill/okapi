@@ -178,7 +178,56 @@ class ExposedSpringBridgeEndToEndTest : FunSpec({
                 recorder.deliveryCount() shouldBe entryCount
             }
     }
+
+    // Purger uses a different code path than the processor — native SQL delete with limit, no
+    // claim/update state machine. Under the Exposed `SpringTransactionManager` bridge this needs
+    // its own E2E coverage: a regression where the bridge mishandles bracketing of the bulk delete
+    // (e.g. an Exposed upgrade that changes statement execution) would silently leave DELIVERED
+    // rows accumulating without breaking any other test.
+    test("purger tick under Exposed-bridge PTM removes DELIVERED entries past retention") {
+        val recorder = RecordingMessageDeliverer()
+        runner(recorder)
+            .withPropertyValues(
+                "okapi.processor.interval=100ms",
+                "okapi.purger.interval=200ms",
+                "okapi.purger.retention=1ms",
+            )
+            .run { ctx ->
+                resetCounterAndTruncate(counter)
+
+                val publisher = ctx.getBean(SpringOutboxPublisher::class.java)
+                val tm = ctx.getBean(PlatformTransactionManager::class.java)
+
+                TransactionTemplate(tm).execute {
+                    publisher.publish(
+                        OutboxMessage("test.purger", """{"k":"v"}"""),
+                        RecordingDeliveryInfo,
+                    )
+                }
+
+                val deliveredDeadline = System.currentTimeMillis() + 5_000
+                while (recorder.deliveryCount() == 0 && System.currentTimeMillis() < deliveredDeadline) {
+                    Thread.sleep(50)
+                }
+                recorder.deliveryCount() shouldBe 1
+
+                val purgedDeadline = System.currentTimeMillis() + 5_000
+                while (rowCount(counter) > 0 && System.currentTimeMillis() < purgedDeadline) {
+                    Thread.sleep(100)
+                }
+                rowCount(counter) shouldBe 0
+            }
+    }
 })
+
+private fun rowCount(counter: CountingDataSource): Int = counter.delegate.connection.use { c ->
+    c.createStatement().use { stmt ->
+        stmt.executeQuery("SELECT COUNT(*) FROM okapi_outbox").use { rs ->
+            rs.next()
+            rs.getInt(1)
+        }
+    }
+}
 
 private fun resetCounterAndTruncate(counter: CountingDataSource) {
     counter.delegate.connection.use { c ->

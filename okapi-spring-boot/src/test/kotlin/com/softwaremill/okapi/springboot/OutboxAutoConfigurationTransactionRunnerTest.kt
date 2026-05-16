@@ -70,6 +70,45 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
             }
     }
 
+    test("okapi.transaction-manager-qualifier YAML key binds to OkapiProperties.transactionManagerQualifier (kebab → camelCase)") {
+        // Pins the property name contract — without this a future rename of the Kotlin field
+        // (e.g. transactionManagerQualifier → txManagerQualifier) silently breaks user
+        // configuration. Mirror of LiquibaseAutoConfigurationTest's "okapi.liquibase.* properties
+        // bind to nested config" test.
+        baseRunner
+            .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+            .withBean(TransactionRunner::class.java, {
+                object : TransactionRunner {
+                    override fun <T> runInTransaction(block: () -> T): T = block()
+                }
+            })
+            .withPropertyValues("okapi.transaction-manager-qualifier=outboxTm")
+            .run { ctx ->
+                ctx.getBean(OkapiProperties::class.java).transactionManagerQualifier shouldBe "outboxTm"
+            }
+    }
+
+    test("blank okapi.transaction-manager-qualifier triggers startup failure with require() message") {
+        // Pins that init { require(isNotBlank()) } actually propagates through Spring's Binder.
+        // A future refactor of OkapiProperties that moves the require() outside init or onto a
+        // getter would silently let blank qualifiers through and cause a confusing
+        // NoSuchBeanDefinitionException at PTM lookup. Mirror of LiquibaseAutoConfigurationTest's
+        // "blank changelog-table property triggers startup failure".
+        baseRunner
+            .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+            .withBean(TransactionRunner::class.java, {
+                object : TransactionRunner {
+                    override fun <T> runInTransaction(block: () -> T): T = block()
+                }
+            })
+            .withPropertyValues("okapi.transaction-manager-qualifier= ")
+            .run { ctx ->
+                val rootCause = generateSequence(ctx.startupFailure) { it.cause }.last()
+                rootCause.message.shouldNotBeNull()
+                    .shouldContain("okapi.transaction-manager-qualifier must not be blank")
+            }
+    }
+
     test("publish-only deployment: both schedulers disabled + no PTM + no user TransactionRunner — context starts cleanly") {
         // Publish-only mode (e.g. message-producing service that delegates outbox processing to a separate
         // worker). The TransactionRunner is only needed by scheduler/purger; with both disabled, no PTM
@@ -103,6 +142,22 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
                     it.shouldContain("PlatformTransactionManager")
                     it.shouldContain("@Bean TransactionRunner")
                 }
+            }
+    }
+
+    test("user-provided @Bean TransactionTemplate is honoured (autoconfig does not silently shadow it)") {
+        // If a user defines a custom TransactionTemplate (e.g. with non-default timeout / propagation /
+        // isolation), the autoconfig MUST use that exact template — not silently build its own fresh
+        // TransactionTemplate(ptm) from the PTM. A "silent shadow" regression would discard the user's
+        // intent for scheduler ticks while their @Transactional code paths use the configured template.
+        val ds: DataSource = SimpleDriverDataSource()
+        baseRunner
+            .withBean(DataSource::class.java, { ds })
+            .withBean(PlatformTransactionManager::class.java, { DataSourceTransactionManager(ds) })
+            .withUserConfiguration(CustomTransactionTemplateConfiguration::class.java)
+            .run { ctx ->
+                val runner = ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
+                runner.transactionTemplate.shouldBeSameInstanceAs(CustomTransactionTemplateConfiguration.TEMPLATE)
             }
     }
 
@@ -195,20 +250,86 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
             }
     }
 
-    test("non-ResourceTransactionManager PTM with okapi.datasource-qualifier set: context starts (DS validation cannot run, WARN logged)") {
-        // DummyTransactionManager extends AbstractPlatformTransactionManager but does NOT implement
-        // ResourceTransactionManager — same shape as Exposed's SpringTransactionManager and JpaTransactionManager.
-        // Validation cannot extract the PTM's DataSource, so it logs a WARN and allows the context to start.
-        // This documents the non-fail-fast path so users without a DST-style PTM can still wire okapi.
+    test("ResourceTransactionManager PTM with non-DataSource resourceFactory: WARN includes actual resourceFactory class name") {
+        // BUG C1 test (above, around line 254) covers the WARN-is-emitted contract for this case.
+        // This test pins the diagnostic CONTENT: the WARN must mention the actual resourceFactory
+        // class so a user with a custom RTM (or buggy subclass returning null) sees the real
+        // resource type, not just the static example list (JpaTransactionManager/Hibernate). Without
+        // this assertion a refactor that removed the dynamic class reference from the WARN would
+        // silently downgrade the diagnostic for non-JPA users.
         val ds: DataSource = SimpleDriverDataSource()
-        baseRunner
-            .withBean("outboxDs", DataSource::class.java, { ds })
-            .withBean(PlatformTransactionManager::class.java, { DummyTransactionManager() })
-            .withPropertyValues("okapi.datasource-qualifier=outboxDs")
-            .run { ctx ->
-                ctx.startupFailure.shouldBeNull()
-                ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
-            }
+        val customRtm = JpaLikeRtmTransactionManager(resourceFactory = "myDistinctiveResourceFactory")
+        val targetLogger = LoggerFactory.getLogger(OutboxAutoConfiguration::class.java) as Logger
+        val appender = ListAppender<ILoggingEvent>().apply { start() }
+        targetLogger.addAppender(appender)
+        try {
+            baseRunner
+                .withBean("outboxDs", DataSource::class.java, { ds })
+                .withBean(PlatformTransactionManager::class.java, { customRtm })
+                .withPropertyValues("okapi.datasource-qualifier=outboxDs")
+                .run { ctx -> ctx.startupFailure.shouldBeNull() }
+            val warnText = appender.list.filter { it.level == Level.WARN }.joinToString("\n") { it.formattedMessage }
+            // resourceFactory is a String — WARN must mention its class so user sees what was actually
+            // exposed, not just the JpaTransactionManager/Hibernate examples.
+            warnText.shouldContain("java.lang.String")
+        } finally {
+            targetLogger.detachAppender(appender)
+        }
+    }
+
+    test("non-ResourceTransactionManager PTM without okapi.datasource-qualifier (single-DS assumption): INFO breadcrumb emitted") {
+        // When validation cannot run AND no qualifier is set, the autoconfig assumes single-DS — but
+        // a future multi-DS migration that forgets to set the qualifier would silently break with no
+        // diagnostic. An INFO breadcrumb at startup gives the operator something to grep for when
+        // duplicate delivery starts to occur post-migration.
+        val ds: DataSource = SimpleDriverDataSource()
+        val targetLogger = LoggerFactory.getLogger(OutboxAutoConfiguration::class.java) as Logger
+        val appender = ListAppender<ILoggingEvent>().apply { start() }
+        targetLogger.addAppender(appender)
+        try {
+            baseRunner
+                .withBean(DataSource::class.java, { ds })
+                .withBean(PlatformTransactionManager::class.java, { DummyTransactionManager() })
+                // no okapi.datasource-qualifier
+                .run { ctx -> ctx.startupFailure.shouldBeNull() }
+            val infos = appender.list.filter { it.level == Level.INFO }
+            val combined = infos.joinToString("\n") { it.formattedMessage }
+            combined.shouldContain("does not implement ResourceTransactionManager")
+            combined.shouldContain("okapi.transaction-manager-qualifier")
+        } finally {
+            targetLogger.detachAppender(appender)
+        }
+    }
+
+    test("non-ResourceTransactionManager PTM with okapi.datasource-qualifier set: context starts AND emits actionable WARN") {
+        // DummyTransactionManager extends AbstractPlatformTransactionManager but does NOT implement
+        // ResourceTransactionManager — same shape as Exposed's SpringTransactionManager.
+        // Validation cannot extract the PTM's DataSource, so it logs a WARN and allows the context to start.
+        // Captures the WARN content so deletion of the warn() body (or its message format) is also caught —
+        // not just deletion of the conditional that emits it. Without this assertion, the operator-facing
+        // breadcrumb could silently rot without breaking any other test.
+        val ds: DataSource = SimpleDriverDataSource()
+        val targetLogger = LoggerFactory.getLogger(OutboxAutoConfiguration::class.java) as Logger
+        val appender = ListAppender<ILoggingEvent>().apply { start() }
+        targetLogger.addAppender(appender)
+        try {
+            baseRunner
+                .withBean("outboxDs", DataSource::class.java, { ds })
+                .withBean(PlatformTransactionManager::class.java, { DummyTransactionManager() })
+                .withPropertyValues("okapi.datasource-qualifier=outboxDs")
+                .run { ctx ->
+                    ctx.startupFailure.shouldBeNull()
+                    ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
+                }
+            val warnings = appender.list.filter { it.level == Level.WARN }
+            warnings.shouldNotBeEmpty()
+            val combined = warnings.joinToString("\n") { it.formattedMessage }
+            combined.shouldContain("okapi.datasource-qualifier")
+            combined.shouldContain("does not implement ResourceTransactionManager")
+            combined.shouldContain("okapi.transaction-manager-qualifier")
+        } finally {
+            targetLogger.detachAppender(appender)
+        }
     }
 
     test("okapi.transaction-manager-qualifier pointing to a nonexistent bean fails with actionable message") {
@@ -223,6 +344,29 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
                 val allMessages = generateSequence(failure as Throwable?) { it.cause }.mapNotNull { it.message }.toList()
                 allMessages.any { it.contains("okapi.transaction-manager-qualifier") } shouldBe true
                 allMessages.any { it.contains("missingTm") } shouldBe true
+            }
+    }
+
+    test("okapi.transaction-manager-qualifier pointing to a bean of wrong type (e.g. DataSource) fails with actionable message") {
+        // Common typo: user means `okapi.transaction-manager-qualifier=outboxTm` but writes
+        // `=outboxDs` (the DataSource bean name). Spring throws `BeanNotOfRequiredTypeException`,
+        // NOT `NoSuchBeanDefinitionException`, so a naive `catch (NoSuchBeanDefinitionException)`
+        // never wraps the error and the user sees a cryptic message without okapi context.
+        val outboxDs: DataSource = SimpleDriverDataSource()
+        baseRunner
+            .withBean("outboxDs", DataSource::class.java, { outboxDs })
+            .withBean("outboxTm", PlatformTransactionManager::class.java, { DataSourceTransactionManager(outboxDs) })
+            // typo: pointing to the DataSource bean instead of the PTM bean
+            .withPropertyValues("okapi.transaction-manager-qualifier=outboxDs")
+            .run { ctx ->
+                val failure = ctx.startupFailure
+                failure.shouldNotBeNull()
+                val allMessages = generateSequence(failure as Throwable?) { it.cause }.mapNotNull { it.message }.toList()
+                allMessages.any { it.contains("okapi.transaction-manager-qualifier") } shouldBe true
+                allMessages.any { it.contains("outboxDs") } shouldBe true
+                allMessages.any {
+                    it.contains("not a PlatformTransactionManager") || it.contains("PlatformTransactionManager")
+                } shouldBe true
             }
     }
 
@@ -413,6 +557,24 @@ private class CustomRunnerConfiguration {
         val RUNNER: TransactionRunner = object : TransactionRunner {
             override fun <T> runInTransaction(block: () -> T): T = block()
         }
+    }
+}
+
+@Configuration(proxyBeanMethods = false)
+private class CustomTransactionTemplateConfiguration {
+    @Bean
+    fun customTemplate(ptm: PlatformTransactionManager): org.springframework.transaction.support.TransactionTemplate {
+        TEMPLATE.transactionManager = ptm
+        return TEMPLATE
+    }
+
+    companion object {
+        // Distinctive timeout makes the template easily identifiable; the autoconfig must not silently
+        // build its own TransactionTemplate(ptm) bypassing this one.
+        val TEMPLATE: org.springframework.transaction.support.TransactionTemplate =
+            org.springframework.transaction.support.TransactionTemplate().apply {
+                timeout = 42
+            }
     }
 }
 
