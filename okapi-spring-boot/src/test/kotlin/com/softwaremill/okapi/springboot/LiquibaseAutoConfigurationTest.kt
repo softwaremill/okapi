@@ -9,6 +9,7 @@ import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.core.TransactionRunner
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
@@ -63,6 +64,7 @@ class LiquibaseAutoConfigurationTest : FunSpec({
         .withBean(OutboxStore::class.java, { stubStore() })
         .withBean(MessageDeliverer::class.java, { stubDeliverer() })
         .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+        .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
         .withOkapiLiquibaseDisabled()
 
     context("postgres liquibase") {
@@ -183,6 +185,7 @@ class LiquibaseAutoConfigurationTest : FunSpec({
                 .withBean(OutboxStore::class.java, { stubStore() })
                 .withBean(MessageDeliverer::class.java, { stubDeliverer() })
                 .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+                .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
                 .withPropertyValues("okapi.liquibase.enabled=true")
                 .run { ctx ->
                     ctx.getBeansOfType(OkapiLiquibaseAutoConfiguration.LiquibaseDisabledNotice::class.java)
@@ -214,6 +217,7 @@ class LiquibaseAutoConfigurationTest : FunSpec({
                     .withBean(OutboxStore::class.java, { stubStore() })
                     .withBean(MessageDeliverer::class.java, { stubDeliverer() })
                     .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+                    .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
                     .withPropertyValues("okapi.liquibase.enabled=false")
                     .run { ctx ->
                         ctx.getBeansOfType(OkapiLiquibaseAutoConfiguration.LiquibaseDisabledNotice::class.java)
@@ -413,6 +417,7 @@ class LiquibaseAutoConfigurationTest : FunSpec({
                 .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
                 .withBean(MessageDeliverer::class.java, { stubDeliverer() })
                 .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+                .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
                 .withInitializer { ctx ->
                     ctx.beanFactory.addBeanPostProcessor(SuppressSpringLiquibaseRun())
                 }
@@ -466,6 +471,7 @@ class LiquibaseAutoConfigurationTest : FunSpec({
                 .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
                 .withBean(MessageDeliverer::class.java, { stubDeliverer() })
                 .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+                .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
                 .withBean("okapiPostgresLiquibase", SpringLiquibase::class.java, { userBean })
                 .withInitializer { ctx ->
                     ctx.beanFactory.addBeanPostProcessor(SuppressSpringLiquibaseRun())
@@ -507,6 +513,10 @@ private fun canLoadClass(fqcn: String, classLoader: ClassLoader): Boolean = try 
     true
 } catch (_: ClassNotFoundException) {
     false
+}
+
+private fun noOpTransactionRunner() = object : TransactionRunner {
+    override fun <T> runInTransaction(block: () -> T): T = block()
 }
 
 private fun stubStore() = object : OutboxStore {

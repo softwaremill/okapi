@@ -44,5 +44,13 @@ dependencies {
     testImplementation(libs.springContext)
     testImplementation(libs.springTx)
     testImplementation(libs.springBootAutoconfigure)
+    testImplementation(libs.springBootTest)
     testImplementation(libs.springJdbc)
+    // Spring Boot 4.x doesn't pull AssertJ transitively but ApplicationContextRunner needs it
+    testImplementation(libs.assertjCore)
+
+    // Exposed-Spring bridge (proves autoconfig works with non-DataSourceTransactionManager PTMs)
+    testImplementation(libs.exposedCore)
+    testImplementation(libs.exposedJdbc)
+    testImplementation(libs.exposedSpringTransaction)
 }
