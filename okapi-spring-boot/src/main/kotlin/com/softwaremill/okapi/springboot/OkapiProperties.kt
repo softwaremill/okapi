@@ -7,11 +7,16 @@ import org.springframework.validation.annotation.Validated
 @Validated
 data class OkapiProperties(
     val datasourceQualifier: String? = null,
+    val transactionManagerQualifier: String? = null,
     val liquibase: Liquibase = Liquibase(),
 ) {
     init {
         require(datasourceQualifier == null || datasourceQualifier.isNotBlank()) {
             "okapi.datasource-qualifier must not be blank. Set it to the bean name of the outbox DataSource, or remove the property."
+        }
+        require(transactionManagerQualifier == null || transactionManagerQualifier.isNotBlank()) {
+            "okapi.transaction-manager-qualifier must not be blank. Set it to the bean name of the outbox " +
+                "PlatformTransactionManager, or remove the property."
         }
     }
 

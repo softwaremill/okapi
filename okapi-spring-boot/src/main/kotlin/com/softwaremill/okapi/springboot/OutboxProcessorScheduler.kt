@@ -3,8 +3,8 @@ package com.softwaremill.okapi.springboot
 import com.softwaremill.okapi.core.OutboxProcessor
 import com.softwaremill.okapi.core.OutboxScheduler
 import com.softwaremill.okapi.core.OutboxSchedulerConfig
+import com.softwaremill.okapi.core.TransactionRunner
 import org.springframework.context.SmartLifecycle
-import org.springframework.transaction.support.TransactionTemplate
 
 /**
  * Spring lifecycle wrapper for [OutboxScheduler].
@@ -17,13 +17,13 @@ import org.springframework.transaction.support.TransactionTemplate
  */
 class OutboxProcessorScheduler(
     outboxProcessor: OutboxProcessor,
-    transactionTemplate: TransactionTemplate?,
+    transactionRunner: TransactionRunner,
     config: OutboxSchedulerConfig = OutboxSchedulerConfig(),
 ) : SmartLifecycle {
 
     private val scheduler = OutboxScheduler(
         outboxProcessor = outboxProcessor,
-        transactionRunner = transactionTemplate?.let { SpringTransactionRunner(it) },
+        transactionRunner = transactionRunner,
         config = config,
     )
 

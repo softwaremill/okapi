@@ -5,6 +5,7 @@ import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.core.TransactionRunner
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.string.shouldContain
@@ -23,6 +24,7 @@ class DataSourceQualifierAutoConfigurationTest : FunSpec({
         .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
         .withBean(OutboxStore::class.java, { stubStore() })
         .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+        .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
 
     test("no qualifier set, single datasource — uses that datasource") {
         val ds = SimpleDriverDataSource()
@@ -88,6 +90,10 @@ class DataSourceQualifierAutoConfigurationTest : FunSpec({
             }
     }
 })
+
+private fun noOpTransactionRunner() = object : TransactionRunner {
+    override fun <T> runInTransaction(block: () -> T): T = block()
+}
 
 private fun stubStore() = object : OutboxStore {
     override fun persist(entry: OutboxEntry) = entry
