@@ -15,7 +15,10 @@ import org.apache.kafka.common.errors.InterruptException
 import org.apache.kafka.common.errors.NetworkException
 import org.apache.kafka.common.serialization.StringSerializer
 import java.time.Instant
+import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 private fun entry(suffix: String, metadataOverride: String? = null): OutboxEntry {
     val info = kafkaDeliveryInfo { topic = "topic-$suffix" }
@@ -201,5 +204,50 @@ class KafkaMessageDelivererBatchTest : FunSpec({
 
         results.size shouldBe 1
         results[0].result.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
+    }
+
+    test("deliverBatch with non-Interrupt flush() failure and pending futures returns Retriable per entry (does not hang)") {
+        // If flush() throws a non-Interrupt exception (e.g. IllegalStateException from a broken
+        // producer state) and the futures stay pending, awaitOne() must NOT bare-block on
+        // Future.get(). Each get() is bounded by AWAIT_TIMEOUT_MS so the processor thread is
+        // released within a defined budget and outbox can retry the entries.
+        //
+        // The test runs deliverBatch on a separate thread guarded by an outer timeout — if the
+        // production code hangs (e.g. someone removes the get(timeout) defense), the test fails
+        // fast rather than wedging the test JVM.
+        val producer = object : MockProducer<String, String>(false, null, StringSerializer(), StringSerializer()) {
+            override fun flush() {
+                throw IllegalStateException("simulated non-Interrupt flush failure")
+            }
+        }
+        val deliverer = KafkaMessageDeliverer(producer)
+        val entries = listOf(entry("a"), entry("b"))
+
+        val executor = Executors.newSingleThreadExecutor { r ->
+            Thread(r, "deliverBatch-hang-probe").apply { isDaemon = true }
+        }
+        try {
+            val task = executor.submit<List<DeliveryOutcome>> { deliverer.deliverBatch(entries) }
+            // 30 s outer budget: each pending future waits AWAIT_TIMEOUT_MS (5 s) × 2 entries = 10 s
+            // expected wall time; the rest is slack for GC / CI noise.
+            val results = try {
+                task.get(30, TimeUnit.SECONDS)
+            } catch (e: TimeoutException) {
+                task.cancel(true)
+                throw AssertionError(
+                    "deliverBatch hung for >30s when flush() threw and futures stayed pending — " +
+                        "bare Future.get() in awaitOne() needs a bounded get(timeout) defense",
+                )
+            }
+
+            results.size shouldBe entries.size
+            results.forEachIndexed { i, outcome ->
+                outcome.entry.outboxId shouldBe entries[i].outboxId
+                val retriable = outcome.result.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
+                retriable.error shouldContain "timeout"
+            }
+        } finally {
+            executor.shutdownNow()
+        }
     }
 })

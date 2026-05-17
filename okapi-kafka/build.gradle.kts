@@ -6,13 +6,12 @@ plugins {
 description = "Apache Kafka message delivery"
 
 dependencies {
-    implementation(project(":okapi-core"))
+    api(project(":okapi-core"))
     implementation(libs.jacksonModuleKotlin)
     implementation(libs.jacksonDatatypeJsr310)
     implementation(libs.slf4jApi)
-    compileOnly(libs.kafkaClients)
+    api(libs.kafkaClients)
 
-    testImplementation(libs.kafkaClients)
     testImplementation(libs.kotestRunnerJunit5)
     testImplementation(libs.kotestAssertionsCore)
 }
