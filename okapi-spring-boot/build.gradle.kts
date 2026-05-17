@@ -34,6 +34,14 @@ if (providers.gradleProperty("enableMutationTesting").orNull?.toBoolean() == tru
     }
 }
 
+// spring-boot-transaction is a Spring Boot 4.0+ artifact (3.x bundles TransactionAutoConfiguration
+// in spring-boot-autoconfigure). The CI matrix override -PspringBootVersion=3.5.x rewrites every
+// org.springframework.boot:* coordinate, so unconditionally declaring spring-boot-transaction makes
+// it try to resolve a non-existent spring-boot-transaction:3.5.x. Gate on the resolved major.
+val springBootMajorForTests = (
+    providers.gradleProperty("springBootVersion").orNull ?: libs.versions.springBoot.get()
+).substringBefore('.').toInt()
+
 dependencies {
     implementation(project(":okapi-core"))
 
@@ -74,10 +82,13 @@ dependencies {
     testImplementation(libs.micrometerCore)
     // Brings in the metrics auto-config jar so @AutoConfigureAfter targets are resolvable in tests.
     testImplementation(libs.springBootStarterActuator)
-    // TransactionAutoConfiguration lives here in Spring Boot 4.0+ (was in spring-boot-autoconfigure
-    // in 3.x). TransactionTemplateHijackProofTest needs it on the classpath to verify the
-    // factory's behaviour against Boot's auto-created TransactionTemplate bean.
-    testImplementation(libs.springBootTransaction)
+    // TransactionAutoConfiguration: in Spring Boot 4.0+ it lives in its own spring-boot-transaction
+    // module; in 3.x it ships inside spring-boot-autoconfigure (already on the test classpath).
+    // TransactionTemplateHijackProofTest resolves whichever FQCN is present, so we only need the
+    // extra dependency on 4.x.
+    if (springBootMajorForTests >= 4) {
+        testImplementation(libs.springBootTransaction)
+    }
     // Logback's ListAppender is used to capture and assert WARN-level log output (e.g. the
     // LiquibaseDisabledNotice breadcrumb + our PTM↔DS validation cannot-verify WARN) — slf4j-simple
     // does not provide an introspectable appender.
