@@ -74,6 +74,10 @@ dependencies {
     testImplementation(libs.micrometerCore)
     // Brings in the metrics auto-config jar so @AutoConfigureAfter targets are resolvable in tests.
     testImplementation(libs.springBootStarterActuator)
+    // TransactionAutoConfiguration lives here in Spring Boot 4.0+ (was in spring-boot-autoconfigure
+    // in 3.x). TransactionTemplateHijackProofTest needs it on the classpath to verify the
+    // factory's behaviour against Boot's auto-created TransactionTemplate bean.
+    testImplementation(libs.springBootTransaction)
     // Logback's ListAppender is used to capture and assert WARN-level log output (e.g. the
     // LiquibaseDisabledNotice breadcrumb + our PTM↔DS validation cannot-verify WARN) — slf4j-simple
     // does not provide an introspectable appender.

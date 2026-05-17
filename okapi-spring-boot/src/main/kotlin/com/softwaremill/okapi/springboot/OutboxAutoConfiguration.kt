@@ -91,6 +91,14 @@ class OutboxAutoConfiguration(
     // Skipping the bean in publish-only deployments (both schedulers disabled) lets users run without
     // a PlatformTransactionManager on the classpath at all (e.g. message producer that delegates
     // outbox processing to a separate worker).
+    //
+    // ObjectProvider<TransactionTemplate> design: a TT in the context can come from two sources —
+    // a user-defined @Bean (with custom timeout/propagation/isolation), OR Spring Boot's
+    // TransactionAutoConfiguration which auto-registers a TT whenever a single PTM exists. The two
+    // are indistinguishable at this layer. We accept BOTH transparently but always extract the bound
+    // PTM and run validatePtmDataSourceMatch on it — so the user's TX semantics are honoured AND the
+    // multi-DS safety net stays armed. See TransactionTemplateHijackProofTest for the empirical proof
+    // that without `validatePtmDataSourceMatch` here, Boot's auto-TT silently bypasses safety.
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnExpression("\${okapi.processor.enabled:true} or \${okapi.purger.enabled:true}")
@@ -99,22 +107,24 @@ class OutboxAutoConfiguration(
         transactionTemplate: ObjectProvider<TransactionTemplate>,
         beanFactory: BeanFactory,
     ): TransactionRunner {
-        // If the user has defined exactly one @Bean TransactionTemplate, honour their settings
-        // (timeout, propagation, isolation, etc.) instead of silently building a fresh one from
-        // the PTM. Same intent as @ConditionalOnMissingBean on this factory, just at a finer
-        // granularity — the user's template is THE source of truth for TX semantics.
-        val userTemplate = transactionTemplate.getIfUnique()
-        if (userTemplate != null) {
-            return SpringTransactionRunner(userTemplate)
-        }
-        val ptm = resolvePlatformTransactionManager(transactionManager, beanFactory, okapiProperties)
+        val anyTemplate = transactionTemplate.getIfUnique()
+        // Extract the PTM from the TT if available, else resolve through the provider. TT's
+        // transactionManager is nullable in the API (a TT can be constructed without one) — fall
+        // back to the provider path in that pathological case so we still get a validated PTM.
+        val ptm = anyTemplate?.transactionManager
+            ?: resolvePlatformTransactionManager(transactionManager, beanFactory, okapiProperties)
         validatePtmDataSourceMatch(ptm, resolveDataSource(), okapiProperties)
-        // Sets the *initial* TX read-only flag to false. NOTE: with PROPAGATION_REQUIRED (the default),
-        // a tick that joins an outer @Transactional(readOnly = true) inherits the outer's flag and
-        // this setting is silently ignored. The scheduler runs on a daemon thread with no outer TX,
-        // so this flag actually takes effect — but invocations from inside an existing read-only TX
-        // would still hit FOR UPDATE failures. Keep scheduler invocations outside @Transactional scopes.
-        return SpringTransactionRunner(TransactionTemplate(ptm).apply { isReadOnly = false })
+        // Use the user-/Boot-supplied TT verbatim when present (preserves timeout, propagation,
+        // isolation set by whoever defined it). Otherwise build a minimal TT around the validated
+        // PTM. Sets the *initial* TX read-only flag to false. NOTE: with PROPAGATION_REQUIRED
+        // (the default), a tick that joins an outer @Transactional(readOnly = true) inherits the
+        // outer's flag and this setting is silently ignored. The scheduler runs on a daemon
+        // thread with no outer TX, so this flag actually takes effect — but invocations from
+        // inside an existing read-only TX would still hit FOR UPDATE failures. Keep scheduler
+        // invocations outside @Transactional scopes.
+        return SpringTransactionRunner(
+            anyTemplate ?: TransactionTemplate(ptm).apply { isReadOnly = false },
+        )
     }
 
     @Bean
@@ -292,15 +302,15 @@ class OutboxAutoConfiguration(
             outboxDataSource: DataSource,
             properties: OkapiProperties,
         ) {
-            // Only ResourceTransactionManager exposes the underlying resource factory. For RTMs whose
-            // resourceFactory is a JDBC DataSource (DataSourceTransactionManager and similar), we can
-            // verify it matches okapi's outbox DataSource. RTMs whose resource is something else
-            // (JpaTransactionManager → EntityManagerFactory, HibernateTransactionManager → SessionFactory)
-            // and non-RTM PTMs (Exposed's SpringTransactionManager, JtaTransactionManager) fall through
-            // to the "cannot verify" WARN path. Capture the actual resourceFactory class so the WARN
-            // reports what the user's PTM actually exposed (not just the static JPA/Hibernate examples).
-            val rtmResourceFactory = (ptm as? ResourceTransactionManager)?.resourceFactory
-            val ptmDataSource = rtmResourceFactory as? DataSource
+            // Tries three extraction strategies in order:
+            //   1. ResourceTransactionManager whose resourceFactory is a JDBC DataSource (DST + custom)
+            //   2. JpaTransactionManager.getDataSource() — public getter, autodetected from EntityManagerFactory
+            //   3. HibernateTransactionManager.getDataSource() — same shape (both pre-/post-6.2 packages)
+            // Non-extractable cases (JTA, Exposed SpringTransactionManager, JPA/Hibernate with no JDBC DS)
+            // fall through to the WARN/INFO path. The WrongPtmDataSourceAmplificationProofTest empirically
+            // shows that wrong-DS bracketing collapses FOR UPDATE SKIP LOCKED to JDBC auto-commit and
+            // permits 100% delivery amplification — fail-fast when we can verify, log loudly when we cannot.
+            val ptmDataSource = extractDataSource(ptm)
             if (ptmDataSource != null) {
                 // Spring's recommended pattern wraps the outbox DataSource bean in TransactionAwareDataSourceProxy
                 // (or LazyConnectionDataSourceProxy) for use by query helpers, while passing the raw DataSource
@@ -341,17 +351,7 @@ class OutboxAutoConfiguration(
                 }
                 return
             }
-            val resourceFactoryDescription = when {
-                ptm !is ResourceTransactionManager ->
-                    "does not implement ResourceTransactionManager (no resource factory exposed; same shape as " +
-                        "JtaTransactionManager or Exposed's SpringTransactionManager)"
-                rtmResourceFactory == null ->
-                    "implements ResourceTransactionManager but its getResourceFactory() returned null"
-                else ->
-                    "implements ResourceTransactionManager but its resourceFactory is of type " +
-                        "'${rtmResourceFactory.javaClass.name}', not a JDBC DataSource (typical for JPA's " +
-                        "EntityManagerFactory or Hibernate's SessionFactory)"
-            }
+            val resourceFactoryDescription = describeUnextractable(ptm)
             if (properties.datasourceQualifier != null) {
                 logger.warn(
                     "okapi.datasource-qualifier='{}' is set, but the resolved PlatformTransactionManager '{}' {} " +
@@ -393,6 +393,62 @@ class OutboxAutoConfiguration(
                 current = current.targetDataSource ?: return current
             }
             return current
+        }
+
+        // JPA/Hibernate PTMs that expose a `public DataSource getDataSource()` — reflection by name
+        // avoids requiring spring-orm on the compile classpath (it's optional for JDBC-only consumers).
+        // Hibernate's TM moved package in Spring 6.2 — both names are listed so a single okapi build
+        // works against Spring Framework 6.1.x and 6.2+ without a version matrix.
+        // Hibernate's TM is named `org.springframework.orm.jpa.hibernate.HibernateTransactionManager`
+        // in Spring 6.2+ and `org.springframework.orm.hibernate5.HibernateTransactionManager` in
+        // Spring 6.1-. Both are listed so a single build works across versions.
+        // `internal` so reflection-resolution tests can verify the set isn't all stale.
+        internal val JPA_HIBERNATE_PTM_CLASSES = setOf(
+            "org.springframework.orm.jpa.JpaTransactionManager",
+            "org.springframework.orm.jpa.hibernate.HibernateTransactionManager",
+            "org.springframework.orm.hibernate5.HibernateTransactionManager",
+        )
+
+        internal fun extractDataSource(ptm: PlatformTransactionManager): DataSource? {
+            // Strategy 1: ResourceTransactionManager (DST + any RTM whose resourceFactory is a DataSource).
+            (ptm as? ResourceTransactionManager)?.resourceFactory?.let { rf ->
+                if (rf is DataSource) return rf
+            }
+            // Strategy 2/3: JPA/Hibernate public `getDataSource()`. Narrow catch on
+            // NoSuchMethodException only — all other exceptions intentionally propagate:
+            //   LinkageError / NoClassDefFoundError → mixed-jar classpath bug, must surface (this
+            //     is why we don't use `runCatching`, which would swallow them).
+            //   InvocationTargetException → JpaTransactionManager constructed without an EMF;
+            //     callable, but unusable for outbox bracketing — surface the original cause.
+            //   IllegalAccessException / ClassCastException → incompatible Spring framework
+            //     version where the contract has changed; not safe to silently fall back.
+            if (ptm.javaClass.name in JPA_HIBERNATE_PTM_CLASSES) {
+                return try {
+                    ptm.javaClass.getMethod("getDataSource").invoke(ptm) as DataSource?
+                } catch (_: NoSuchMethodException) {
+                    null
+                }
+            }
+            return null
+        }
+
+        private fun describeUnextractable(ptm: PlatformTransactionManager): String {
+            if (ptm.javaClass.name in JPA_HIBERNATE_PTM_CLASSES) {
+                return "is ${ptm.javaClass.name} but its getDataSource() returned null — the " +
+                    "EntityManagerFactory/SessionFactory was constructed without a JDBC DataSource " +
+                    "(typical for pure-JTA / JNDI-only setups). okapi cannot verify the binding"
+            }
+            val rtmResourceFactory = (ptm as? ResourceTransactionManager)?.resourceFactory
+            return when {
+                ptm !is ResourceTransactionManager ->
+                    "does not implement ResourceTransactionManager (no resource factory exposed; same shape as " +
+                        "JtaTransactionManager or Exposed's SpringTransactionManager)"
+                rtmResourceFactory == null ->
+                    "implements ResourceTransactionManager but its getResourceFactory() returned null"
+                else ->
+                    "implements ResourceTransactionManager but its resourceFactory is of type " +
+                        "'${rtmResourceFactory.javaClass.name}', not a JDBC DataSource"
+            }
         }
     }
 }

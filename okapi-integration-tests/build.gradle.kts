@@ -53,4 +53,9 @@ dependencies {
     testImplementation(libs.exposedCore)
     testImplementation(libs.exposedJdbc)
     testImplementation(libs.exposedSpringTransaction)
+
+    // JPA + Hibernate — proves extractDataSource() pulls JpaTransactionManager.getDataSource()
+    // and validatePtmDataSourceMatch fails fast on PTM↔DataSource mismatch under JPA.
+    testImplementation(libs.springOrm)
+    testImplementation(libs.hibernateCore)
 }
