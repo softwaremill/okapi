@@ -41,7 +41,19 @@ jmh {
     timeOnIteration = "30s"
     resultFormat = "JSON"
     resultsFile = layout.buildDirectory.file("reports/jmh/results.json")
-    jvmArgs = listOf("-Xms2g", "-Xmx2g", "-XX:+UseG1GC")
+    jvmArgs = listOf(
+        // Throughput-mode microbenchmarks call deliver() in a tight loop and re-deserialize
+        // KafkaDeliveryInfo via Jackson + Kotlin reflection per invocation; with -Xmx2g this
+        // OOMs within the first measurement iteration. 8g leaves room for GC under sustained
+        // allocation pressure without skewing the benchmark with promotion stalls.
+        "-Xms8g",
+        "-Xmx8g",
+        "-XX:+UseG1GC",
+        // okapi-postgres.jar and the fat JMH jar both end up on the classpath; both carry
+        // the Liquibase changelog. Liquibase 4.x treats this as an error by default. The
+        // files are identical (same jar source on the classpath twice), so WARN is safe.
+        "-Dliquibase.duplicateFileMode=WARN",
+    )
 }
 
 // ktlint should not lint JMH-generated sources.

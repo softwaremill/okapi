@@ -15,6 +15,8 @@ import com.softwaremill.okapi.http.ServiceUrlResolver
 import com.softwaremill.okapi.kafka.KafkaDeliveryInfo
 import com.softwaremill.okapi.kafka.KafkaMessageDeliverer
 import org.apache.kafka.clients.producer.MockProducer
+import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.serialization.StringSerializer
 import org.openjdk.jmh.annotations.Benchmark
 import org.openjdk.jmh.annotations.BenchmarkMode
@@ -25,6 +27,7 @@ import org.openjdk.jmh.annotations.Setup
 import org.openjdk.jmh.annotations.State
 import org.openjdk.jmh.annotations.TearDown
 import java.time.Instant
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 
 /**
@@ -52,7 +55,18 @@ open class DelivererMicroBenchmark {
 
     @Setup(org.openjdk.jmh.annotations.Level.Trial)
     fun setupTrial() {
-        val mockProducer = MockProducer(true, null, StringSerializer(), StringSerializer())
+        // MockProducer.send() appends every record to an internal `sent` list (exposed as
+        // history()) and never drops it. In throughput-mode at ~1M ops/s for 30s × multiple
+        // iterations × forks that list grows to GBs and OOMs the JVM regardless of -Xmx.
+        // Override send() to discard history after each call — for microbench we don't need
+        // to inspect what was sent, only to measure deliver() overhead.
+        val mockProducer = object : MockProducer<String, String>(true, null, StringSerializer(), StringSerializer()) {
+            override fun send(record: ProducerRecord<String, String>): Future<RecordMetadata> {
+                val future = super.send(record)
+                clear()
+                return future
+            }
+        }
         kafkaDeliverer = KafkaMessageDeliverer(mockProducer)
 
         wiremock = WireMockServer(wireMockConfig().dynamicPort()).also { it.start() }
