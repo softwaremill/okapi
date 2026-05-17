@@ -12,6 +12,8 @@ import org.apache.kafka.common.errors.RetriableException
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * [MessageDeliverer] that publishes outbox entries to Kafka topics.
@@ -76,10 +78,16 @@ class KafkaMessageDeliverer(
     private fun awaitOne(outcome: SendOutcome): DeliveryResult = when (outcome) {
         is SendOutcome.ImmediateFailure -> outcome.result
         is SendOutcome.Sent -> try {
-            outcome.future.get()
+            outcome.future.get(AWAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             DeliveryResult.Success
         } catch (e: ExecutionException) {
             classifyExecutionException(e)
+        } catch (e: TimeoutException) {
+            // After flush() returns normally, futures are settled per Kafka contract and get() is
+            // non-blocking. Reaching this branch means flush() failed (non-Interrupt) AND the future
+            // is still pending — Kafka's own delivery.timeout.ms would eventually fire, but we
+            // refuse to stall the processor thread that long. RetriableFailure → outbox retries.
+            DeliveryResult.RetriableFailure("Settlement timeout after ${AWAIT_TIMEOUT_MS}ms")
         } catch (e: Exception) {
             classifyException(e)
         }
@@ -113,6 +121,13 @@ class KafkaMessageDeliverer(
     }
 
     companion object {
+        // Bounds awaitOne()'s wait per in-flight Future after flush(). Successful flush() guarantees
+        // futures are settled (returns ~0 ms); this only matters if flush() failed with a non-Interrupt
+        // exception and a Future stayed incomplete. 5 s is short enough to keep processor throughput
+        // bounded under disaster (max 5 s × batchSize stall) while letting healthy late-settling
+        // futures complete.
+        private const val AWAIT_TIMEOUT_MS = 5_000L
+
         private val logger = LoggerFactory.getLogger(KafkaMessageDeliverer::class.java)
     }
 }
