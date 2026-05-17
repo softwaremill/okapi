@@ -1,0 +1,917 @@
+[
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.DelivererMicroBenchmark.httpDeliver",
+        "mode" : "thrpt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "primaryMetric" : {
+            "score" : 11545.408711236381,
+            "scoreError" : 149.42306901827996,
+            "scoreConfidence" : [
+                11395.985642218102,
+                11694.83178025466
+            ],
+            "scorePercentiles" : {
+                "0.0" : 11343.577838549423,
+                "50.0" : 11546.976349591305,
+                "90.0" : 11700.020357530904,
+                "95.0" : 11706.626583508236,
+                "99.0" : 11706.626583508236,
+                "99.9" : 11706.626583508236,
+                "99.99" : 11706.626583508236,
+                "99.999" : 11706.626583508236,
+                "99.9999" : 11706.626583508236,
+                "100.0" : 11706.626583508236
+            },
+            "scoreUnit" : "ops/s",
+            "rawData" : [
+                [
+                    11343.577838549423,
+                    11562.043798539653,
+                    11595.069729741723,
+                    11706.626583508236,
+                    11479.24403639076
+                ],
+                [
+                    11583.270612608234,
+                    11494.222223496243,
+                    11517.559065151681,
+                    11640.564323734912,
+                    11531.908900642957
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.DelivererMicroBenchmark.kafkaDeliver",
+        "mode" : "thrpt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "primaryMetric" : {
+            "score" : 2324097.801992168,
+            "scoreError" : 19574.869254926263,
+            "scoreConfidence" : [
+                2304522.932737242,
+                2343672.6712470944
+            ],
+            "scorePercentiles" : {
+                "0.0" : 2301087.014327902,
+                "50.0" : 2323205.498179472,
+                "90.0" : 2342128.692513277,
+                "95.0" : 2342268.944150268,
+                "99.0" : 2342268.944150268,
+                "99.9" : 2342268.944150268,
+                "99.99" : 2342268.944150268,
+                "99.999" : 2342268.944150268,
+                "99.9999" : 2342268.944150268,
+                "100.0" : 2342268.944150268
+            },
+            "scoreUnit" : "ops/s",
+            "rawData" : [
+                [
+                    2331185.5678282077,
+                    2332932.021373383,
+                    2323417.3330399687,
+                    2318151.902267157,
+                    2313764.626713388
+                ],
+                [
+                    2301087.014327902,
+                    2314310.519122078,
+                    2340866.427780357,
+                    2322993.663318975,
+                    2342268.944150268
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "10",
+            "httpLatencyMs" : "0"
+        },
+        "primaryMetric" : {
+            "score" : 0.6379889016144873,
+            "scoreError" : 0.021636516181889328,
+            "scoreConfidence" : [
+                0.616352385432598,
+                0.6596254177963766
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.61547277085,
+                "50.0" : 0.6390188067891363,
+                "90.0" : 0.6598710867894737,
+                "95.0" : 0.660892214,
+                "99.0" : 0.660892214,
+                "99.9" : 0.660892214,
+                "99.99" : 0.660892214,
+                "99.999" : 0.660892214,
+                "99.9999" : 0.660892214,
+                "100.0" : 0.660892214
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.634514846025641,
+                    0.625434998923077,
+                    0.61547277085,
+                    0.660892214,
+                    0.6327974294358975
+                ],
+                [
+                    0.6448399056052632,
+                    0.6506809418947368,
+                    0.6435227675526316,
+                    0.6494216974473684,
+                    0.6223114444102564
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "10",
+            "httpLatencyMs" : "20"
+        },
+        "primaryMetric" : {
+            "score" : 26.4285953021,
+            "scoreError" : 0.5990869571634768,
+            "scoreConfidence" : [
+                25.829508344936524,
+                27.027682259263475
+            ],
+            "scorePercentiles" : {
+                "0.0" : 25.8099825625,
+                "50.0" : 26.4697215625,
+                "90.0" : 27.1272064871,
+                "95.0" : 27.1769992495,
+                "99.0" : 27.1769992495,
+                "99.9" : 27.1769992495,
+                "99.99" : 27.1769992495,
+                "99.999" : 27.1769992495,
+                "99.9999" : 27.1769992495,
+                "100.0" : 27.1769992495
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    26.6790716255,
+                    26.5175469165,
+                    26.4532531875,
+                    26.254341833,
+                    26.4277320625
+                ],
+                [
+                    27.1769992495,
+                    26.6242391255,
+                    26.4861899375,
+                    25.856596521,
+                    25.8099825625
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "10",
+            "httpLatencyMs" : "100"
+        },
+        "primaryMetric" : {
+            "score" : 108.51451902080001,
+            "scoreError" : 1.788240275703777,
+            "scoreConfidence" : [
+                106.72627874509624,
+                110.30275929650378
+            ],
+            "scorePercentiles" : {
+                "0.0" : 106.7793465,
+                "50.0" : 108.8223827915,
+                "90.0" : 110.1245160836,
+                "95.0" : 110.174805667,
+                "99.0" : 110.174805667,
+                "99.9" : 110.174805667,
+                "99.99" : 110.174805667,
+                "99.999" : 110.174805667,
+                "99.9999" : 110.174805667,
+                "100.0" : 110.174805667
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    110.174805667,
+                    109.671909833,
+                    109.338547667,
+                    108.818140291,
+                    109.069220459
+                ],
+                [
+                    108.333270041,
+                    108.826625292,
+                    106.8633295,
+                    106.7793465,
+                    107.269994958
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "50",
+            "httpLatencyMs" : "0"
+        },
+        "primaryMetric" : {
+            "score" : 0.3214151334021354,
+            "scoreError" : 0.007895476854073952,
+            "scoreConfidence" : [
+                0.31351965654806146,
+                0.32931061025620934
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.31663749476923075,
+                "50.0" : 0.31942743214687497,
+                "90.0" : 0.332567413640041,
+                "95.0" : 0.3332752345806452,
+                "99.0" : 0.3332752345806452,
+                "99.9" : 0.3332752345806452,
+                "99.99" : 0.3332752345806452,
+                "99.999" : 0.3332752345806452,
+                "99.9999" : 0.3332752345806452,
+                "100.0" : 0.3332752345806452
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.3261970251746032,
+                    0.3188090192,
+                    0.32004584509375,
+                    0.3183778794153846,
+                    0.31789787175384615
+                ],
+                [
+                    0.3203602012,
+                    0.31663749476923075,
+                    0.324996212203125,
+                    0.3332752345806452,
+                    0.3175545506307692
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "50",
+            "httpLatencyMs" : "20"
+        },
+        "primaryMetric" : {
+            "score" : 24.8917961376,
+            "scoreError" : 0.6746586059155605,
+            "scoreConfidence" : [
+                24.21713753168444,
+                25.56645474351556
+            ],
+            "scorePercentiles" : {
+                "0.0" : 24.373944313,
+                "50.0" : 24.86101904175,
+                "90.0" : 25.678303015,
+                "95.0" : 25.7133840005,
+                "99.0" : 25.7133840005,
+                "99.9" : 25.7133840005,
+                "99.99" : 25.7133840005,
+                "99.999" : 25.7133840005,
+                "99.9999" : 25.7133840005,
+                "100.0" : 25.7133840005
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    24.528713896,
+                    24.373944313,
+                    24.587876104,
+                    24.3818122715,
+                    24.7403532705
+                ],
+                [
+                    25.7133840005,
+                    25.3625741455,
+                    25.1709619165,
+                    25.0766566455,
+                    24.981684813
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "50",
+            "httpLatencyMs" : "100"
+        },
+        "primaryMetric" : {
+            "score" : 105.3130679416,
+            "scoreError" : 1.0105834148150667,
+            "scoreConfidence" : [
+                104.30248452678492,
+                106.32365135641507
+            ],
+            "scorePercentiles" : {
+                "0.0" : 104.48651125,
+                "50.0" : 105.22548381300001,
+                "90.0" : 106.25646993720001,
+                "95.0" : 106.277158583,
+                "99.0" : 106.277158583,
+                "99.9" : 106.277158583,
+                "99.99" : 106.277158583,
+                "99.999" : 106.277158583,
+                "99.9999" : 106.277158583,
+                "100.0" : 106.277158583
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    105.101210667,
+                    104.867716291,
+                    104.744317333,
+                    104.505663375,
+                    104.48651125
+                ],
+                [
+                    105.349756959,
+                    105.928005333,
+                    106.070272125,
+                    105.8000675,
+                    106.277158583
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100",
+            "httpLatencyMs" : "0"
+        },
+        "primaryMetric" : {
+            "score" : 0.29028892570554626,
+            "scoreError" : 0.007918583246762624,
+            "scoreConfidence" : [
+                0.2823703424587836,
+                0.2982075089523089
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.2843618309714286,
+                "50.0" : 0.2886647397028985,
+                "90.0" : 0.29998830778948443,
+                "95.0" : 0.3004070461060606,
+                "99.0" : 0.3004070461060606,
+                "99.9" : 0.3004070461060606,
+                "99.99" : 0.3004070461060606,
+                "99.999" : 0.3004070461060606,
+                "99.9999" : 0.3004070461060606,
+                "100.0" : 0.3004070461060606
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.2852251713857143,
+                    0.28640042515942027,
+                    0.28869611163768116,
+                    0.3004070461060606,
+                    0.2962196629402985
+                ],
+                [
+                    0.2937898953529412,
+                    0.28863336776811593,
+                    0.2843618309714286,
+                    0.28684761410144927,
+                    0.2923081316323529
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100",
+            "httpLatencyMs" : "20"
+        },
+        "primaryMetric" : {
+            "score" : 26.5454311687,
+            "scoreError" : 2.321655368816006,
+            "scoreConfidence" : [
+                24.22377579988399,
+                28.867086537516006
+            ],
+            "scorePercentiles" : {
+                "0.0" : 24.9625513745,
+                "50.0" : 26.56031102075,
+                "90.0" : 28.2665264435,
+                "95.0" : 28.266955333,
+                "99.0" : 28.266955333,
+                "99.9" : 28.266955333,
+                "99.99" : 28.266955333,
+                "99.999" : 28.266955333,
+                "99.9999" : 28.266955333,
+                "100.0" : 28.266955333
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    25.347648792,
+                    24.9837100835,
+                    25.181693521,
+                    25.029404917,
+                    24.9625513745
+                ],
+                [
+                    28.262666438,
+                    28.266955333,
+                    27.805809958,
+                    27.8408980205,
+                    27.7729732495
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100",
+            "httpLatencyMs" : "100"
+        },
+        "primaryMetric" : {
+            "score" : 107.71372295009999,
+            "scoreError" : 2.74520541358524,
+            "scoreConfidence" : [
+                104.96851753651475,
+                110.45892836368523
+            ],
+            "scorePercentiles" : {
+                "0.0" : 105.724950417,
+                "50.0" : 107.57224191649999,
+                "90.0" : 110.0029172711,
+                "95.0" : 110.010051792,
+                "99.0" : 110.010051792,
+                "99.9" : 110.010051792,
+                "99.99" : 110.010051792,
+                "99.999" : 110.010051792,
+                "99.9999" : 110.010051792,
+                "100.0" : 110.010051792
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    109.938706583,
+                    110.010051792,
+                    109.341732042,
+                    108.785946125,
+                    108.872735042
+                ],
+                [
+                    106.358537708,
+                    106.217716584,
+                    105.876776708,
+                    106.0100765,
+                    105.724950417
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.KafkaThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 0.5589797273644752,
+            "scoreError" : 0.02867462504485346,
+            "scoreConfidence" : [
+                0.5303051023196218,
+                0.5876543524093286
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.5357481022727273,
+                "50.0" : 0.5593382570777963,
+                "90.0" : 0.5999115948594048,
+                "95.0" : 0.603456329275,
+                "99.0" : 0.603456329275,
+                "99.9" : 0.603456329275,
+                "99.99" : 0.603456329275,
+                "99.999" : 0.603456329275,
+                "99.9999" : 0.603456329275,
+                "100.0" : 0.603456329275
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.5357481022727273,
+                    0.5458592974651163,
+                    0.5430034906136364,
+                    0.5579124534651163,
+                    0.5467915667674419
+                ],
+                [
+                    0.5656928481428571,
+                    0.5625601398333333,
+                    0.5680089851190476,
+                    0.603456329275,
+                    0.5607640606904762
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.KafkaThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "50"
+        },
+        "primaryMetric" : {
+            "score" : 0.24217350536729368,
+            "scoreError" : 0.006516777387496404,
+            "scoreConfidence" : [
+                0.23565672797979728,
+                0.24869028275479008
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.23278964667088609,
+                "50.0" : 0.24250253058467192,
+                "90.0" : 0.24726430823421053,
+                "95.0" : 0.2474329227763158,
+                "99.0" : 0.2474329227763158,
+                "99.9" : 0.2474329227763158,
+                "99.99" : 0.2474329227763158,
+                "99.999" : 0.2474329227763158,
+                "99.9999" : 0.2474329227763158,
+                "100.0" : 0.2474329227763158
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.24562889861842105,
+                    0.24001745723376625,
+                    0.24574677735526315,
+                    0.24101435612987013,
+                    0.23278964667088609
+                ],
+                [
+                    0.2474329227763158,
+                    0.24399070503947368,
+                    0.24502732236842106,
+                    0.24041796587012987,
+                    0.23966900161038962
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.KafkaThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/andrzej.kobylinski/.sdkman/candidates/java/21.0.7-tem/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "21.0.7",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "21.0.7+6-LTS",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100"
+        },
+        "primaryMetric" : {
+            "score" : 0.19282190281664366,
+            "scoreError" : 0.003887357443773245,
+            "scoreConfidence" : [
+                0.1889345453728704,
+                0.1967092602604169
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.19034086528888888,
+                "50.0" : 0.1919761961235955,
+                "90.0" : 0.19834123139408305,
+                "95.0" : 0.19862080697701148,
+                "99.0" : 0.19862080697701148,
+                "99.9" : 0.19862080697701148,
+                "99.99" : 0.19862080697701148,
+                "99.999" : 0.19862080697701148,
+                "99.9999" : 0.19862080697701148,
+                "100.0" : 0.19862080697701148
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.19862080697701148,
+                    0.19582505114772727,
+                    0.191856503247191,
+                    0.192095889,
+                    0.19165331980898875
+                ],
+                [
+                    0.19349963433707865,
+                    0.1921436610224719,
+                    0.19178751501123595,
+                    0.1903957823258427,
+                    0.19034086528888888
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    }
+]
+
+

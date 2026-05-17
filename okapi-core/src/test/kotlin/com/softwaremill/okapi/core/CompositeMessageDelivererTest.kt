@@ -37,11 +37,11 @@ class CompositeMessageDelivererTest : FunSpec({
         val results = composite.deliverBatch(entries)
 
         results.size shouldBe 4
-        results.map { it.first } shouldBe entries
-        results[0].second shouldBe DeliveryResult.Success
-        results[1].second shouldBe DeliveryResult.RetriableFailure("503")
-        results[2].second shouldBe DeliveryResult.Success
-        results[3].second shouldBe DeliveryResult.RetriableFailure("503")
+        results.map { it.entry } shouldBe entries
+        results[0].result shouldBe DeliveryResult.Success
+        results[1].result shouldBe DeliveryResult.RetriableFailure("503")
+        results[2].result shouldBe DeliveryResult.Success
+        results[3].result shouldBe DeliveryResult.RetriableFailure("503")
     }
 
     test("deliverBatch fails permanently for entries with no registered deliverer") {
@@ -56,9 +56,9 @@ class CompositeMessageDelivererTest : FunSpec({
         val results = composite.deliverBatch(entries)
 
         results.size shouldBe 2
-        results[0].second shouldBe DeliveryResult.Success
-        results[1].second.shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
-        (results[1].second as DeliveryResult.PermanentFailure).error shouldContain "missing"
+        results[0].result shouldBe DeliveryResult.Success
+        results[1].result.shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
+        (results[1].result as DeliveryResult.PermanentFailure).error shouldContain "missing"
     }
 
     test("deliverBatch with empty input returns empty list") {
@@ -72,17 +72,17 @@ class CompositeMessageDelivererTest : FunSpec({
         val kafkaDeliverer = object : MessageDeliverer {
             override val type = "kafka"
             override fun deliver(entry: OutboxEntry): DeliveryResult = DeliveryResult.Success
-            override fun deliverBatch(entries: List<OutboxEntry>): List<Pair<OutboxEntry, DeliveryResult>> {
+            override fun deliverBatch(entries: List<OutboxEntry>): List<DeliveryOutcome> {
                 batchCallsKafka++
-                return entries.map { it to DeliveryResult.Success }
+                return entries.map { DeliveryOutcome(it, DeliveryResult.Success) }
             }
         }
         val httpDeliverer = object : MessageDeliverer {
             override val type = "http"
             override fun deliver(entry: OutboxEntry): DeliveryResult = DeliveryResult.Success
-            override fun deliverBatch(entries: List<OutboxEntry>): List<Pair<OutboxEntry, DeliveryResult>> {
+            override fun deliverBatch(entries: List<OutboxEntry>): List<DeliveryOutcome> {
                 batchCallsHttp++
-                return entries.map { it to DeliveryResult.Success }
+                return entries.map { DeliveryOutcome(it, DeliveryResult.Success) }
             }
         }
         val composite = CompositeMessageDeliverer(listOf(kafkaDeliverer, httpDeliverer))
