@@ -92,7 +92,7 @@ class MultiDataSourceTransactionTest : FunSpec({
 
     beforeEach {
         outboxDataSource.connection.use { conn ->
-            conn.createStatement().use { it.execute("TRUNCATE TABLE outbox") }
+            conn.createStatement().use { it.execute("TRUNCATE TABLE okapi_outbox") }
         }
     }
 
@@ -139,6 +139,6 @@ class MultiDataSourceTransactionTest : FunSpec({
 private fun runLiquibase(container: PostgreSQLContainer<Nothing>) {
     val connection = DriverManager.getConnection(container.jdbcUrl, container.username, container.password)
     val db = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(JdbcConnection(connection))
-    Liquibase("com/softwaremill/okapi/db/changelog.xml", ClassLoaderResourceAccessor(), db).use { it.update("") }
+    Liquibase("com/softwaremill/okapi/db/postgres/changelog.xml", ClassLoaderResourceAccessor(), db).use { it.update("") }
     connection.close()
 }
