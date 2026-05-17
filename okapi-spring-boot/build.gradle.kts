@@ -40,7 +40,7 @@ if (providers.gradleProperty("enableMutationTesting").orNull?.toBoolean() == tru
 // it try to resolve a non-existent spring-boot-transaction:3.5.x. Gate on the resolved major.
 val springBootMajorForTests = (
     providers.gradleProperty("springBootVersion").orNull ?: libs.versions.springBoot.get()
-).substringBefore('.').toInt()
+    ).substringBefore('.').toInt()
 
 dependencies {
     implementation(project(":okapi-core"))
