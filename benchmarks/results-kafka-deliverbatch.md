@@ -1,24 +1,23 @@
 # Kafka deliverBatch fire-flush-await — Results (KOJAK-73)
 
-Measured 2026-05-14 on the same hardware as the April 2026 baseline (MacBook M3 Max,
-JDK 21 LTS, Postgres 16 + Kafka 3.8.1 via Testcontainers, full JMH config:
-`fork=2, warmup=3 × 10s, iter=5 × 30s` — n=10 samples per benchmark).
+Measured on MacBook M3 Max, JDK 21 LTS, Postgres 16 + Kafka 3.8.1 via Testcontainers,
+full JMH config: `fork=2, warmup=3 × 10s, iter=5 × 30s` — n=10 samples per benchmark.
 
 ## Headline numbers — Kafka throughput
 
-| batchSize | Baseline (ms/op) | Post-optimization (ms/op) | **Improvement** |
-|-----------|------------------|---------------------------|-----------------|
-| 10        | 9.168            | 0.548 ± 0.021             | **16.7×**       |
-| 50        | 8.665            | 0.239 ± 0.008             | **36.3×**       |
-| 100       | 8.701            | 0.195 ± 0.004             | **44.6×**       |
+| batchSize | Baseline (ms/op) | Optimized (ms/op) | **Improvement** |
+|-----------|------------------|-------------------|-----------------|
+| 10        | 9.168            | 0.559 ± 0.029     | **16.4×**       |
+| 50        | 8.665            | 0.242 ± 0.007     | **35.8×**       |
+| 100       | 8.701            | 0.193 ± 0.004     | **45.1×**       |
 
-Translated to msg/s (≥1000 ops per drain × `@OperationsPerInvocation(1000)`):
+Translated to msg/s (`@OperationsPerInvocation(1000)`):
 
-| batchSize | Baseline   | Post-optimization | Improvement |
-|-----------|------------|-------------------|-------------|
-| 10        | ~109 msg/s | **~1,825 msg/s**  | 16.7×       |
-| 50        | ~115 msg/s | **~4,184 msg/s**  | 36.3×       |
-| 100       | ~115 msg/s | **~5,128 msg/s**  | 44.6×       |
+| batchSize | Baseline   | Optimized        | Improvement |
+|-----------|------------|------------------|-------------|
+| 10        | ~109 msg/s | **~1,790 msg/s** | 16.4×       |
+| 50        | ~115 msg/s | **~4,132 msg/s** | 35.8×       |
+| 100       | ~115 msg/s | **~5,181 msg/s** | 45.1×       |
 
 Raw JSON: [`kafka-deliverbatch.json`](kafka-deliverbatch.json).
 
@@ -35,40 +34,55 @@ Previously, each entry incurred a full `producer.send().get()` round-trip sequen
 
 - **`batchSize` is now load-bearing.** Pre-optimization throughput was flat across `batchSize`
   values (109 → 115 → 115 msg/s) — confirming the bottleneck was per-record blocking I/O.
-  Post-optimization throughput scales with `batchSize` (1,825 → 4,184 → 5,128), proving that
+  Post-optimization throughput scales with `batchSize` (1,790 → 4,132 → 5,181), proving that
   Kafka's internal record batching is now being exploited.
 - **Sublinear scaling 50 → 100** (36× → 45× vs expected ~2× more). Indicates that DB UPDATE
   overhead per entry is now significant relative to the (now-fast) Kafka path. This is exactly
   what motivates the batch UPDATE optimization via JDBC `executeBatch` (KOJAK-75) — at small
   batch sizes the per-message DB cost was hidden by 9 ms Kafka RTT; with Kafka latency removed,
   the N individual UPDATE statements become the next bottleneck to attack.
-- **batchSize=10 lowest gain (16.7×)** — at that batch size only 10 records can amortize
+- **batchSize=10 lowest gain (16.4×)** — at that batch size only 10 records can amortize
   one RTT, so the per-batch overhead (claimPending, transaction begin/commit, 10 UPDATEs) is
   proportionally larger.
-- **Variance is tight.** All Kafka throughput error bars are <5% of the score — confidence
-  intervals are narrow enough to defend the multipliers as published.
+- **All Kafka throughput error bars <5% of score** — confidence intervals are narrow enough
+  to defend the multipliers. Numbers independently reproduced across two separate runs.
+
+## Code overhead microbenchmarks
+
+`DelivererMicroBenchmark` measures the cost of `deliver()` with I/O mocked away — useful as
+a regression check on the library code itself (Jackson deserialize + record construction +
+exception classification + result wrapping).
+
+| Benchmark    | Score                  | Notes                                            |
+|--------------|------------------------|--------------------------------------------------|
+| kafkaDeliver | 2,324,098 ± 19,575 ops/s | ~430 ns per `deliver()` (MockProducer, no I/O) |
+| httpDeliver  | 11,545 ± 149 ops/s     | ~87 µs per `deliver()` (WireMock localhost)      |
+
+In production these numbers are dominated by network I/O (~10 ms localhost Kafka, ~5-50 ms
+HTTP webhook), so the library overhead is <1% of real-world per-message cost. Microbench is
+there to catch regressions if anyone refactors `KafkaMessageDeliverer`/`HttpMessageDeliverer`
+and accidentally adds allocations or expensive work to the hot path.
 
 ## HTTP throughput (companion benchmark)
 
-For context, the corresponding HTTP throughput numbers from the same run (still sync sequential
-delivery — KOJAK-74 will apply parallel `sendAsync`):
+HTTP path remains sync sequential (KOJAK-74 will apply parallel `sendAsync`). Numbers below
+show per-message cost at different webhook latencies — useful for understanding the gap that
+KOJAK-74 closes:
 
 | batchSize | latency 0 ms     | latency 20 ms     | latency 100 ms    |
 |-----------|------------------|-------------------|-------------------|
-| 10        | 0.665 ms/op      | 26.484 ms/op      | 110.354 ms/op     |
-| 50        | 0.320 ms/op      | 25.767 ms/op      | 108.636 ms/op     |
-| 100       | 0.288 ms/op      | 27.962 ms/op      | 107.986 ms/op     |
+| 10        | 0.638 ms/op      | 26.429 ms/op      | 108.515 ms/op     |
+| 50        | 0.321 ms/op      | 24.892 ms/op      | 105.313 ms/op     |
+| 100       | 0.290 ms/op      | 26.545 ms/op      | 107.714 ms/op     |
 
-The flat per-message latency at `latencyMs=20/100` confirms HTTP is fully sequential: each
-record waits for the previous response before the next request goes out. That is the gap KOJAK-74
-addresses.
+Flat per-message latency at `latencyMs=20/100` confirms HTTP is fully sequential: each request
+waits for the previous response before the next goes out.
 
 ## Verification context
 
 - Unit tests: `KafkaMessageDelivererBatchTest` covers empty input, all-success ordering,
   single flush call (verified via flush counter), synchronous send exception (Permanent +
-  Retriable variants), and future-based async exception (driven via `MockProducer` override
-  that completes/errors per-position inside flush).
+  Retriable variants), and future-based async exception.
 - Integration tests in `okapi-integration-tests` continue to pass with real Postgres + Kafka.
 - ktlint clean, configuration cache reuses across modules.
 
@@ -80,6 +94,6 @@ addresses.
    depending on host/connection pool reuse.
 2. **Batch UPDATE via JDBC `executeBatch`** (KOJAK-75). Now load-bearing: at `batchSize=100`
    the N individual UPDATE statements have become the dominant per-batch cost. Expected
-   to shift `batchSize=100` Kafka throughput from ~5,100 toward the ~10,000 msg/s range.
+   to shift `batchSize=100` Kafka throughput from ~5,200 toward the ~10,000 msg/s range.
 3. **Concurrent processor fan-out** (KOJAK-77) — multi-threaded scheduler. Multiplies all
    of the above by N workers.
