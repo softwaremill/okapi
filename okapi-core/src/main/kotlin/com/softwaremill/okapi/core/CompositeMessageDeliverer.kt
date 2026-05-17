@@ -26,7 +26,7 @@ class CompositeMessageDeliverer(deliverers: List<MessageDeliverer>) : MessageDel
      * Entries whose type has no registered deliverer are mapped to
      * [DeliveryResult.PermanentFailure] (consistent with [deliver]).
      */
-    override fun deliverBatch(entries: List<OutboxEntry>): List<Pair<OutboxEntry, DeliveryResult>> {
+    override fun deliverBatch(entries: List<OutboxEntry>): List<DeliveryOutcome> {
         if (entries.isEmpty()) return emptyList()
 
         val resultByEntry: Map<OutboxEntry, DeliveryResult> = entries
@@ -36,11 +36,13 @@ class CompositeMessageDeliverer(deliverers: List<MessageDeliverer>) : MessageDel
                 if (deliverer != null) {
                     deliverer.deliverBatch(group)
                 } else {
-                    group.map { it to DeliveryResult.PermanentFailure("No deliverer registered for type '$type'") }
+                    group.map { DeliveryOutcome(it, DeliveryResult.PermanentFailure("No deliverer registered for type '$type'")) }
                 }
             }
-            .toMap()
+            .associate { it.entry to it.result }
 
-        return entries.map { entry -> entry to (resultByEntry[entry] ?: error("missing result for entry ${entry.outboxId}")) }
+        return entries.map { entry ->
+            DeliveryOutcome(entry, resultByEntry[entry] ?: error("missing result for entry ${entry.outboxId}"))
+        }
     }
 }
