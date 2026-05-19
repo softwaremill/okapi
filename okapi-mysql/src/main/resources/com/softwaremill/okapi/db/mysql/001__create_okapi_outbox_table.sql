@@ -15,3 +15,7 @@ CREATE TABLE IF NOT EXISTS okapi_outbox
     last_error        TEXT,
     delivery_metadata JSON         NOT NULL
 );
+
+CREATE INDEX idx_okapi_outbox_status_last_attempt ON okapi_outbox (status, last_attempt);
+
+CREATE INDEX idx_okapi_outbox_status_created_at ON okapi_outbox (status, created_at);
