@@ -4,12 +4,10 @@ import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
-import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
-import com.softwaremill.okapi.core.OutboxEntry
-import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.TransactionRunner
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.nulls.shouldBeNull
@@ -21,7 +19,6 @@ import io.kotest.matchers.types.shouldBeSameInstanceAs
 import org.h2.jdbcx.JdbcDataSource
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.NoSuchBeanDefinitionException
-import org.springframework.beans.factory.support.BeanDefinitionBuilder
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
@@ -38,7 +35,6 @@ import org.springframework.transaction.support.AbstractPlatformTransactionManage
 import org.springframework.transaction.support.DefaultTransactionStatus
 import org.springframework.transaction.support.ResourceTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
-import java.time.Instant
 import javax.sql.DataSource
 import kotlin.time.Duration.Companion.seconds
 
@@ -145,6 +141,38 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
             }
     }
 
+    test("PROBE: can a TransactionTemplate bean even exist with a null transactionManager?") {
+        // The okapiTransactionRunner factory has `anyTemplate?.transactionManager ?: resolve(...)`.
+        // pr-test-analyzer flagged the null branch as untested. But TransactionTemplate implements
+        // InitializingBean and afterPropertiesSet() throws "Property 'transactionManager' is required"
+        // when null — Spring invokes that on every @Bean. This probe empirically establishes whether
+        // the null-TM branch is reachable for a Spring-managed TT at all, or is defensive dead code.
+        val ds: DataSource = SimpleDriverDataSource()
+        baseRunner
+            .withBean(DataSource::class.java, { ds })
+            .withBean(PlatformTransactionManager::class.java, { DataSourceTransactionManager(ds) })
+            .withBean(
+                "nullTmTemplate",
+                org.springframework.transaction.support.TransactionTemplate::class.java,
+                { org.springframework.transaction.support.TransactionTemplate() },
+            )
+            .run { ctx ->
+                // Record the empirically observed behaviour; the assertion below documents it.
+                val startupFailed = ctx.startupFailure != null
+                val rootMsg = ctx.startupFailure?.let { f ->
+                    generateSequence(f as Throwable?) { it.cause }.last().message
+                }
+                withClue("observed startupFailed=$startupFailed rootMsg=$rootMsg") {
+                    // Spring rejects a TransactionTemplate bean with null transactionManager at
+                    // InitializingBean.afterPropertiesSet(): the factory's `?:` fallback is therefore
+                    // unreachable for a *Spring-managed* TT. It remains a correct defensive guard for
+                    // the theoretical non-Spring path, but cannot be exercised via the bean container.
+                    startupFailed shouldBe true
+                    rootMsg.shouldNotBeNull().shouldContain("transactionManager")
+                }
+            }
+    }
+
     test("user-provided @Bean TransactionTemplate is honoured (autoconfig does not silently shadow it)") {
         // If a user defines a custom TransactionTemplate (e.g. with non-default timeout / propagation /
         // isolation), the autoconfig MUST use that exact template — not silently build its own fresh
@@ -218,27 +246,10 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
             .withBean(MessageDeliverer::class.java, { stubDeliverer() })
             .withInitializer { context ->
                 val gac = context as GenericApplicationContext
-                gac.registerBeanDefinition(
-                    "appDs",
-                    BeanDefinitionBuilder.genericBeanDefinition(DataSource::class.java) { appDs }.beanDefinition
-                        .apply { isPrimary = true },
-                )
-                gac.registerBeanDefinition(
-                    "outboxDs",
-                    BeanDefinitionBuilder.genericBeanDefinition(DataSource::class.java) { outboxDs }.beanDefinition,
-                )
-                gac.registerBeanDefinition(
-                    "appTm",
-                    BeanDefinitionBuilder.genericBeanDefinition(PlatformTransactionManager::class.java) {
-                        DataSourceTransactionManager(appDs)
-                    }.beanDefinition.apply { isPrimary = true },
-                )
-                gac.registerBeanDefinition(
-                    "outboxTm",
-                    BeanDefinitionBuilder.genericBeanDefinition(PlatformTransactionManager::class.java) {
-                        DataSourceTransactionManager(outboxDs)
-                    }.beanDefinition,
-                )
+                gac.registerBean<DataSource>("appDs", primary = true) { appDs }
+                gac.registerBean<DataSource>("outboxDs") { outboxDs }
+                gac.registerBean<PlatformTransactionManager>("appTm", primary = true) { DataSourceTransactionManager(appDs) }
+                gac.registerBean<PlatformTransactionManager>("outboxTm") { DataSourceTransactionManager(outboxDs) }
             }
             .withPropertyValues(
                 "okapi.datasource-qualifier=outboxDs",
@@ -251,7 +262,7 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
     }
 
     test("ResourceTransactionManager PTM with non-DataSource resourceFactory: WARN includes actual resourceFactory class name") {
-        // BUG C1 test (above, around line 254) covers the WARN-is-emitted contract for this case.
+        // The BUG C1 regression guard pins the WARN-is-emitted contract for this case.
         // This test pins the diagnostic CONTENT: the WARN must mention the actual resourceFactory
         // class so a user with a custom RTM (or buggy subclass returning null) sees the real
         // resource type, not just the static example list (JpaTransactionManager/Hibernate). Without
@@ -379,21 +390,9 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
             .withBean(MessageDeliverer::class.java, { stubDeliverer() })
             .withInitializer { context ->
                 val gac = context as GenericApplicationContext
-                gac.registerBeanDefinition(
-                    "appDs",
-                    BeanDefinitionBuilder.genericBeanDefinition(DataSource::class.java) { appDs }.beanDefinition
-                        .apply { isPrimary = true },
-                )
-                gac.registerBeanDefinition(
-                    "outboxDs",
-                    BeanDefinitionBuilder.genericBeanDefinition(DataSource::class.java) { outboxDs }.beanDefinition,
-                )
-                gac.registerBeanDefinition(
-                    "appTm",
-                    BeanDefinitionBuilder.genericBeanDefinition(PlatformTransactionManager::class.java) {
-                        DataSourceTransactionManager(appDs)
-                    }.beanDefinition,
-                )
+                gac.registerBean<DataSource>("appDs", primary = true) { appDs }
+                gac.registerBean<DataSource>("outboxDs") { outboxDs }
+                gac.registerBean<PlatformTransactionManager>("appTm") { DataSourceTransactionManager(appDs) }
             }
             .withPropertyValues("okapi.datasource-qualifier=outboxDs")
             .run { ctx ->
@@ -463,17 +462,8 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
             .withBean(MessageDeliverer::class.java, { stubDeliverer() })
             .withInitializer { context ->
                 val gac = context as GenericApplicationContext
-                gac.registerBeanDefinition(
-                    "outboxDs",
-                    BeanDefinitionBuilder.genericBeanDefinition(DataSource::class.java) { proxyDs }.beanDefinition
-                        .apply { isPrimary = true },
-                )
-                gac.registerBeanDefinition(
-                    "outboxTm",
-                    BeanDefinitionBuilder.genericBeanDefinition(PlatformTransactionManager::class.java) {
-                        DataSourceTransactionManager(rawDs)
-                    }.beanDefinition,
-                )
+                gac.registerBean<DataSource>("outboxDs", primary = true) { proxyDs }
+                gac.registerBean<PlatformTransactionManager>("outboxTm") { DataSourceTransactionManager(rawDs) }
             }
             .withPropertyValues("okapi.datasource-qualifier=outboxDs")
             .run { ctx ->
@@ -608,18 +598,4 @@ private fun h2DataSource(): DataSource = JdbcDataSource().apply {
     setURL("jdbc:h2:mem:probe-tx-runner-${System.nanoTime()};DB_CLOSE_DELAY=-1")
     user = "sa"
     password = ""
-}
-
-private fun stubStore() = object : OutboxStore {
-    override fun persist(entry: OutboxEntry) = entry
-    override fun claimPending(limit: Int) = emptyList<OutboxEntry>()
-    override fun updateAfterProcessing(entry: OutboxEntry) = entry
-    override fun removeDeliveredBefore(time: Instant, limit: Int) = 0
-    override fun findOldestCreatedAt(statuses: Set<OutboxStatus>) = emptyMap<OutboxStatus, Instant>()
-    override fun countByStatuses() = emptyMap<OutboxStatus, Long>()
-}
-
-private fun stubDeliverer() = object : MessageDeliverer {
-    override val type = "stub"
-    override fun deliver(entry: OutboxEntry) = DeliveryResult.Success
 }

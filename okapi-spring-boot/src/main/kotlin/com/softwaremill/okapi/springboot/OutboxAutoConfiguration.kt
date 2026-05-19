@@ -109,8 +109,10 @@ class OutboxAutoConfiguration(
     ): TransactionRunner {
         val anyTemplate = transactionTemplate.getIfUnique()
         // Extract the PTM from the TT if available, else resolve through the provider. TT's
-        // transactionManager is nullable in the API (a TT can be constructed without one) — fall
-        // back to the provider path in that pathological case so we still get a validated PTM.
+        // transactionManager is nullable in the API, but Spring's InitializingBean contract rejects
+        // a TransactionTemplate bean with a null transactionManager at afterPropertiesSet() (proven
+        // by the PROBE test in OutboxAutoConfigurationTransactionRunnerTest). The `?:` is therefore
+        // an unreachable-via-Spring defensive guard, kept correct for any non-Spring caller.
         val ptm = anyTemplate?.transactionManager
             ?: resolvePlatformTransactionManager(transactionManager, beanFactory, okapiProperties)
         validatePtmDataSourceMatch(ptm, resolveDataSource(), okapiProperties)
@@ -321,21 +323,21 @@ class OutboxAutoConfiguration(
                 val unwrappedOutbox = unwrapDataSource(outboxDataSource)
                 if (unwrappedPtm !== unwrappedOutbox) {
                     // If either side is still a DelegatingDataSource after unwrap, the chain terminated
-                    // early — either a cycle (`setTargetDataSource(self)`) or a not-yet-initialised
-                    // `LazyConnectionDataSourceProxy.targetDataSource == null`. Surface that as a distinct
-                    // WARN so the operator looks at the proxy wiring instead of chasing the PTM↔DS error.
+                    // early — a cycle (`setTargetDataSource(self)`) or a not-yet-initialised
+                    // `LazyConnectionDataSourceProxy.targetDataSource == null`. In that case the `!==`
+                    // is inconclusive: we never reached the concrete backing DataSources, so we do NOT
+                    // know whether they actually differ. Throwing the PTM↔DS mismatch error here would
+                    // assert something we did not verify and send the operator chasing the wrong fix
+                    // (qualifier config) instead of the real one (proxy wiring). Raise a distinct error.
                     if (unwrappedPtm is DelegatingDataSource || unwrappedOutbox is DelegatingDataSource) {
-                        logger.warn(
-                            "Could not fully unwrap one or both DataSource sides — at least one " +
-                                "DelegatingDataSource chain terminated early (cycle, or " +
-                                "LazyConnectionDataSourceProxy with targetDataSource not yet set). " +
-                                "PTM side: {} (stopped at {}). Outbox side: {} (stopped at {}). If the " +
-                                "two are intended to wrap the same DataSource, fix the proxy chain " +
-                                "before relying on the PTM↔DataSource mismatch error below.",
-                            ptmDataSource,
-                            unwrappedPtm,
-                            outboxDataSource,
-                            unwrappedOutbox,
+                        error(
+                            "Could not verify the PTM↔DataSource binding: a DelegatingDataSource chain " +
+                                "terminated early — a cycle (setTargetDataSource(self)) or an " +
+                                "uninitialised LazyConnectionDataSourceProxy (targetDataSource not yet " +
+                                "set). PTM side: $ptmDataSource (stopped at $unwrappedPtm). Outbox side: " +
+                                "$outboxDataSource (stopped at $unwrappedOutbox). This is NOT necessarily " +
+                                "a DataSource mismatch — fix the proxy wiring so both chains resolve to a " +
+                                "concrete DataSource, or define an explicit @Bean TransactionRunner.",
                         )
                     }
                     error(
@@ -397,25 +399,23 @@ class OutboxAutoConfiguration(
 
         // JPA/Hibernate PTMs that expose a `public DataSource getDataSource()` — reflection by name
         // avoids requiring spring-orm on the compile classpath (it's optional for JDBC-only consumers).
-        // Hibernate's TM moved package in Spring 6.2 — both names are listed so a single okapi build
-        // works against Spring Framework 6.1.x and 6.2+ without a version matrix.
-        // Hibernate's TM is named `org.springframework.orm.jpa.hibernate.HibernateTransactionManager`
-        // in Spring 6.2+ and `org.springframework.orm.hibernate5.HibernateTransactionManager` in
-        // Spring 6.1-. Both are listed so a single build works across versions.
-        // `internal` so reflection-resolution tests can verify the set isn't all stale.
-        internal val JPA_HIBERNATE_PTM_CLASSES = setOf(
+        // Hibernate's TM is `org.springframework.orm.jpa.hibernate.HibernateTransactionManager` in
+        // Spring 6.2+ and `org.springframework.orm.hibernate5.HibernateTransactionManager` in 6.1-;
+        // both are listed so a single build works across versions without a matrix.
+        // Public so the cross-module reflection-resolution guard test (in okapi-integration-tests,
+        // where spring-orm is available) can verify the set isn't entirely stale.
+        val JPA_HIBERNATE_PTM_CLASSES = setOf(
             "org.springframework.orm.jpa.JpaTransactionManager",
             "org.springframework.orm.jpa.hibernate.HibernateTransactionManager",
             "org.springframework.orm.hibernate5.HibernateTransactionManager",
         )
 
         internal fun extractDataSource(ptm: PlatformTransactionManager): DataSource? {
-            // Strategy 1: ResourceTransactionManager (DST + any RTM whose resourceFactory is a DataSource).
             (ptm as? ResourceTransactionManager)?.resourceFactory?.let { rf ->
                 if (rf is DataSource) return rf
             }
-            // Strategy 2/3: JPA/Hibernate public `getDataSource()`. Narrow catch on
-            // NoSuchMethodException only — all other exceptions intentionally propagate:
+            // JPA/Hibernate public `getDataSource()`. Narrow catch on NoSuchMethodException only —
+            // all other exceptions intentionally propagate:
             //   LinkageError / NoClassDefFoundError → mixed-jar classpath bug, must surface (this
             //     is why we don't use `runCatching`, which would swallow them).
             //   InvocationTargetException → JpaTransactionManager constructed without an EMF;

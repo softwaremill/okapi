@@ -20,8 +20,8 @@ h2 = "2.4.240"
 micrometer = "1.16.5"
 jmh = "1.37"
 jmhGradlePlugin = "0.7.3"
-# Hibernate version aligned with what Spring 7.x targets (Hibernate 7.0 ORM); only used in the
-# integration-tests module to exercise JpaTransactionManager fail-fast extraction.
+# Hibernate ORM 7.x (the line Spring Framework 7.x targets); integration-tests only, to exercise
+# JpaTransactionManager fail-fast extraction.
 hibernate = "7.1.4.Final"
 
 [libraries]

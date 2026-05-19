@@ -1,10 +1,7 @@
 package com.softwaremill.okapi.springboot
 
-import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
-import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxEntryProcessor
-import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.TransactionRunner
 import com.softwaremill.okapi.micrometer.MicrometerOutboxListener
@@ -22,7 +19,6 @@ import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import java.time.Duration.ofMillis
 import java.time.Duration.ofMinutes
 import java.time.Duration.ofSeconds
-import java.time.Instant
 import javax.sql.DataSource
 
 class OutboxProcessorAutoConfigurationTest : FunSpec({
@@ -234,20 +230,4 @@ private fun resolveSpringBootClass(vararg candidateFqcns: String): Class<*> {
 
 private fun noOpTransactionRunner() = object : TransactionRunner {
     override fun <T> runInTransaction(block: () -> T): T = block()
-}
-
-private fun stubStore() = object : OutboxStore {
-    override fun persist(entry: OutboxEntry) = entry
-    override fun claimPending(limit: Int) = emptyList<OutboxEntry>()
-    override fun updateAfterProcessing(entry: OutboxEntry) = entry
-    override fun removeDeliveredBefore(time: Instant, limit: Int) = 0
-    override fun findOldestCreatedAt(statuses: Set<OutboxStatus>) = emptyMap<OutboxStatus, Instant>()
-    override fun countByStatuses() = emptyMap<OutboxStatus, Long>()
-}
-
-private fun stubDeliverer() = stubDelivererWithType("stub")
-
-private fun stubDelivererWithType(t: String) = object : MessageDeliverer {
-    override val type = t
-    override fun deliver(entry: OutboxEntry) = DeliveryResult.Success
 }
