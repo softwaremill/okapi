@@ -27,8 +27,7 @@ import org.springframework.transaction.support.ResourceTransactionManager
  *    Used to distinguish "no PTM" from "multiple PTMs" via stream count.
  * 2. `getIfUnique()` returns the `@Primary` bean when present.
  * 3. `getIfAvailable()` THROWS `NoUniqueBeanDefinitionException` for 2+ non-primary
- *    candidates — the previous fix used this and surfaced a misleading error; switching to
- *    `getIfUnique()` was a deliberate semantic change.
+ *    candidates (which is why the autoconfig uses `getIfUnique()`, not `getIfAvailable()`).
  * 4. `DataSourceTransactionManager` IS-A `ResourceTransactionManager`, with
  *    `resourceFactory == DataSource`. Our PTM↔DS validation depends on this cast.
  * 5. PTMs that extend `AbstractPlatformTransactionManager` directly (e.g. Exposed
