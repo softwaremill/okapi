@@ -19,6 +19,12 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   default `databasechangelog` / `databasechangeloglock`. Override the new defaults
   via configuration to keep the shared-table layout (see Added below).
   ([#37](https://github.com/softwaremill/okapi/issues/37))
+- **okapi's Liquibase migrations consolidated into a single
+  `001__create_okapi_outbox_table.sql` per database.** New installations create the
+  full schema (table + indexes) from one changeset instead of replaying the change
+  history; the resulting schema is unchanged. Existing installations from an earlier
+  release: the `outbox:001` changeset checksum changed — they must start on a fresh
+  okapi schema, or clear okapi's rows from `okapi_databasechangelog`, before upgrading.
 
 ### Added
 
