@@ -90,24 +90,17 @@ class OutboxAutoConfiguration(
         SpringOutboxPublisher(delegate = outboxPublisher, dataSource = resolveDataSource())
 
     // Created only when at least one scheduler is enabled — TransactionRunner has no other consumer.
-    // Skipping the bean in publish-only deployments (both schedulers disabled) lets users run without
-    // a PlatformTransactionManager on the classpath at all (e.g. message producer that delegates
-    // outbox processing to a separate worker).
+    // Skipping the bean in publish-only deployments (both schedulers disabled) lets users omit a
+    // PlatformTransactionManager entirely (e.g. a pure producer delegating processing to a worker).
     //
-    // ObjectProvider<TransactionTemplate> design: a TT in the context can come from two sources —
-    // a user-defined @Bean (with custom timeout/propagation/isolation), OR Spring Boot's
-    // TransactionAutoConfiguration which auto-registers a TT whenever a single PTM exists. The two
-    // are indistinguishable at this layer. We accept BOTH transparently but always extract the bound
-    // PTM and run validatePtmDataSourceMatch on it — so the user's TX semantics are honoured AND the
-    // multi-DS safety net stays armed. See TransactionTemplateHijackProofTest for the empirical proof
-    // that without `validatePtmDataSourceMatch` here, Boot's auto-TT silently bypasses safety.
-    // Return type is the interface `TransactionRunner`, NOT the concrete `SpringTransactionRunner`,
-    // deliberately deviating from the project convention of "@Bean methods return concrete types".
-    // Reason: `@ConditionalOnMissingBean` (no explicit type) matches against the declared @Bean
-    // return type — declaring `TransactionRunner` lets a user-supplied @Bean of ANY TransactionRunner
-    // implementation (not just SpringTransactionRunner) suppress this factory, which is the intended
-    // contract. Declaring the concrete type would only suppress on `SpringTransactionRunner` collisions
-    // and produce a duplicate runner for custom impls.
+    // We accept a user-defined TransactionTemplate OR Boot's auto-registered one transparently, but
+    // always extract the PTM and run validatePtmDataSourceMatch — so the user's TX semantics are
+    // honoured AND the multi-DS safety net stays armed (see TransactionTemplateHijackProofTest).
+    //
+    // Return type is `TransactionRunner` (interface), not `SpringTransactionRunner` (concrete) —
+    // deliberate deviation from the "@Bean returns concrete type" convention. @ConditionalOnMissingBean
+    // matches against the declared return type, so declaring the interface lets any user-supplied
+    // TransactionRunner impl suppress this factory; the concrete type would miss custom impls.
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnExpression("\${okapi.processor.enabled:true} or \${okapi.purger.enabled:true}")
@@ -117,22 +110,16 @@ class OutboxAutoConfiguration(
         beanFactory: BeanFactory,
     ): TransactionRunner {
         val anyTemplate = transactionTemplate.getIfUnique()
-        // Extract the PTM from the TT if available, else resolve through the provider. TT's
-        // transactionManager is nullable in the API, but Spring's InitializingBean contract rejects
-        // a TransactionTemplate bean with a null transactionManager at afterPropertiesSet() (proven
-        // by the PROBE test in OutboxAutoConfigurationTransactionRunnerTest). The `?:` is therefore
-        // an unreachable-via-Spring defensive guard, kept correct for any non-Spring caller.
+        // TT.transactionManager is nullable in the API, but Spring rejects a null one at
+        // afterPropertiesSet() (see OutboxAutoConfigurationTransactionRunnerTest PROBE test) — the
+        // `?:` is a defensive guard for non-Spring callers only.
         val ptm = anyTemplate?.transactionManager
             ?: resolvePlatformTransactionManager(transactionManager, beanFactory, okapiProperties)
         validatePtmDataSourceMatch(ptm, resolveDataSource(), okapiProperties, dataSources.size)
-        // Use the user-/Boot-supplied TT verbatim when present (preserves timeout, propagation,
-        // isolation set by whoever defined it). Otherwise build a minimal TT around the validated
-        // PTM. Sets the *initial* TX read-only flag to false. NOTE: with PROPAGATION_REQUIRED
-        // (the default), a tick that joins an outer @Transactional(readOnly = true) inherits the
-        // outer's flag and this setting is silently ignored. The scheduler runs on a daemon
-        // thread with no outer TX, so this flag actually takes effect — but invocations from
-        // inside an existing read-only TX would still hit FOR UPDATE failures. Keep scheduler
-        // invocations outside @Transactional scopes.
+        // Use the supplied TT verbatim when present (preserves timeout/propagation/isolation).
+        // Otherwise build a minimal TT with isReadOnly=false. NOTE: with PROPAGATION_REQUIRED a
+        // tick joining an outer readOnly=true TX inherits that flag silently — keep scheduler
+        // invocations outside @Transactional scopes to avoid FOR UPDATE SKIP LOCKED failures.
         return SpringTransactionRunner(
             anyTemplate ?: TransactionTemplate(ptm).apply { isReadOnly = false },
         )
@@ -208,10 +195,6 @@ class OutboxAutoConfiguration(
         )
     }
 
-    /**
-     * Auto-configures [PostgresOutboxStore] when `okapi-postgres` is on the classpath.
-     * Skipped if the application provides its own [OutboxStore] bean.
-     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(PostgresOutboxStore::class)
     class PostgresStoreConfiguration(
@@ -314,29 +297,20 @@ class OutboxAutoConfiguration(
             properties: OkapiProperties,
             dataSourceBeanCount: Int,
         ) {
-            // Tries three extraction strategies in order:
-            //   1. ResourceTransactionManager whose resourceFactory is a JDBC DataSource (DST + custom)
-            //   2. JpaTransactionManager.getDataSource() — public getter, autodetected from EntityManagerFactory
-            //   3. HibernateTransactionManager.getDataSource() — same shape (both pre-/post-6.2 packages)
-            // Non-extractable cases (JTA, Exposed SpringTransactionManager, JPA/Hibernate with no JDBC DS)
-            // fall through to the multi-DS ambiguity guard below: if there are ≥2 DataSource beans and
-            // no qualifier disambiguation, refuse to start (a wrong-DS PTM would otherwise collapse
-            // FOR UPDATE SKIP LOCKED to JDBC auto-commit and silently amplify delivery). Single-DS
-            // contexts stay on the existing INFO/WARN path because the binding is unambiguous.
+            // extractDataSource tries ResourceTransactionManager, then JpaTransactionManager /
+            // HibernateTransactionManager via reflection. Non-extractable PTMs (JTA, Exposed
+            // SpringTransactionManager, JPA without a JDBC DS) fall through to the multi-DS
+            // ambiguity guard: ≥2 DataSource beans + no qualifier → refuse to start.
             val ptmDataSource = extractDataSource(ptm)
             if (ptmDataSource != null) {
-                // Spring's recommended pattern wraps the outbox DataSource bean in TransactionAwareDataSourceProxy
-                // (or LazyConnectionDataSourceProxy) for use by query helpers, while passing the raw DataSource
-                // to the PTM (Spring docs explicitly say "TransactionAwareDataSourceProxy should NOT be passed
-                // to a PTM"). Reference equality on those references would falsely fail. Unwrap the
-                // DelegatingDataSource chain on both sides before comparison.
+                // Spring docs say TransactionAwareDataSourceProxy must NOT be passed to a PTM, so
+                // the PTM holds the raw DS while helpers hold the proxy. Unwrap both chains before
+                // identity comparison to avoid false mismatch on wrapper/raw pairs.
                 val unwrappedPtm = unwrapDataSource(ptmDataSource)
                 val unwrappedOutbox = unwrapDataSource(outboxDataSource)
                 when {
                     unwrappedPtm is Unwrapped.Unresolvable || unwrappedOutbox is Unwrapped.Unresolvable -> {
-                        // Either chain stopped before reaching a concrete backing DataSource — identity
-                        // comparison would assert something we did not verify. Fail with a distinct error
-                        // that names the side(s) and reason, instead of mis-attributing this as a mismatch.
+                        // Chain didn't reach a concrete DS — report as wiring error, not a mismatch.
                         val ptmSide = describeUnwrap("PTM", ptmDataSource, unwrappedPtm)
                         val outboxSide = describeUnwrap("outbox", outboxDataSource, unwrappedOutbox)
                         error(
@@ -363,30 +337,24 @@ class OutboxAutoConfiguration(
                 return
             }
             val resourceFactoryDescription = describeUnextractable(ptm)
-            // Multi-DataSource ambiguity guard: when okapi cannot extract the PTM's DataSource AND
-            // the context has multiple DataSource beans AND the user has not disambiguated via either
-            // okapi.datasource-qualifier or okapi.transaction-manager-qualifier, refuse to start.
-            // Without this, a wrong-DS PTM passes validation silently, FOR UPDATE SKIP LOCKED collapses
-            // to JDBC auto-commit, and duplicate delivery follows. Single-DS contexts stay on the
-            // existing INFO/WARN path because the binding is unambiguous by construction. Users with a
-            // legitimate multi-DS + non-extractable PTM setup (e.g. JTA) opt out by either setting one
-            // of the qualifiers or supplying an explicit @Bean TransactionRunner (which bypasses this
-            // factory entirely via @ConditionalOnMissingBean).
-            if (
-                dataSourceBeanCount >= 2 &&
-                properties.datasourceQualifier == null &&
-                properties.transactionManagerQualifier == null
-            ) {
+            // Multi-DS ambiguity guard: if okapi cannot extract the PTM's DataSource AND there are
+            // ≥2 DataSource beans AND no transaction-manager-qualifier was set, refuse to start.
+            // okapi.datasource-qualifier alone is insufficient — it picks the outbox DS but does
+            // NOT constrain which PTM brackets it. A wrong-DS PTM would collapse FOR UPDATE SKIP
+            // LOCKED to JDBC auto-commit and silently permit duplicate delivery. Opt out by setting
+            // okapi.transaction-manager-qualifier or supplying an explicit @Bean TransactionRunner.
+            if (dataSourceBeanCount >= 2 && properties.transactionManagerQualifier == null) {
                 error(
                     "Cannot verify the PTM↔DataSource binding for a non-extractable " +
                         "PlatformTransactionManager '${ptm.javaClass.name}' ($resourceFactoryDescription) " +
                         "in a multi-DataSource context ($dataSourceBeanCount DataSource beans found). " +
-                        "Without okapi.transaction-manager-qualifier or okapi.datasource-qualifier set, " +
-                        "okapi cannot determine which DataSource this PTM brackets — if it brackets the " +
-                        "wrong one, FOR UPDATE SKIP LOCKED collapses to JDBC auto-commit and scheduler " +
-                        "ticks silently allow duplicate delivery across processor instances. Fix: set " +
-                        "okapi.transaction-manager-qualifier (and/or okapi.datasource-qualifier) to " +
-                        "disambiguate, or define an explicit @Bean TransactionRunner.",
+                        "okapi.transaction-manager-qualifier is not set, so okapi cannot determine which " +
+                        "DataSource this PTM brackets — if it brackets the wrong one, FOR UPDATE SKIP " +
+                        "LOCKED collapses to JDBC auto-commit and scheduler ticks silently allow " +
+                        "duplicate delivery across processor instances. (okapi.datasource-qualifier alone " +
+                        "is not sufficient: it picks the outbox DataSource but does not constrain which " +
+                        "PTM brackets it.) Fix: set okapi.transaction-manager-qualifier to name the PTM " +
+                        "that brackets the outbox DataSource, or define an explicit @Bean TransactionRunner.",
                 )
             }
             if (properties.datasourceQualifier != null) {
@@ -402,10 +370,8 @@ class OutboxAutoConfiguration(
                     resourceFactoryDescription,
                 )
             } else {
-                // No qualifier set → single-DS assumption. We cannot validate, but a future multi-DS
-                // migration that forgets to set the qualifier would silently break with no diagnostic.
-                // Emit an INFO breadcrumb so an operator debugging duplicate delivery has something
-                // to grep for.
+                // Single-DS assumption. Emit an INFO breadcrumb so a future multi-DS migration that
+                // forgets to set the qualifier produces something to grep for when debugging delivery.
                 logger.info(
                     "PlatformTransactionManager '{}' {} — okapi cannot verify it brackets the outbox " +
                         "DataSource. Assuming single-DataSource setup (okapi.datasource-qualifier is " +
@@ -418,13 +384,8 @@ class OutboxAutoConfiguration(
             }
         }
 
-        /**
-         * Result of walking a [DelegatingDataSource] chain down to its concrete backing DataSource.
-         * Sealed so callers branch on three explicit cases (resolved-same, resolved-different,
-         * unresolvable) instead of disambiguating an overloaded `DataSource` return via heuristics.
-         */
+        /** Result of walking a [DelegatingDataSource] chain to its concrete backing DataSource. */
         sealed interface Unwrapped {
-            /** Reached a concrete (non-[DelegatingDataSource]) DataSource. Identity comparison is meaningful. */
             data class Resolved(val ds: DataSource) : Unwrapped
 
             /**
@@ -436,13 +397,10 @@ class OutboxAutoConfiguration(
             enum class Reason { CYCLE, NULL_TARGET }
         }
 
-        // Iterative + identity-based visited-set: defends against self-referencing or cyclic
-        // DelegatingDataSource chains (Spring's `setTargetDataSource` is a public setter with no
-        // cycle check; `proxy.setTargetDataSource(proxy)` is legal API). IdentityHashMap because
-        // cycle detection is about object-graph traversal (have we seen THIS proxy object?), not
-        // value equality — a custom DataSource overriding equals() to delegate to its target would
-        // otherwise trigger false early termination on a non-cyclic chain. A tailrec form would
-        // compile to an uninterruptible JVM goto loop and silently spin at startup.
+        // Iterative walk with an IdentityHashMap visited-set: guards against cyclic chains
+        // (Spring's setTargetDataSource has no cycle check). Identity, not equals(), because a
+        // custom DS overriding equals() to delegate to its target could trigger false early
+        // termination on a valid chain.
         internal fun unwrapDataSource(ds: DataSource): Unwrapped {
             val seen: MutableSet<DataSource> = Collections.newSetFromMap(IdentityHashMap())
             var current: DataSource = ds
@@ -491,14 +449,10 @@ class OutboxAutoConfiguration(
             (ptm as? ResourceTransactionManager)?.resourceFactory?.let { rf ->
                 if (rf is DataSource) return rf
             }
-            // JPA/Hibernate public `getDataSource()`. Narrow catch on NoSuchMethodException only —
-            // all other exceptions intentionally propagate:
-            //   LinkageError / NoClassDefFoundError → mixed-jar classpath bug, must surface (this
-            //     is why we don't use `runCatching`, which would swallow them).
-            //   InvocationTargetException → JpaTransactionManager constructed without an EMF;
-            //     callable, but unusable for outbox bracketing — surface the original cause.
-            //   IllegalAccessException / ClassCastException → incompatible Spring framework
-            //     version where the contract has changed; not safe to silently fall back.
+            // Narrow catch on NoSuchMethodException only — all other exceptions propagate.
+            // Do NOT use runCatching: it swallows LinkageError/NoClassDefFoundError (mixed-jar
+            // classpath bug), InvocationTargetException (PTM built without an EMF), and
+            // IllegalAccessException/ClassCastException (incompatible Spring version).
             if (isJpaHibernatePtm(ptm)) {
                 return try {
                     ptm.javaClass.getMethod("getDataSource").invoke(ptm) as DataSource?

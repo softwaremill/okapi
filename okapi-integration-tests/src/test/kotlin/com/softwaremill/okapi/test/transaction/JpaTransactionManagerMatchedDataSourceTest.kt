@@ -27,12 +27,7 @@ import javax.sql.DataSource
 /**
  * Companion to `JpaTransactionManagerFailFastTest`: proves the MATCH branch of the JPA path.
  * When the `JpaTransactionManager`'s auto-detected DataSource equals okapi's outbox DataSource,
- * `validatePtmDataSourceMatch` succeeds, the context starts, and `okapiTransactionRunner` is wired
- * to a `TransactionTemplate` bound to that PTM.
- *
- * Without this test the fail-fast version above could theoretically pass even if a regression
- * routed JPA through a wrong branch and made every JPA setup fail — match coverage is the
- * other half of the proof.
+ * `validatePtmDataSourceMatch` succeeds and `okapiTransactionRunner` is wired to that PTM.
  */
 class JpaTransactionManagerMatchedDataSourceTest : FunSpec({
 
@@ -72,12 +67,6 @@ class JpaTransactionManagerMatchedDataSourceTest : FunSpec({
             })
             .withPropertyValues("okapi.liquibase.enabled=false")
             .run { ctx ->
-                // Behaviour-level proof (does not peek at SpringTransactionRunner internals):
-                //  - `startupFailure` is null → validatePtmDataSourceMatch took the match-return path
-                //    (the fail-fast companion test JpaTransactionManagerFailFastTest pins what failure
-                //    on mismatch looks like; together they cover both branches of the JPA path).
-                //  - The TransactionRunner is `SpringTransactionRunner`, confirming the autoconfig
-                //    wired the JPA PTM rather than skipping the factory.
                 ctx.startupFailure.shouldBeNull()
                 ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
             }

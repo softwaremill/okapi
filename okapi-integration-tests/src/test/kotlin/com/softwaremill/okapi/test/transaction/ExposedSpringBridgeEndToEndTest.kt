@@ -35,16 +35,12 @@ import javax.sql.DataSource
  * non-`DataSourceTransactionManager` `PlatformTransactionManager` — specifically Exposed's
  * `SpringTransactionManager` bridge. If the autoconfig assumed DST, this test would fail.
  *
- * Two assertions:
+ * Two structural assertions:
  * 1. With processor disabled: a single Spring TX wrapping `springOutboxPublisher.publish()`
- *    borrows exactly one physical connection from the pool. This proves the autoconfig-built
- *    runner correctly bridges to `SpringConnectionProvider` through Spring's `ConnectionHolder`.
- * 2. With processor enabled (200ms tick): an entry published inside a Spring TX is later
- *    delivered by the background scheduler — proving each scheduler tick is itself bracketed
- *    by a Spring TX driven by the bridged PTM.
- *
- * Liquibase schema migration is handled by `okapi-spring-boot` autoconfiguration; no manual
- * setup needed.
+ *    borrows exactly one physical connection — proving the autoconfig-built runner bridges to
+ *    `SpringConnectionProvider` through Spring's `ConnectionHolder`.
+ * 2. With processor enabled: an entry published inside a Spring TX is later delivered by the
+ *    background scheduler — proving each tick is bracketed by the bridged PTM.
  */
 class ExposedSpringBridgeEndToEndTest : FunSpec({
 
@@ -127,18 +123,15 @@ class ExposedSpringBridgeEndToEndTest : FunSpec({
             }
     }
 
-    // The single-process happy-path tests above would silently pass even if the autoconfig had
-    // re-introduced the auto-commit fallback (the bug KOJAK-67 fixes). This test exercises
-    // contention: 5 concurrent processor invocations against 50 published entries, each tick
-    // bracketed by the autoconfig-built TransactionRunner. With proper TX bracketing the
-    // FOR UPDATE SKIP LOCKED rows stay locked across claim+update — no amplification. With a
-    // no-op TR (or auto-commit fallback) the lock is released between claim and update,
-    // multiple processors deliver the same entry, and `assertNoAmplification` throws.
+    // Happy-path tests above would silently pass even if the autoconfig had re-introduced an
+    // auto-commit fallback. This test exercises contention: 5 concurrent processor invocations
+    // against 50 published entries. With proper TX bracketing, FOR UPDATE SKIP LOCKED holds
+    // across claim+update — no amplification. With a no-op TR the lock releases between claim
+    // and update, multiple processors deliver the same entry, and `assertNoAmplification` throws.
     test("autoconfig-built TransactionRunner prevents delivery amplification under concurrent processor invocations") {
         val recorder = RecordingMessageDeliverer()
         runner(recorder)
-            // Disable processor only — purger stays at its default 1h interval (won't fire in test)
-            // but keeps `okapiTransactionRunner` factory active.
+            // Processor disabled; purger stays at its default 1h interval, keeping the factory active.
             .withPropertyValues("okapi.processor.enabled=false")
             .run { ctx ->
                 resetCounterAndTruncate(counter)

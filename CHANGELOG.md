@@ -39,10 +39,12 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   Specifically: if `extractDataSource` cannot determine the PTM's DataSource (e.g. JTA,
   Exposed's `SpringTransactionManager`, or any PTM that exposes neither a `DataSource`
   resourceFactory nor a public `getDataSource()`), AND the context has ≥2 `DataSource`
-  beans, AND neither `okapi.transaction-manager-qualifier` nor
-  `okapi.datasource-qualifier` is set, the context refresh now fails with an actionable
-  message. Single-DataSource contexts and explicitly-qualified setups are unaffected.
-  Escape hatch: supply an explicit `@Bean TransactionRunner` to bypass validation.
+  beans, AND `okapi.transaction-manager-qualifier` is not set, the context refresh now
+  fails with an actionable message. `okapi.datasource-qualifier` alone is not
+  sufficient — it picks the outbox DataSource but does not constrain which PTM
+  brackets it. Single-DataSource contexts and setups that explicitly name the PTM
+  via `okapi.transaction-manager-qualifier` are unaffected. Escape hatch: supply an
+  explicit `@Bean TransactionRunner` to bypass validation.
   ([#49](https://github.com/softwaremill/okapi/pull/49))
 
 ### Added

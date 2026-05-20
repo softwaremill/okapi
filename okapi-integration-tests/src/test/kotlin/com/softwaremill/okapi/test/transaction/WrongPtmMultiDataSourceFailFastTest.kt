@@ -18,15 +18,9 @@ import org.springframework.transaction.PlatformTransactionManager
 import javax.sql.DataSource
 
 /**
- * Replaces the former `WrongPtmDataSourceAmplificationProofTest`, which asserted a positive race
- * outcome (`deliveries.filter { size > 1 }.shouldNotBeEmpty()`) — that assertion was both flaky
- * (race-dependent) and semantically inverted (it would fail once the underlying risk was actually
- * mitigated). The correct fix lives in production code: a non-extractable PTM combined with
- * multiple `DataSource` beans and no `okapi.transaction-manager-qualifier` / `datasource-qualifier`
- * is now refused at startup, eliminating the silent-duplicate residual risk rather than
- * documenting it via a race.
- *
- * Pins the new behaviour deterministically: context refresh must fail with the new error message.
+ * A non-extractable PTM (Exposed bridge, JTA) combined with multiple `DataSource` beans and no
+ * `okapi.transaction-manager-qualifier` is refused at startup — okapi cannot prove which DS the
+ * PTM brackets, so it fails fast rather than risk silent duplicate delivery.
  */
 class WrongPtmMultiDataSourceFailFastTest : FunSpec({
 
@@ -38,20 +32,44 @@ class WrongPtmMultiDataSourceFailFastTest : FunSpec({
             .withConfiguration(
                 AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java),
             )
-            // DS-B as @Primary so resolveDataSource() picks it as the outbox DS; DS-A is the
-            // ambiguous second DataSource that disambiguation would otherwise resolve.
+            // DS-B as @Primary so resolveDataSource() picks it as the outbox DS.
             .withBean("dsB", DataSource::class.java, { dsB }, BeanDefinitionCustomizer { it.isPrimary = true })
             .withBean("dsA", DataSource::class.java, { dsA })
-            // Exposed's SpringTransactionManager is non-extractable (no DataSource resourceFactory,
-            // no public getDataSource()) — same shape as JtaTransactionManager. With ≥2 DataSource
-            // beans and no qualifier set, okapi cannot prove which DS this PTM brackets and refuses
-            // to start rather than risk silent duplicate delivery.
             .withBean("exposedTmA", PlatformTransactionManager::class.java, { SpringTransactionManager(dsA) })
             .withBean(MessageDeliverer::class.java, { RecordingMessageDeliverer() })
             .withBean(PostgresOutboxStore::class.java, {
                 PostgresOutboxStore(SpringConnectionProvider(dsB), java.time.Clock.systemUTC())
             })
             .withPropertyValues("okapi.processor.enabled=false", "okapi.liquibase.enabled=false")
+            .run { ctx ->
+                ctx.startupFailure.shouldNotBeNull()
+                ctx.startupFailure!!.stackTraceToString() shouldContain
+                    "Cannot verify the PTM↔DataSource binding for a non-extractable"
+            }
+    }
+
+    test("okapi.datasource-qualifier alone is NOT sufficient — fail-fast still fires (PTM-side ambiguity remains)") {
+        val dsA: DataSource = SimpleDriverDataSource()
+        val dsB: DataSource = SimpleDriverDataSource()
+
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java),
+            )
+            .withBean("dsB", DataSource::class.java, { dsB }, BeanDefinitionCustomizer { it.isPrimary = true })
+            .withBean("dsA", DataSource::class.java, { dsA })
+            .withBean("exposedTmA", PlatformTransactionManager::class.java, { SpringTransactionManager(dsA) })
+            .withBean(MessageDeliverer::class.java, { RecordingMessageDeliverer() })
+            .withBean(PostgresOutboxStore::class.java, {
+                PostgresOutboxStore(SpringConnectionProvider(dsB), java.time.Clock.systemUTC())
+            })
+            .withPropertyValues(
+                "okapi.processor.enabled=false",
+                "okapi.liquibase.enabled=false",
+                // User named the outbox DataSource but NOT the PTM. The PTM-side ambiguity remains,
+                // so fail-fast must still fire — datasource-qualifier alone does not grant immunity.
+                "okapi.datasource-qualifier=dsB",
+            )
             .run { ctx ->
                 ctx.startupFailure.shouldNotBeNull()
                 ctx.startupFailure!!.stackTraceToString() shouldContain
@@ -80,8 +98,7 @@ class WrongPtmMultiDataSourceFailFastTest : FunSpec({
                 "okapi.transaction-manager-qualifier=exposedTmA",
             )
             .run { ctx ->
-                // No startup failure: user has explicitly taken responsibility for the binding by
-                // naming the PTM. The autoconfig still cannot verify, but no longer refuses.
+                // Qualifier names the PTM explicitly; autoconfig trusts the user and no longer refuses.
                 ctx.startupFailure?.let { error("Expected clean startup, got: ${it.message}") }
             }
     }

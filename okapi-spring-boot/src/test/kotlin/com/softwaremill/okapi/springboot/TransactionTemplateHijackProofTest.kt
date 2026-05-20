@@ -63,11 +63,7 @@ class TransactionTemplateHijackProofTest : FunSpec({
                 ctx.startupFailure.shouldBeNull()
                 val bootTt = ctx.getBean(TransactionTemplate::class.java).shouldNotBeNull()
                 val runner = ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
-                withClue(
-                    "okapiTransactionRunner must adopt Boot's auto-configured TransactionTemplate by reference " +
-                        "(preserving user/Boot timeout/propagation/isolation), not wrap a fresh default TT around " +
-                        "the PTM — that would silently discard those settings.",
-                ) {
+                withClue("okapiTransactionRunner must adopt Boot's TransactionTemplate by reference, not wrap a fresh default TT") {
                     runner.transactionTemplate.shouldBeSameInstanceAs(bootTt)
                 }
             }

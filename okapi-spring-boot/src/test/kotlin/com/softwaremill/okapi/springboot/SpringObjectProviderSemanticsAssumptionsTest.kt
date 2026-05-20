@@ -34,8 +34,7 @@ import org.springframework.transaction.support.ResourceTransactionManager
  *    `SpringTransactionManager`) — okapi cannot extract their DataSource for validation
  *    and must fall back to a WARN log + require explicit `okapi.transaction-manager-qualifier`.
  *    (`JpaTransactionManager` IS-A `ResourceTransactionManager`, but its `resourceFactory`
- *    is an `EntityManagerFactory` not a `DataSource`; that case is handled separately by the
- *    JPA reflection branch in `extractDataSource`.)
+ *    is an `EntityManagerFactory` not a `DataSource` — handled separately by `extractDataSource`.)
  */
 class SpringObjectProviderSemanticsAssumptionsTest : FunSpec({
 
