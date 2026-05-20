@@ -26,8 +26,9 @@ import javax.sql.DataSource
  * Proves the JPA branch of `extractDataSource` (`OutboxAutoConfiguration.kt`): a
  * `JpaTransactionManager` whose auto-detected DataSource differs from okapi's outbox DataSource
  * triggers `validatePtmDataSourceMatch` fail-fast at startup. Companion to
- * `WrongPtmDataSourceAmplificationProofTest`, which documents the remaining residual risk for
- * PTMs that expose no DataSource at all (Exposed bridge, JTA).
+ * `WrongPtmMultiDataSourceFailFastTest`, which fails-fast on the remaining ambiguity for PTMs
+ * that expose no DataSource at all (Exposed bridge, JTA) combined with multiple `DataSource`
+ * beans and no qualifier.
  */
 class JpaTransactionManagerFailFastTest : FunSpec({
 

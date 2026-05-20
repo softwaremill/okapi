@@ -25,6 +25,25 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   history; the resulting schema is unchanged. Existing installations from an earlier
   release: the `outbox:001` changeset checksum changed — they must start on a fresh
   okapi schema, or clear okapi's rows from `okapi_databasechangelog`, before upgrading.
+- **`OutboxProcessorScheduler` / `OutboxPurgerScheduler` constructors now require a
+  non-null `TransactionRunner`** (previously a nullable `TransactionTemplate?`, with
+  `OutboxPurgerScheduler`'s parameter defaulted to `null`). Spring Boot autoconfig users
+  are unaffected — the autoconfig derives a `TransactionRunner` from any
+  `PlatformTransactionManager` on the classpath. Users constructing the schedulers
+  directly must supply a `TransactionRunner` (e.g. `SpringTransactionRunner(template)` or
+  a thin lambda wrapping their framework's native transaction primitive). The previous
+  null-default silently degraded `FOR UPDATE SKIP LOCKED` to JDBC auto-commit, permitting
+  duplicate delivery across processor instances. ([#49](https://github.com/softwaremill/okapi/pull/49))
+- **`okapi-spring-boot` autoconfig refuses to start when it cannot verify the
+  PlatformTransactionManager↔outbox-DataSource binding** in a multi-DataSource context.
+  Specifically: if `extractDataSource` cannot determine the PTM's DataSource (e.g. JTA,
+  Exposed's `SpringTransactionManager`, or any PTM that exposes neither a `DataSource`
+  resourceFactory nor a public `getDataSource()`), AND the context has ≥2 `DataSource`
+  beans, AND neither `okapi.transaction-manager-qualifier` nor
+  `okapi.datasource-qualifier` is set, the context refresh now fails with an actionable
+  message. Single-DataSource contexts and explicitly-qualified setups are unaffected.
+  Escape hatch: supply an explicit `@Bean TransactionRunner` to bypass validation.
+  ([#49](https://github.com/softwaremill/okapi/pull/49))
 
 ### Added
 

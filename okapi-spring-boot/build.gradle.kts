@@ -2,16 +2,16 @@ plugins {
     id("buildsrc.convention.kotlin-jvm")
     id("buildsrc.convention.publish")
     // Mutation testing — opt-in only: ./gradlew :okapi-spring-boot:pitest -PenableMutationTesting=true
-    id("info.solidsoft.pitest") version "1.19.0" apply false
+    alias(libs.plugins.pitest) apply false
 }
 
 description = "Spring Boot autoconfiguration for Okapi"
 
 if (providers.gradleProperty("enableMutationTesting").orNull?.toBoolean() == true) {
-    apply(plugin = "info.solidsoft.pitest")
+    apply(plugin = libs.plugins.pitest.get().pluginId)
     configure<info.solidsoft.gradle.pitest.PitestPluginExtension> {
-        pitestVersion.set("1.17.0")
-        junit5PluginVersion.set("1.2.1")
+        pitestVersion.set(libs.versions.pitestTool.get())
+        junit5PluginVersion.set(libs.versions.pitestJunit5Plugin.get())
         targetClasses.set(
             listOf(
                 "com.softwaremill.okapi.springboot.OutboxAutoConfiguration*",

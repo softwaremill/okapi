@@ -92,6 +92,18 @@ fun outboxTransactionRunner(): TransactionRunner = object : TransactionRunner {
 
 Without bracketing, `FOR UPDATE SKIP LOCKED` collapses to the single SELECT statement under JDBC auto-commit, which silently allows duplicate delivery across processor instances. This opt-in is intentionally manual to keep accidental misconfiguration out of multi-instance deployments.
 
+**Multi-DataSource contexts.** If your application has multiple `DataSource` beans and uses a `PlatformTransactionManager` from which okapi cannot extract a `DataSource` (JTA, Exposed's `SpringTransactionManager`, JPA without a JDBC `DataSource`), the autoconfiguration refuses to start until you disambiguate explicitly — either by setting `okapi.transaction-manager-qualifier` (the bean name of the PTM that brackets the outbox `DataSource`) and/or `okapi.datasource-qualifier`, or by supplying your own `@Bean TransactionRunner`. Single-DataSource setups and PTMs whose DataSource can be introspected (`DataSourceTransactionManager`, `JpaTransactionManager`, `HibernateTransactionManager`) are unaffected.
+
+**Constructing schedulers directly (non-autoconfig usage).** When wiring `OutboxProcessorScheduler` / `OutboxPurgerScheduler` manually (Ktor, custom Spring contexts without autoconfig, etc.), supply a `TransactionRunner` explicitly — the parameter is required, with no default:
+
+```kotlin
+OutboxProcessorScheduler(
+    outboxProcessor = processor,
+    transactionRunner = SpringTransactionRunner(template), // or your framework's equivalent
+    config = OutboxSchedulerConfig(...),
+)
+```
+
 ## How It Works
 
 Okapi implements the [transactional outbox pattern](https://softwaremill.com/microservices-101/) (see also: [microservices.io description](https://microservices.io/patterns/data/transactional-outbox.html)):

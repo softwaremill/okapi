@@ -5,11 +5,11 @@ import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.TransactionRunner
 import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
-import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
+import io.kotest.matchers.types.shouldBeSameInstanceAs
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.jdbc.datasource.DataSourceTransactionManager
@@ -19,26 +19,17 @@ import org.springframework.transaction.support.TransactionTemplate
 import javax.sql.DataSource
 
 /**
- * Reliable proof tests against the ultrareview claim:
- *   "Spring Boot's auto-configured TransactionTemplate hijacks okapiTransactionRunner — the factory
- *    short-circuits to the Boot-supplied template and skips PTM↔DataSource validation entirely."
+ * Two behavioural contracts of `okapiTransactionRunner` when Spring Boot's
+ * `TransactionAutoConfiguration` has registered a `TransactionTemplate` bean for the single PTM
+ * in the context:
  *
- * Three independent invariants pin the conclusion empirically (asserting only "startup failed"
- * would be brittle — the context could fail for unrelated reasons):
+ *  1. ADOPTS: the factory uses Boot's `TransactionTemplate` verbatim (reference identity), so the
+ *     user's / Boot's TX semantics — timeout, propagation, isolation — are preserved instead of
+ *     being silently replaced by a fresh default `TransactionTemplate`.
  *
- *   1. PRECONDITION: Spring Boot's TransactionAutoConfiguration actually creates a `TransactionTemplate`
- *      bean in slice tests. If false, the hijack scenario cannot occur in this test harness and the
- *      other two tests prove nothing — the suite fails loudly instead of silently passing.
- *
- *   2. INTROSPECTION: in a single-DS happy path, `okapiTransactionRunner` produces a
- *      `SpringTransactionRunner` whose `TransactionTemplate.transactionManager` is the user's PTM.
- *      Combined with #1 this proves: even when Boot's TT bean exists, the factory does NOT pick it.
- *      (If the factory short-circuited via Boot's TT, the embedded PTM identity would not match.)
- *
- *   3. MISMATCH FAIL-FAST: in a 2-DS scenario with PTM bound to the wrong DS, startup fails with
- *      a literal substring from `validatePtmDataSourceMatch`'s `error(...)` message that no other
- *      Spring component emits — passing this assertion proves our validation code path was reached,
- *      not just that something failed.
+ *  2. VALIDATES: even though Boot's TT is adopted, `validatePtmDataSourceMatch` still runs and
+ *     fails the context refresh when the PTM is bound to a different DataSource than okapi's
+ *     outbox DataSource. The presence of Boot's TT does NOT bypass the safety net.
  */
 class TransactionTemplateHijackProofTest : FunSpec({
 
@@ -54,29 +45,12 @@ class TransactionTemplateHijackProofTest : FunSpec({
             null
         }
     } ?: error(
-        "TransactionAutoConfiguration not on test classpath. Without it the entire hijack scenario " +
-            "cannot be reproduced — failing the suite loudly rather than silently passing. Check that " +
-            "spring-boot-transaction (4.x) or spring-boot-autoconfigure (3.x) is on testRuntimeClasspath.",
+        "TransactionAutoConfiguration not on test classpath. Without it neither test below can " +
+            "exercise the Boot-auto-TT scenario. Check that spring-boot-transaction (4.x) or " +
+            "spring-boot-autoconfigure (3.x) is on testRuntimeClasspath.",
     )
 
-    test("PRECONDITION: Spring Boot's TransactionAutoConfiguration registers a TransactionTemplate bean") {
-        val ds: DataSource = SimpleDriverDataSource()
-        ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(txAutoConfigClass))
-            .withBean(DataSource::class.java, { ds })
-            .withBean(PlatformTransactionManager::class.java, { DataSourceTransactionManager(ds) })
-            .run { ctx ->
-                withClue(
-                    "If this fails, Spring Boot's TransactionTemplateConfiguration was not triggered in slice " +
-                        "tests — the hijack tests below would silently pass without testing anything. Investigate " +
-                        "before trusting test #2 / #3 results.",
-                ) {
-                    ctx.getBean(TransactionTemplate::class.java).shouldNotBeNull()
-                }
-            }
-    }
-
-    test("INTROSPECTION: with Boot's TT in context, okapiTransactionRunner builds a TT around OUR PTM") {
+    test("ADOPTS: okapiTransactionRunner reuses Spring Boot's auto-configured TransactionTemplate verbatim") {
         val ds: DataSource = SimpleDriverDataSource()
         val ourPtm: PlatformTransactionManager = DataSourceTransactionManager(ds)
         ApplicationContextRunner()
@@ -86,19 +60,20 @@ class TransactionTemplateHijackProofTest : FunSpec({
             .withBean(OutboxStore::class.java, { stubStore() })
             .withBean(MessageDeliverer::class.java, { stubDeliverer() })
             .run { ctx ->
-                ctx.startupFailure shouldBe null
-                val runner = ctx.getBean(TransactionRunner::class.java)
-                runner.shouldBeInstanceOf<SpringTransactionRunner>()
-                // The TT that okapiTransactionRunner wraps must be bound to OUR PTM — not Boot's
-                // auto-configured TT (which is the hijack failure mode). Reference identity, not
-                // equality, since each PTM is a distinct object.
-                withClue("okapiTransactionRunner is wrapping a TT whose internal PTM is NOT our ourPtm — hijack confirmed") {
-                    runner.transactionTemplate.transactionManager shouldBe ourPtm
+                ctx.startupFailure.shouldBeNull()
+                val bootTt = ctx.getBean(TransactionTemplate::class.java).shouldNotBeNull()
+                val runner = ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
+                withClue(
+                    "okapiTransactionRunner must adopt Boot's auto-configured TransactionTemplate by reference " +
+                        "(preserving user/Boot timeout/propagation/isolation), not wrap a fresh default TT around " +
+                        "the PTM — that would silently discard those settings.",
+                ) {
+                    runner.transactionTemplate.shouldBeSameInstanceAs(bootTt)
                 }
             }
     }
 
-    test("MISMATCH FAIL-FAST: PTM bound to wrong DataSource triggers validatePtmDataSourceMatch error") {
+    test("VALIDATES: Boot's auto-TT does NOT bypass validatePtmDataSourceMatch (wrong-DS PTM still fails refresh)") {
         val dsA: DataSource = SimpleDriverDataSource()
         val dsB: DataSource = SimpleDriverDataSource()
         ApplicationContextRunner()
@@ -114,9 +89,8 @@ class TransactionTemplateHijackProofTest : FunSpec({
             .withBean(OutboxStore::class.java, { stubStore() })
             .withBean(MessageDeliverer::class.java, { stubDeliverer() })
             .run { ctx ->
-                val failure = ctx.startupFailure
-                failure shouldNotBe null
-                failure!!.stackTraceToString() shouldContain
+                ctx.startupFailure.shouldNotBeNull()
+                ctx.startupFailure!!.stackTraceToString() shouldContain
                     "is bound to a different DataSource than okapi's outbox DataSource"
             }
     }

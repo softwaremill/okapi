@@ -20,6 +20,9 @@ h2 = "2.4.240"
 micrometer = "1.16.5"
 jmh = "1.37"
 jmhGradlePlugin = "0.7.3"
+pitestGradlePlugin = "1.19.0"
+pitestTool = "1.17.0"
+pitestJunit5Plugin = "1.2.1"
 # Hibernate ORM 7.x (the line Spring Framework 7.x targets); integration-tests only, to exercise
 # JpaTransactionManager fail-fast extraction.
 hibernate = "7.1.4.Final"
@@ -69,3 +72,5 @@ jmhGeneratorAnnprocess = { module = "org.openjdk.jmh:jmh-generator-annprocess", 
 [plugins]
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
 jmh = { id = "me.champeau.jmh", version.ref = "jmhGradlePlugin" }
+# Mutation-testing — opt-in only, declared in okapi-spring-boot but applied conditionally
+pitest = { id = "info.solidsoft.pitest", version.ref = "pitestGradlePlugin" }

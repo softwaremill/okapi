@@ -30,10 +30,12 @@ import org.springframework.transaction.support.ResourceTransactionManager
  *    candidates (which is why the autoconfig uses `getIfUnique()`, not `getIfAvailable()`).
  * 4. `DataSourceTransactionManager` IS-A `ResourceTransactionManager`, with
  *    `resourceFactory == DataSource`. Our PTM↔DS validation depends on this cast.
- * 5. PTMs that extend `AbstractPlatformTransactionManager` directly (e.g. Exposed
- *    `SpringTransactionManager`, `JpaTransactionManager`) do NOT implement
- *    `ResourceTransactionManager` — meaning we cannot extract their DataSource for validation
+ * 5. PTMs that do NOT implement `ResourceTransactionManager` (e.g. Exposed
+ *    `SpringTransactionManager`) — okapi cannot extract their DataSource for validation
  *    and must fall back to a WARN log + require explicit `okapi.transaction-manager-qualifier`.
+ *    (`JpaTransactionManager` IS-A `ResourceTransactionManager`, but its `resourceFactory`
+ *    is an `EntityManagerFactory` not a `DataSource`; that case is handled separately by the
+ *    JPA reflection branch in `extractDataSource`.)
  */
 class SpringObjectProviderSemanticsAssumptionsTest : FunSpec({
 
@@ -73,7 +75,7 @@ class SpringObjectProviderSemanticsAssumptionsTest : FunSpec({
         (dst as ResourceTransactionManager).resourceFactory.shouldBeSameInstanceAs(ds)
     }
 
-    test("AbstractPlatformTransactionManager subclasses (e.g. Exposed bridge / JPA-style) do NOT implement ResourceTransactionManager") {
+    test("AbstractPlatformTransactionManager subclasses that do NOT implement ResourceTransactionManager (e.g. Exposed bridge)") {
         val tm: PlatformTransactionManager = DummyAbstractPtm()
         (tm is ResourceTransactionManager) shouldBe false
     }

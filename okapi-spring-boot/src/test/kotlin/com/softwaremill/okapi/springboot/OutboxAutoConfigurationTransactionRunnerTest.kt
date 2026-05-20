@@ -476,50 +476,60 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
     // covers the single-level TransactionAwareDataSourceProxy case via real autoconfig wiring.
     // These tests pin the helper's contract for nested chains, null targets, and cycles.
     context("unwrapDataSource") {
-        test("returns the input unchanged when not a DelegatingDataSource") {
+        test("returns Resolved with the input itself when not a DelegatingDataSource") {
             val raw: DataSource = SimpleDriverDataSource()
-            OutboxAutoConfiguration.unwrapDataSource(raw) shouldBeSameInstanceAs raw
+            val result = OutboxAutoConfiguration.unwrapDataSource(raw)
+            result.shouldBeInstanceOf<OutboxAutoConfiguration.Companion.Unwrapped.Resolved>()
+            result.ds shouldBeSameInstanceAs raw
         }
 
-        test("unwraps a single-level TransactionAwareDataSourceProxy to its target") {
+        test("unwraps a single-level TransactionAwareDataSourceProxy to Resolved(raw)") {
             val raw: DataSource = SimpleDriverDataSource()
             val proxy: DataSource = TransactionAwareDataSourceProxy(raw)
-            OutboxAutoConfiguration.unwrapDataSource(proxy) shouldBeSameInstanceAs raw
+            val result = OutboxAutoConfiguration.unwrapDataSource(proxy)
+            result.shouldBeInstanceOf<OutboxAutoConfiguration.Companion.Unwrapped.Resolved>()
+            result.ds shouldBeSameInstanceAs raw
         }
 
-        test("unwraps a nested chain TADP -> LCDP -> raw down to the raw DataSource") {
+        test("unwraps a nested chain TADP -> LCDP -> raw down to Resolved(raw)") {
             val raw: DataSource = SimpleDriverDataSource()
             val nested: DataSource = TransactionAwareDataSourceProxy(LazyConnectionDataSourceProxy(raw))
-            OutboxAutoConfiguration.unwrapDataSource(nested) shouldBeSameInstanceAs raw
+            val result = OutboxAutoConfiguration.unwrapDataSource(nested)
+            result.shouldBeInstanceOf<OutboxAutoConfiguration.Companion.Unwrapped.Resolved>()
+            result.ds shouldBeSameInstanceAs raw
         }
 
-        test("returns the proxy itself when DelegatingDataSource has null targetDataSource (graceful, no NPE)") {
+        test("returns Unresolvable(NULL_TARGET) when a DelegatingDataSource has no targetDataSource") {
             // LazyConnectionDataSourceProxy ships with a no-arg constructor that leaves targetDataSource null
-            // until setTargetDataSource is called. At validation time some users may have such partially-
-            // initialised proxies. We must not NPE; we return the proxy itself so the caller's reference
-            // comparison can proceed (and produce a clear "DataSource mismatch" error if applicable).
+            // until setTargetDataSource is called. The helper must surface this as an explicit Unresolvable
+            // outcome so callers do not mistake a not-yet-wired proxy for a mismatched DataSource.
             val proxy: DataSource = LazyConnectionDataSourceProxy()
-            OutboxAutoConfiguration.unwrapDataSource(proxy) shouldBeSameInstanceAs proxy
+            val result = OutboxAutoConfiguration.unwrapDataSource(proxy)
+            result.shouldBeInstanceOf<OutboxAutoConfiguration.Companion.Unwrapped.Unresolvable>()
+            result.stoppedAt shouldBeSameInstanceAs proxy
+            result.reason shouldBe OutboxAutoConfiguration.Companion.Unwrapped.Reason.NULL_TARGET
         }
 
-        test("does NOT hang on a self-referencing DelegatingDataSource (cycle detection)").config(timeout = 2.seconds) {
+        test("returns Unresolvable(CYCLE) on a self-referencing DelegatingDataSource").config(timeout = 2.seconds) {
             val cyclic = LazyConnectionDataSourceProxy()
             cyclic.setTargetDataSource(cyclic)
-            // After A3 fix: cycle detected, returns the cyclic proxy itself.
-            // Without A3 fix: tailrec compiles to goto → infinite CPU spin → test times out and fails.
-            OutboxAutoConfiguration.unwrapDataSource(cyclic) shouldBeSameInstanceAs cyclic
+            // Without the fix: tailrec compiles to goto → infinite CPU spin → test times out and fails.
+            val result = OutboxAutoConfiguration.unwrapDataSource(cyclic)
+            result.shouldBeInstanceOf<OutboxAutoConfiguration.Companion.Unwrapped.Unresolvable>()
+            result.stoppedAt shouldBeSameInstanceAs cyclic
+            result.reason shouldBe OutboxAutoConfiguration.Companion.Unwrapped.Reason.CYCLE
         }
 
-        test("does NOT hang on a longer cycle (A -> B -> A)").config(timeout = 2.seconds) {
+        test("returns Unresolvable(CYCLE) on a longer cycle (A -> B -> A)").config(timeout = 2.seconds) {
             val a = LazyConnectionDataSourceProxy()
             val b = LazyConnectionDataSourceProxy()
             a.setTargetDataSource(b)
             b.setTargetDataSource(a)
-            // Walk: a -> b -> a; on the second visit to a the set already contains it, so the
-            // helper returns the current node (a). Any deterministic non-hanging answer is
-            // acceptable — the contract is "don't loop forever", and the caller will fall back
-            // to the WARN-or-error path because the unwrapped value isn't a real backing DataSource.
-            OutboxAutoConfiguration.unwrapDataSource(a) shouldBeSameInstanceAs a
+            val result = OutboxAutoConfiguration.unwrapDataSource(a)
+            result.shouldBeInstanceOf<OutboxAutoConfiguration.Companion.Unwrapped.Unresolvable>()
+            // Walk: a -> b -> a; second visit to a triggers the visited-set hit.
+            result.stoppedAt shouldBeSameInstanceAs a
+            result.reason shouldBe OutboxAutoConfiguration.Companion.Unwrapped.Reason.CYCLE
         }
     }
 })
