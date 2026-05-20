@@ -1,10 +1,9 @@
 package com.softwaremill.okapi.springboot
 
-import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
-import com.softwaremill.okapi.core.OutboxEntry
-import com.softwaremill.okapi.core.OutboxStatus
+import com.softwaremill.okapi.core.OutboxEntryProcessor
 import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.core.TransactionRunner
 import com.softwaremill.okapi.micrometer.MicrometerOutboxListener
 import com.softwaremill.okapi.micrometer.MicrometerOutboxMetrics
 import com.softwaremill.okapi.micrometer.OutboxMetricsRefresher
@@ -20,7 +19,6 @@ import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import java.time.Duration.ofMillis
 import java.time.Duration.ofMinutes
 import java.time.Duration.ofSeconds
-import java.time.Instant
 import javax.sql.DataSource
 
 class OutboxProcessorAutoConfigurationTest : FunSpec({
@@ -30,6 +28,7 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
         .withBean(OutboxStore::class.java, { stubStore() })
         .withBean(MessageDeliverer::class.java, { stubDeliverer() })
         .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+        .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
 
     test("processor bean is created by default") {
         contextRunner.run { ctx ->
@@ -69,10 +68,19 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
         }
     }
 
-    test("SmartLifecycle is running after context start") {
+    test("SmartLifecycle is running after context start, and stop() actually halts it") {
         contextRunner.run { ctx ->
             val scheduler = ctx.getBean(OutboxProcessorScheduler::class.java)
             scheduler.isRunning shouldBe true
+            scheduler.stop()
+            scheduler.isRunning shouldBe false
+        }
+    }
+
+    test("getPhase returns PROCESSOR_PHASE constant (orders before purger)") {
+        contextRunner.run { ctx ->
+            val scheduler = ctx.getBean(OutboxProcessorScheduler::class.java)
+            scheduler.phase shouldBe OutboxProcessorScheduler.PROCESSOR_PHASE
         }
     }
 
@@ -84,13 +92,24 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             }
     }
 
-    test("stop callback is always invoked") {
+    test("stop(callback) invokes callback AND actually halts the scheduler") {
         contextRunner.run { ctx ->
             val scheduler = ctx.getBean(OutboxProcessorScheduler::class.java)
             var callbackInvoked = false
             scheduler.stop { callbackInvoked = true }
             callbackInvoked shouldBe true
+            scheduler.isRunning shouldBe false
         }
+    }
+
+    test("multiple MessageDeliverer beans are wrapped in CompositeMessageDeliverer (routed by deliveryType)") {
+        contextRunner
+            .withBean("secondDeliverer", MessageDeliverer::class.java, { stubDelivererWithType("second") })
+            .run { ctx ->
+                val processor = ctx.getBean(OutboxEntryProcessor::class.java)
+                processor.shouldNotBeNull()
+                ctx.getBeansOfType(MessageDeliverer::class.java).size shouldBe 2
+            }
     }
 
     test("listener, metrics and refresher are wired when a MeterRegistry bean is provided directly") {
@@ -159,6 +178,7 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             .withBean(OutboxStore::class.java, { stubStore() })
             .withBean(MessageDeliverer::class.java, { stubDeliverer() })
             .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+            .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
             .run { ctx ->
                 ctx.getBean(io.micrometer.core.instrument.MeterRegistry::class.java).shouldNotBeNull()
                 ctx.getBean(MicrometerOutboxListener::class.java).shouldNotBeNull()
@@ -208,16 +228,6 @@ private fun resolveSpringBootClass(vararg candidateFqcns: String): Class<*> {
     } ?: error("None of $candidateFqcns resolves on this Spring Boot runtime; check spring-boot-starter-actuator on the test classpath.")
 }
 
-private fun stubStore() = object : OutboxStore {
-    override fun persist(entry: OutboxEntry) = entry
-    override fun claimPending(limit: Int) = emptyList<OutboxEntry>()
-    override fun updateAfterProcessing(entry: OutboxEntry) = entry
-    override fun removeDeliveredBefore(time: Instant, limit: Int) = 0
-    override fun findOldestCreatedAt(statuses: Set<OutboxStatus>) = emptyMap<OutboxStatus, Instant>()
-    override fun countByStatuses() = emptyMap<OutboxStatus, Long>()
-}
-
-private fun stubDeliverer() = object : MessageDeliverer {
-    override val type = "stub"
-    override fun deliver(entry: OutboxEntry) = DeliveryResult.Success
+private fun noOpTransactionRunner() = object : TransactionRunner {
+    override fun <T> runInTransaction(block: () -> T): T = block()
 }

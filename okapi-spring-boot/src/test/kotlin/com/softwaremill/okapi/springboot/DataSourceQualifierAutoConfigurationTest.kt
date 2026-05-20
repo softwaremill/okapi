@@ -1,20 +1,16 @@
 package com.softwaremill.okapi.springboot
 
-import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
-import com.softwaremill.okapi.core.OutboxEntry
-import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.core.TransactionRunner
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeSameInstanceAs
-import org.springframework.beans.factory.support.BeanDefinitionBuilder
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.support.GenericApplicationContext
 import org.springframework.jdbc.datasource.SimpleDriverDataSource
-import java.time.Instant
 import javax.sql.DataSource
 
 class DataSourceQualifierAutoConfigurationTest : FunSpec({
@@ -23,6 +19,7 @@ class DataSourceQualifierAutoConfigurationTest : FunSpec({
         .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
         .withBean(OutboxStore::class.java, { stubStore() })
         .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+        .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
 
     test("no qualifier set, single datasource — uses that datasource") {
         val ds = SimpleDriverDataSource()
@@ -39,10 +36,7 @@ class DataSourceQualifierAutoConfigurationTest : FunSpec({
         val outboxDs = SimpleDriverDataSource()
         baseRunner()
             .withInitializer { context ->
-                val bd = BeanDefinitionBuilder.genericBeanDefinition(DataSource::class.java) { primaryDs }
-                    .beanDefinition
-                bd.isPrimary = true
-                (context as GenericApplicationContext).registerBeanDefinition("primaryDs", bd)
+                (context as GenericApplicationContext).registerBean<DataSource>("primaryDs", primary = true) { primaryDs }
             }
             .withBean("outboxDs", DataSource::class.java, { outboxDs })
             .withPropertyValues("okapi.datasource-qualifier=outboxDs")
@@ -72,10 +66,7 @@ class DataSourceQualifierAutoConfigurationTest : FunSpec({
         val secondaryDs = SimpleDriverDataSource()
         baseRunner()
             .withInitializer { context ->
-                val bd = BeanDefinitionBuilder.genericBeanDefinition(DataSource::class.java) { primaryDs }
-                    .beanDefinition
-                bd.isPrimary = true
-                (context as GenericApplicationContext).registerBeanDefinition("primaryDs", bd)
+                (context as GenericApplicationContext).registerBean<DataSource>("primaryDs", primary = true) { primaryDs }
             }
             .withBean("secondaryDs", DataSource::class.java, { secondaryDs })
             .run { ctx ->
@@ -89,16 +80,6 @@ class DataSourceQualifierAutoConfigurationTest : FunSpec({
     }
 })
 
-private fun stubStore() = object : OutboxStore {
-    override fun persist(entry: OutboxEntry) = entry
-    override fun claimPending(limit: Int) = emptyList<OutboxEntry>()
-    override fun updateAfterProcessing(entry: OutboxEntry) = entry
-    override fun removeDeliveredBefore(time: Instant, limit: Int) = 0
-    override fun findOldestCreatedAt(statuses: Set<OutboxStatus>) = emptyMap<OutboxStatus, Instant>()
-    override fun countByStatuses() = emptyMap<OutboxStatus, Long>()
-}
-
-private fun stubDeliverer() = object : MessageDeliverer {
-    override val type = "stub"
-    override fun deliver(entry: OutboxEntry) = DeliveryResult.Success
+private fun noOpTransactionRunner() = object : TransactionRunner {
+    override fun <T> runInTransaction(block: () -> T): T = block()
 }

@@ -1,9 +1,7 @@
 package com.softwaremill.okapi.springboot
 
 import com.mysql.cj.jdbc.MysqlDataSource
-import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
-import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.mysql.MysqlOutboxStore
 import com.softwaremill.okapi.postgres.PostgresOutboxStore
 import io.kotest.core.spec.style.FunSpec
@@ -412,9 +410,4 @@ private fun resolveSpringBootClass(vararg candidateFqcns: String): Class<*>? {
             null
         }
     }
-}
-
-private fun stubDeliverer() = object : MessageDeliverer {
-    override val type = "stub"
-    override fun deliver(entry: OutboxEntry) = DeliveryResult.Success
 }

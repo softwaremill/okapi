@@ -37,10 +37,26 @@ class PostgresTestSupport {
         }
     }
 
-    private fun runLiquibase() {
-        val connection = DriverManager.getConnection(container.jdbcUrl, container.username, container.password)
-        val db = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(JdbcConnection(connection))
-        Liquibase("com/softwaremill/okapi/db/postgres/changelog.xml", ClassLoaderResourceAccessor(), db).use { it.update("") }
-        connection.close()
+    private fun runLiquibase() = runOkapiLiquibaseOn(container)
+}
+
+/**
+ * Applies okapi's PostgreSQL Liquibase changelog to the given container. For tests that manage
+ * their own PostgreSQL containers (e.g. 2-DataSource setups) and can't use the single-container
+ * `PostgresTestSupport` class.
+ */
+fun runOkapiLiquibaseOn(container: PostgreSQLContainer<Nothing>) {
+    DriverManager.getConnection(container.jdbcUrl, container.username, container.password).use { conn ->
+        val db = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(JdbcConnection(conn))
+        Liquibase("com/softwaremill/okapi/db/postgres/changelog.xml", ClassLoaderResourceAccessor(), db).use {
+            it.update("")
+        }
     }
+}
+
+/** Builds a plain `PGSimpleDataSource` pointing at the given container. */
+fun pgDataSourceOf(container: PostgreSQLContainer<Nothing>): DataSource = PGSimpleDataSource().apply {
+    setURL(container.jdbcUrl)
+    user = container.username
+    password = container.password
 }

@@ -81,6 +81,17 @@ springOutboxPublisher.publish(
 > **Note:** Spring and Kafka versions are not forced by okapi — you control them.
 > Okapi uses plain JDBC internally — it works with any `PlatformTransactionManager` (JPA, JDBC, jOOQ, Exposed, etc.).
 
+`okapi-spring-boot` requires a `TransactionRunner` bean to bracket each scheduler tick in a transaction. The autoconfiguration derives one from any `PlatformTransactionManager` on the classpath (`spring-boot-starter-jdbc` or `spring-boot-starter-data-jpa` provide one out of the box) — no extra wiring needed in typical setups. If your application has no `PlatformTransactionManager` (single-instance, no transaction infrastructure) you must opt in explicitly:
+
+```kotlin
+@Bean
+fun outboxTransactionRunner(): TransactionRunner = object : TransactionRunner {
+    override fun <T> runInTransaction(block: () -> T): T = block()
+}
+```
+
+Without bracketing, `FOR UPDATE SKIP LOCKED` collapses to the single SELECT statement under JDBC auto-commit, which silently allows duplicate delivery across processor instances. This opt-in is intentionally manual to keep accidental misconfiguration out of multi-instance deployments.
+
 ## How It Works
 
 Okapi implements the [transactional outbox pattern](https://softwaremill.com/microservices-101/) (see also: [microservices.io description](https://microservices.io/patterns/data/transactional-outbox.html)):

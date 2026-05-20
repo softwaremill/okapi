@@ -7,19 +7,15 @@ import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.postgres.PostgresOutboxStore
 import com.softwaremill.okapi.springboot.SpringConnectionProvider
 import com.softwaremill.okapi.springboot.SpringOutboxPublisher
+import com.softwaremill.okapi.test.support.pgDataSourceOf
+import com.softwaremill.okapi.test.support.runOkapiLiquibaseOn
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.maps.shouldContain
 import io.kotest.matchers.shouldNotBe
-import liquibase.Liquibase
-import liquibase.database.DatabaseFactory
-import liquibase.database.jvm.JdbcConnection
-import liquibase.resource.ClassLoaderResourceAccessor
-import org.postgresql.ds.PGSimpleDataSource
 import org.springframework.jdbc.datasource.DataSourceTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.containers.PostgreSQLContainer
-import java.sql.DriverManager
 import java.time.Clock
 import javax.sql.DataSource
 
@@ -58,20 +54,11 @@ class MultiDataSourceTransactionTest : FunSpec({
         outboxContainer.start()
         otherContainer.start()
 
-        outboxDataSource = PGSimpleDataSource().apply {
-            setURL(outboxContainer.jdbcUrl)
-            user = outboxContainer.username
-            password = outboxContainer.password
-        }
-
-        otherDataSource = PGSimpleDataSource().apply {
-            setURL(otherContainer.jdbcUrl)
-            user = otherContainer.username
-            password = otherContainer.password
-        }
+        outboxDataSource = pgDataSourceOf(outboxContainer)
+        otherDataSource = pgDataSourceOf(otherContainer)
 
         // Run Liquibase migration only on the outbox database
-        runLiquibase(outboxContainer)
+        runOkapiLiquibaseOn(outboxContainer)
 
         val outboxTxManager = DataSourceTransactionManager(outboxDataSource)
         outboxTxTemplate = TransactionTemplate(outboxTxManager)
@@ -135,10 +122,3 @@ class MultiDataSourceTransactionTest : FunSpec({
         counts shouldContain (OutboxStatus.PENDING to 1L)
     }
 })
-
-private fun runLiquibase(container: PostgreSQLContainer<Nothing>) {
-    val connection = DriverManager.getConnection(container.jdbcUrl, container.username, container.password)
-    val db = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(JdbcConnection(connection))
-    Liquibase("com/softwaremill/okapi/db/postgres/changelog.xml", ClassLoaderResourceAccessor(), db).use { it.update("") }
-    connection.close()
-}
