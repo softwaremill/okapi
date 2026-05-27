@@ -25,6 +25,27 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   history; the resulting schema is unchanged. Existing installations from an earlier
   release: the `outbox:001` changeset checksum changed — they must start on a fresh
   okapi schema, or clear okapi's rows from `okapi_databasechangelog`, before upgrading.
+- **`OutboxProcessorScheduler` / `OutboxPurgerScheduler` constructors now require a
+  non-null `TransactionRunner`** (previously a nullable `TransactionTemplate?`, with
+  `OutboxPurgerScheduler`'s parameter defaulted to `null`). Spring Boot autoconfig users
+  are unaffected — the autoconfig derives a `TransactionRunner` from any
+  `PlatformTransactionManager` on the classpath. Users constructing the schedulers
+  directly must supply a `TransactionRunner` (e.g. `SpringTransactionRunner(template)` or
+  a thin lambda wrapping their framework's native transaction primitive). The previous
+  null-default silently degraded `FOR UPDATE SKIP LOCKED` to JDBC auto-commit, permitting
+  duplicate delivery across processor instances. ([#49](https://github.com/softwaremill/okapi/pull/49))
+- **`okapi-spring-boot` autoconfig refuses to start when it cannot verify the
+  PlatformTransactionManager↔outbox-DataSource binding** in a multi-DataSource context.
+  Specifically: if `extractDataSource` cannot determine the PTM's DataSource (e.g. JTA,
+  Exposed's `SpringTransactionManager`, or any PTM that exposes neither a `DataSource`
+  resourceFactory nor a public `getDataSource()`), AND the context has ≥2 `DataSource`
+  beans, AND `okapi.transaction-manager-qualifier` is not set, the context refresh now
+  fails with an actionable message. `okapi.datasource-qualifier` alone is not
+  sufficient — it picks the outbox DataSource but does not constrain which PTM
+  brackets it. Single-DataSource contexts and setups that explicitly name the PTM
+  via `okapi.transaction-manager-qualifier` are unaffected. Escape hatch: supply an
+  explicit `@Bean TransactionRunner` to bypass validation.
+  ([#49](https://github.com/softwaremill/okapi/pull/49))
 
 ### Added
 
@@ -33,6 +54,20 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   (`okapiPostgresLiquibase` / `okapiMysqlLiquibase`). Default: `okapi_databasechangelog`.
 - `okapi.liquibase.changelog-lock-table` — likewise for `databaseChangeLogLockTable`.
   Default: `okapi_databasechangeloglock`.
+
+### Fixed
+
+- **`okapi.transaction-manager-qualifier` is now honoured in Spring Boot apps that
+  load `TransactionAutoConfiguration`.** Previously the qualifier was silently
+  ignored whenever a unique `TransactionTemplate` was present in the context —
+  which Spring Boot's `TransactionAutoConfiguration` registers out of the box around
+  the @Primary `PlatformTransactionManager`. The factory short-circuited on the
+  auto-TT's bound PTM and never consulted the qualifier. In a multi-PTM setup this
+  meant the @Primary PTM was used even when the user explicitly named a different
+  one. Resolution rule is now: explicit qualifier > auto-wired TT; when the
+  qualified PTM matches the unique TT's PTM the TT is reused verbatim (preserving
+  its `timeout`/`isolation`/`propagation`), otherwise a fresh `TransactionTemplate`
+  is built around the qualified PTM. ([#49](https://github.com/softwaremill/okapi/pull/49))
 
 ### Migration from 0.2.x
 

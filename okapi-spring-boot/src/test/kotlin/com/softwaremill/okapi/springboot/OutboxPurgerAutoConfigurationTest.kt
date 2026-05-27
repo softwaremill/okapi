@@ -1,11 +1,9 @@
 package com.softwaremill.okapi.springboot
 
-import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
-import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxPurgerConfig
-import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.core.TransactionRunner
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -15,7 +13,6 @@ import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import java.time.Duration.ofDays
 import java.time.Duration.ofHours
 import java.time.Duration.ofMinutes
-import java.time.Instant
 import javax.sql.DataSource
 
 class OutboxPurgerAutoConfigurationTest : FunSpec({
@@ -25,6 +22,7 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
         .withBean(OutboxStore::class.java, { stubStore() })
         .withBean(MessageDeliverer::class.java, { stubDeliverer() })
         .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+        .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
 
     test("purger bean is created by default") {
         contextRunner.run { ctx ->
@@ -64,10 +62,19 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
         }
     }
 
-    test("SmartLifecycle is running after context start") {
+    test("SmartLifecycle is running after context start, and stop() actually halts it") {
         contextRunner.run { ctx ->
             val scheduler = ctx.getBean(OutboxPurgerScheduler::class.java)
             scheduler.isRunning shouldBe true
+            scheduler.stop()
+            scheduler.isRunning shouldBe false
+        }
+    }
+
+    test("getPhase returns PURGER_PHASE constant (orders after processor)") {
+        contextRunner.run { ctx ->
+            val scheduler = ctx.getBean(OutboxPurgerScheduler::class.java)
+            scheduler.phase shouldBe OutboxPurgerScheduler.PURGER_PHASE
         }
     }
 
@@ -79,9 +86,10 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
             }
     }
 
-    test("stop callback is always invoked") {
+    test("stop(callback) invokes callback AND actually halts the purger") {
         val scheduler = OutboxPurgerScheduler(
             outboxStore = stubStore(),
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxPurgerConfig(interval = ofMinutes(60)),
         )
         scheduler.start()
@@ -90,19 +98,10 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
         scheduler.stop { callbackInvoked = true }
 
         callbackInvoked shouldBe true
+        scheduler.isRunning shouldBe false
     }
 })
 
-private fun stubStore() = object : OutboxStore {
-    override fun persist(entry: OutboxEntry) = entry
-    override fun claimPending(limit: Int) = emptyList<OutboxEntry>()
-    override fun updateAfterProcessing(entry: OutboxEntry) = entry
-    override fun removeDeliveredBefore(time: Instant, limit: Int) = 0
-    override fun findOldestCreatedAt(statuses: Set<OutboxStatus>) = emptyMap<OutboxStatus, Instant>()
-    override fun countByStatuses() = emptyMap<OutboxStatus, Long>()
-}
-
-private fun stubDeliverer() = object : MessageDeliverer {
-    override val type = "stub"
-    override fun deliver(entry: OutboxEntry) = DeliveryResult.Success
+private fun noOpTransactionRunner() = object : TransactionRunner {
+    override fun <T> runInTransaction(block: () -> T): T = block()
 }

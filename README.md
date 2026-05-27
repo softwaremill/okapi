@@ -81,6 +81,31 @@ springOutboxPublisher.publish(
 > **Note:** Spring and Kafka versions are not forced by okapi — you control them.
 > Okapi uses plain JDBC internally — it works with any `PlatformTransactionManager` (JPA, JDBC, jOOQ, Exposed, etc.).
 
+`okapi-spring-boot` requires a `TransactionRunner` bean to bracket each scheduler tick in a transaction. The autoconfiguration derives one from any `PlatformTransactionManager` on the classpath (`spring-boot-starter-jdbc` or `spring-boot-starter-data-jpa` provide one out of the box) — no extra wiring needed in typical setups. If your application has no `PlatformTransactionManager` (single-instance, no transaction infrastructure) you must opt in explicitly:
+
+```kotlin
+@Bean
+fun outboxTransactionRunner(): TransactionRunner = object : TransactionRunner {
+    override fun <T> runInTransaction(block: () -> T): T = block()
+}
+```
+
+Without bracketing, `FOR UPDATE SKIP LOCKED` collapses to the single SELECT statement under JDBC auto-commit, which silently allows duplicate delivery across processor instances. This opt-in is intentionally manual to keep accidental misconfiguration out of multi-instance deployments.
+
+**Multi-DataSource contexts.** If your application has multiple `DataSource` beans and uses a `PlatformTransactionManager` from which okapi cannot extract a `DataSource` (JTA, Exposed's `SpringTransactionManager`, JPA without a JDBC `DataSource`), the autoconfiguration refuses to start until you set `okapi.transaction-manager-qualifier` to the bean name of the PTM that brackets the outbox `DataSource`. `okapi.datasource-qualifier` alone is not sufficient: it picks the outbox `DataSource` but does not constrain which PTM brackets it. Alternative escape hatch: supply your own `@Bean TransactionRunner`. Single-DataSource setups and PTMs whose `DataSource` can be introspected (`DataSourceTransactionManager`, `JpaTransactionManager`, `HibernateTransactionManager`) are unaffected.
+
+When `okapi.transaction-manager-qualifier` is set, it takes precedence over any auto-wired `TransactionTemplate` — including the one Spring Boot's `TransactionAutoConfiguration` registers around the `@Primary` `PlatformTransactionManager`. If the qualifier names a different PTM than that auto-TT wraps, okapi builds a fresh `TransactionTemplate` around the qualified PTM (so the qualifier's intent is honoured) and any custom timeout/isolation/propagation on the auto-wired TT is not inherited — a WARN is logged in that case.
+
+**Constructing schedulers directly (non-autoconfig usage).** When wiring `OutboxProcessorScheduler` / `OutboxPurgerScheduler` manually (Ktor, custom Spring contexts without autoconfig, etc.), supply a `TransactionRunner` explicitly — the parameter is required, with no default:
+
+```kotlin
+OutboxProcessorScheduler(
+    outboxProcessor = processor,
+    transactionRunner = SpringTransactionRunner(template), // or your framework's equivalent
+    config = OutboxSchedulerConfig(...),
+)
+```
+
 ## How It Works
 
 Okapi implements the [transactional outbox pattern](https://softwaremill.com/microservices-101/) (see also: [microservices.io description](https://microservices.io/patterns/data/transactional-outbox.html)):
