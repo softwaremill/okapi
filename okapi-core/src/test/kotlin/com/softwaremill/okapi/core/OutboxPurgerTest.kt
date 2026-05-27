@@ -1,8 +1,13 @@
 package com.softwaremill.okapi.core
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration.ofDays
 import java.time.Duration.ofMillis
@@ -113,6 +118,49 @@ class OutboxPurgerTest : FunSpec({
         purger.stop()
 
         callCount.get() shouldBe 2
+    }
+
+    test("error log preserves partial batch progress on mid-loop failure") {
+        // Each batch runs in its own transaction, so batches 0..N-1 are durably committed when
+        // iteration N throws. The error log must surface that fact -- otherwise an operator
+        // paged on "Outbox purge failed" cannot tell whether 0 or 9000 entries were purged
+        // before the failure without inspecting the database directly.
+        //
+        // Asserts on the logger's typed arguments (Int batches, Int totalDeleted), not on the
+        // formatted message text -- decoupling the regression check from log wording changes.
+        val callCount = AtomicInteger(0)
+        val errorLogged = CountDownLatch(1)
+        val store = stubStore(onRemove = { _, _ ->
+            val count = callCount.incrementAndGet()
+            if (count == 3) throw RuntimeException("simulated db failure")
+            100
+        })
+
+        val purgerLogger = LoggerFactory.getLogger(OutboxPurger::class.java) as Logger
+        val appender = object : ListAppender<ILoggingEvent>() {
+            override fun append(event: ILoggingEvent) {
+                super.append(event)
+                if (event.level == Level.ERROR) errorLogged.countDown()
+            }
+        }.apply { start() }
+        purgerLogger.addAppender(appender)
+
+        try {
+            val purger = OutboxPurger(
+                outboxStore = store,
+                config = OutboxPurgerConfig(interval = ofMillis(50), batchSize = 100),
+                clock = fixedClock,
+            )
+            purger.start()
+            errorLogged.await(2, TimeUnit.SECONDS) shouldBe true
+            purger.stop()
+
+            val errorEvent = appender.list.single { it.level == Level.ERROR }
+            errorEvent.argumentArray.toList() shouldBe listOf(2, 200)
+            errorEvent.throwableProxy.message shouldBe "simulated db failure"
+        } finally {
+            purgerLogger.detachAppender(appender)
+        }
     }
 
     test("double start is ignored") {
