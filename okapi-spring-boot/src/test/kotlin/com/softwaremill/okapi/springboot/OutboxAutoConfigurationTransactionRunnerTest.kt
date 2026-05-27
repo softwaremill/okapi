@@ -216,7 +216,13 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
     }
 
     test("okapi.transaction-manager-qualifier picks the named PTM (overrides @Primary), proven via DS-match validation") {
-        // Setup designed so a buggy "ignore qualifier" implementation would FAIL:
+        // NOTE: this test does NOT load TransactionAutoConfiguration, so there is no auto-TT in the
+        // context, `transactionTemplate.getIfUnique()` returns null, and `resolvePlatformTransactionManager`
+        // (the consumer of the qualifier) is always reached even by the pre-fix code path. The Boot-TT
+        // hijack scenario (qualifier ignored due to TT short-circuit) is covered separately by
+        // "qualifier wins over Spring Boot's auto-registered TT around @Primary PTM" below.
+        //
+        // Setup designed so a buggy "ignore qualifier" implementation in the NO-TT path would FAIL:
         //   - appDs (primary), outboxDs (secondary) DataSources
         //   - appTm = DST(appDs), @Primary
         //   - outboxTm = DST(outboxDs)
@@ -369,6 +375,43 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
                 // Fresh TT built (not userTt), so userTt's timeout=42 is NOT inherited.
                 runner.transactionTemplate shouldNotBeSameInstanceAs userTt
             }
+    }
+
+    test("discarding a user-supplied @Bean TransactionTemplate due to qualifier mismatch emits a WARN") {
+        // Issue 3 (agent review): the silent-discard branch must produce an actionable log line so
+        // operators wondering why their custom timeout/isolation has no effect have something to grep.
+        val appDs: DataSource = SimpleDriverDataSource()
+        val outboxDs: DataSource = SimpleDriverDataSource()
+        val appTm = DataSourceTransactionManager(appDs)
+        val outboxTm = DataSourceTransactionManager(outboxDs)
+        val userTt = org.springframework.transaction.support.TransactionTemplate(appTm).apply { timeout = 42 }
+        val targetLogger = LoggerFactory.getLogger(OutboxAutoConfiguration::class.java) as Logger
+        val appender = ListAppender<ILoggingEvent>().apply { start() }
+        targetLogger.addAppender(appender)
+        try {
+            ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+                .withBean(OutboxStore::class.java, { stubStore() })
+                .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+                .withInitializer { context ->
+                    val gac = context as GenericApplicationContext
+                    gac.registerBean<DataSource>("appDs", primary = true) { appDs }
+                    gac.registerBean<DataSource>("outboxDs") { outboxDs }
+                    gac.registerBean<PlatformTransactionManager>("appTm", primary = true) { appTm }
+                    gac.registerBean<PlatformTransactionManager>("outboxTm") { outboxTm }
+                    gac.registerBean<org.springframework.transaction.support.TransactionTemplate>("userTt") { userTt }
+                }
+                .withPropertyValues(
+                    "okapi.datasource-qualifier=outboxDs",
+                    "okapi.transaction-manager-qualifier=outboxTm",
+                )
+                .run { ctx -> ctx.startupFailure.shouldBeNull() }
+            val warns = appender.list.filter { it.level == Level.WARN }.joinToString("\n") { it.formattedMessage }
+            warns.shouldContain("okapi.transaction-manager-qualifier picked PlatformTransactionManager")
+            warns.shouldContain("NOT inherited")
+        } finally {
+            targetLogger.detachAppender(appender)
+        }
     }
 
     test("ResourceTransactionManager PTM with non-DataSource resourceFactory: WARN includes actual resourceFactory class name") {

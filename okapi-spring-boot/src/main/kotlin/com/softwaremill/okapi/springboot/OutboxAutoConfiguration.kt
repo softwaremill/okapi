@@ -57,10 +57,13 @@ import javax.sql.DataSource
  * - Set `okapi.datasource-qualifier` to the bean name of the [DataSource] that holds the outbox table.
  *   When not set, the primary (or single) DataSource is used.
  * - Set `okapi.transaction-manager-qualifier` to the bean name of the
- *   [PlatformTransactionManager] that brackets the outbox DataSource. When not set, the unique
- *   (or `@Primary`) PTM is used. With multi-DS setups always set this explicitly — silent
- *   PTM↔DataSource mismatch otherwise reduces `FOR UPDATE SKIP LOCKED` to JDBC auto-commit and
- *   permits duplicate delivery across processor instances.
+ *   [PlatformTransactionManager] that brackets the outbox DataSource. When not set, the PTM is
+ *   taken from any unique [TransactionTemplate] in the context (user-defined or Spring Boot's
+ *   auto-registered one). When set, the qualifier takes precedence over any auto-wired
+ *   TransactionTemplate — explicit user config wins over Spring defaults. With multi-DS setups
+ *   always set this explicitly: silent PTM↔DataSource mismatch otherwise reduces
+ *   `FOR UPDATE SKIP LOCKED` to JDBC auto-commit and permits duplicate delivery across processor
+ *   instances.
  *
  * Liquibase support is provided by [OkapiLiquibaseAutoConfiguration], which is ordered after this
  * auto-config so that its `@ConditionalOnBean(<X>OutboxStore::class)` gates can observe which
@@ -135,6 +138,22 @@ class OutboxAutoConfiguration(
         val ttToUse = if (anyTemplate != null && anyTemplate.transactionManager === ptm) {
             anyTemplate
         } else {
+            if (anyTemplate != null) {
+                // Qualifier forced a different PTM than the auto-wired TT wraps. Building a fresh
+                // TT discards the TT's custom timeout/propagation/isolation — log so operators
+                // grepping startup logs for unexpected TX semantics have something to find.
+                logger.warn(
+                    "okapi.transaction-manager-qualifier picked PlatformTransactionManager '{}', " +
+                        "which differs from the PTM '{}' wrapped by the unique TransactionTemplate " +
+                        "bean in the context. Building a fresh TransactionTemplate around the " +
+                        "qualified PTM — any custom timeout/propagation/isolation on the existing " +
+                        "TransactionTemplate is NOT inherited. To preserve those settings, define " +
+                        "your own @Bean TransactionRunner that wraps the qualified PTM with the " +
+                        "TransactionTemplate of your choice.",
+                    ptm.javaClass.name,
+                    anyTemplate.transactionManager?.javaClass?.name,
+                )
+            }
             TransactionTemplate(ptm).apply { isReadOnly = false }
         }
         return SpringTransactionRunner(ttToUse)

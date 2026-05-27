@@ -55,6 +55,20 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 - `okapi.liquibase.changelog-lock-table` — likewise for `databaseChangeLogLockTable`.
   Default: `okapi_databasechangeloglock`.
 
+### Fixed
+
+- **`okapi.transaction-manager-qualifier` is now honoured in Spring Boot apps that
+  load `TransactionAutoConfiguration`.** Previously the qualifier was silently
+  ignored whenever a unique `TransactionTemplate` was present in the context —
+  which Spring Boot's `TransactionAutoConfiguration` registers out of the box around
+  the @Primary `PlatformTransactionManager`. The factory short-circuited on the
+  auto-TT's bound PTM and never consulted the qualifier. In a multi-PTM setup this
+  meant the @Primary PTM was used even when the user explicitly named a different
+  one. Resolution rule is now: explicit qualifier > auto-wired TT; when the
+  qualified PTM matches the unique TT's PTM the TT is reused verbatim (preserving
+  its `timeout`/`isolation`/`propagation`), otherwise a fresh `TransactionTemplate`
+  is built around the qualified PTM. ([#49](https://github.com/softwaremill/okapi/pull/49))
+
 ### Migration from 0.2.x
 
 These are breaking changes; existing deployments must take action before the first

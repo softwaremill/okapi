@@ -94,6 +94,8 @@ Without bracketing, `FOR UPDATE SKIP LOCKED` collapses to the single SELECT stat
 
 **Multi-DataSource contexts.** If your application has multiple `DataSource` beans and uses a `PlatformTransactionManager` from which okapi cannot extract a `DataSource` (JTA, Exposed's `SpringTransactionManager`, JPA without a JDBC `DataSource`), the autoconfiguration refuses to start until you set `okapi.transaction-manager-qualifier` to the bean name of the PTM that brackets the outbox `DataSource`. `okapi.datasource-qualifier` alone is not sufficient: it picks the outbox `DataSource` but does not constrain which PTM brackets it. Alternative escape hatch: supply your own `@Bean TransactionRunner`. Single-DataSource setups and PTMs whose `DataSource` can be introspected (`DataSourceTransactionManager`, `JpaTransactionManager`, `HibernateTransactionManager`) are unaffected.
 
+When `okapi.transaction-manager-qualifier` is set, it takes precedence over any auto-wired `TransactionTemplate` — including the one Spring Boot's `TransactionAutoConfiguration` registers around the `@Primary` `PlatformTransactionManager`. If the qualifier names a different PTM than that auto-TT wraps, okapi builds a fresh `TransactionTemplate` around the qualified PTM (so the qualifier's intent is honoured) and any custom timeout/isolation/propagation on the auto-wired TT is not inherited — a WARN is logged in that case.
+
 **Constructing schedulers directly (non-autoconfig usage).** When wiring `OutboxProcessorScheduler` / `OutboxPurgerScheduler` manually (Ktor, custom Spring contexts without autoconfig, etc.), supply a `TransactionRunner` explicitly — the parameter is required, with no default:
 
 ```kotlin
