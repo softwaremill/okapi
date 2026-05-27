@@ -16,6 +16,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.kotest.matchers.types.shouldBeSameInstanceAs
+import io.kotest.matchers.types.shouldNotBeSameInstanceAs
 import org.h2.jdbcx.JdbcDataSource
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.NoSuchBeanDefinitionException
@@ -243,6 +244,130 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
             .run { ctx ->
                 ctx.startupFailure.shouldBeNull()
                 ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
+            }
+    }
+
+    test("okapi.transaction-manager-qualifier wins over Spring Boot's auto-registered TT around @Primary PTM") {
+        // Regression guard for the bug observed by ramafasa on PR #49: when Spring Boot's
+        // TransactionAutoConfiguration registers a TransactionTemplate for the @Primary PTM,
+        // `transactionTemplate.getIfUnique()` returns that TT, `anyTemplate.transactionManager`
+        // short-circuits to @Primary, and `resolvePlatformTransactionManager` (the only call site
+        // that reads the qualifier) is never invoked — so the qualifier was silently ignored in
+        // every typical Spring Boot deployment.
+        //
+        // Setup is identical to the no-Boot-TT case above, but ALSO loads TransactionAutoConfiguration.
+        // Detection mechanism is the multi-DS validation, which fails fast iff the wrong PTM is picked:
+        //   - qualifier honoured → outboxTm (DST(outboxDs)) → outboxDs == resolveDataSource() → OK
+        //   - qualifier ignored  → appTm (DST(appDs))      → appDs   != outboxDs               → FAIL
+        val txAutoConfigClass: Class<*> = listOf(
+            "org.springframework.boot.transaction.autoconfigure.TransactionAutoConfiguration",
+            "org.springframework.boot.autoconfigure.transaction.TransactionAutoConfiguration",
+        ).firstNotNullOfOrNull { fqcn ->
+            try {
+                Class.forName(fqcn)
+            } catch (_: ClassNotFoundException) {
+                null
+            }
+        } ?: error("TransactionAutoConfiguration not on test classpath.")
+
+        val appDs: DataSource = SimpleDriverDataSource()
+        val outboxDs: DataSource = SimpleDriverDataSource()
+        val appTm = DataSourceTransactionManager(appDs)
+        val outboxTm = DataSourceTransactionManager(outboxDs)
+        ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, txAutoConfigClass))
+            .withBean(OutboxStore::class.java, { stubStore() })
+            .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+            .withInitializer { context ->
+                val gac = context as GenericApplicationContext
+                gac.registerBean<DataSource>("appDs", primary = true) { appDs }
+                gac.registerBean<DataSource>("outboxDs") { outboxDs }
+                gac.registerBean<PlatformTransactionManager>("appTm", primary = true) { appTm }
+                gac.registerBean<PlatformTransactionManager>("outboxTm") { outboxTm }
+            }
+            .withPropertyValues(
+                "okapi.datasource-qualifier=outboxDs",
+                "okapi.transaction-manager-qualifier=outboxTm",
+            )
+            .run { ctx ->
+                ctx.startupFailure.shouldBeNull()
+                val runner = ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
+                // Strong assertion: the runner's TT must wrap the qualified PTM by reference identity,
+                // not Boot's auto-TT (which wraps @Primary appTm).
+                runner.transactionTemplate.transactionManager shouldBeSameInstanceAs outboxTm
+            }
+    }
+
+    test("qualifier matching Boot's auto-TT's PTM reuses that TT verbatim (preserves its TX settings)") {
+        // Edge of the qualifier-precedence rule: when the qualifier happens to name the same PTM
+        // that Boot's auto-TT already wraps, the factory must NOT build a fresh TransactionTemplate
+        // around it — that would silently discard timeout/isolation/propagation Boot configured.
+        // The `anyTemplate.transactionManager === ptm` short-circuit covers this.
+        val txAutoConfigClass: Class<*> = listOf(
+            "org.springframework.boot.transaction.autoconfigure.TransactionAutoConfiguration",
+            "org.springframework.boot.autoconfigure.transaction.TransactionAutoConfiguration",
+        ).firstNotNullOfOrNull {
+            try {
+                Class.forName(it)
+            } catch (_: ClassNotFoundException) {
+                null
+            }
+        } ?: error("TransactionAutoConfiguration not on test classpath.")
+
+        val ds: DataSource = SimpleDriverDataSource()
+        val onlyPtm = DataSourceTransactionManager(ds)
+        ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, txAutoConfigClass))
+            .withBean(OutboxStore::class.java, { stubStore() })
+            .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+            .withBean(DataSource::class.java, { ds })
+            .withBean("onlyPtm", PlatformTransactionManager::class.java, { onlyPtm })
+            .withPropertyValues("okapi.transaction-manager-qualifier=onlyPtm")
+            .run { ctx ->
+                ctx.startupFailure.shouldBeNull()
+                val bootTt = ctx.getBean(org.springframework.transaction.support.TransactionTemplate::class.java)
+                val runner = ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
+                // The runner's TT must be the SAME OBJECT as Boot's auto-TT — proves the factory
+                // didn't rebuild a fresh TT just because qualifier was set.
+                runner.transactionTemplate shouldBeSameInstanceAs bootTt
+            }
+    }
+
+    test("qualifier wins over a user-supplied @Bean TransactionTemplate that wraps a different PTM") {
+        // Conflicting config: user defined both their own TransactionTemplate AND set
+        // okapi.transaction-manager-qualifier pointing at a different PTM. Resolution rule:
+        // explicit qualifier > implicit TT. The user TT's custom timeout/isolation/propagation is
+        // discarded silently — this is a deliberate trade-off so the explicit qualifier semantics
+        // are not silently undermined by a stray @Bean TransactionTemplate.
+        val appDs: DataSource = SimpleDriverDataSource()
+        val outboxDs: DataSource = SimpleDriverDataSource()
+        val appTm = DataSourceTransactionManager(appDs)
+        val outboxTm = DataSourceTransactionManager(outboxDs)
+        // User's own TT wraps appTm with a distinctive non-default timeout — detectable below.
+        val userTt = org.springframework.transaction.support.TransactionTemplate(appTm).apply { timeout = 42 }
+        ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+            .withBean(OutboxStore::class.java, { stubStore() })
+            .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+            .withInitializer { context ->
+                val gac = context as GenericApplicationContext
+                gac.registerBean<DataSource>("appDs", primary = true) { appDs }
+                gac.registerBean<DataSource>("outboxDs") { outboxDs }
+                gac.registerBean<PlatformTransactionManager>("appTm", primary = true) { appTm }
+                gac.registerBean<PlatformTransactionManager>("outboxTm") { outboxTm }
+                gac.registerBean<org.springframework.transaction.support.TransactionTemplate>("userTt") { userTt }
+            }
+            .withPropertyValues(
+                "okapi.datasource-qualifier=outboxDs",
+                "okapi.transaction-manager-qualifier=outboxTm",
+            )
+            .run { ctx ->
+                ctx.startupFailure.shouldBeNull()
+                val runner = ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
+                // Qualifier wins: runner's TT wraps outboxTm, NOT user's appTm-wrapping TT.
+                runner.transactionTemplate.transactionManager shouldBeSameInstanceAs outboxTm
+                // Fresh TT built (not userTt), so userTt's timeout=42 is NOT inherited.
+                runner.transactionTemplate shouldNotBeSameInstanceAs userTt
             }
     }
 

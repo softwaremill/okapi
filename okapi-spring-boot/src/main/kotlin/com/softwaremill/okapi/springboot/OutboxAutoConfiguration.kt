@@ -110,19 +110,34 @@ class OutboxAutoConfiguration(
         beanFactory: BeanFactory,
     ): TransactionRunner {
         val anyTemplate = transactionTemplate.getIfUnique()
-        // TT.transactionManager is nullable in the API, but Spring rejects a null one at
-        // afterPropertiesSet() (see OutboxAutoConfigurationTransactionRunnerTest PROBE test) — the
-        // `?:` is a defensive guard for non-Spring callers only.
-        val ptm = anyTemplate?.transactionManager
-            ?: resolvePlatformTransactionManager(transactionManager, beanFactory, okapiProperties)
+        // PTM resolution precedence:
+        //  - `okapi.transaction-manager-qualifier` set → resolve via qualifier (user explicit wins
+        //    over any auto-wired TT). Without this, Spring Boot's TransactionAutoConfiguration
+        //    auto-registers a TT around @Primary PTM, `anyTemplate.transactionManager` would
+        //    short-circuit, and the qualifier would be silently ignored in every typical Spring
+        //    Boot app.
+        //  - qualifier unset → take PTM from any unique TT in context (user-defined or Boot's
+        //    auto-TT — preserves their TX semantics). The `?:` is a defensive guard for non-Spring
+        //    callers; Spring rejects a TT with null transactionManager at afterPropertiesSet().
+        val ptm = if (okapiProperties.transactionManagerQualifier != null) {
+            resolvePlatformTransactionManager(transactionManager, beanFactory, okapiProperties)
+        } else {
+            anyTemplate?.transactionManager
+                ?: resolvePlatformTransactionManager(transactionManager, beanFactory, okapiProperties)
+        }
         validatePtmDataSourceMatch(ptm, resolveDataSource(), okapiProperties, dataSources.size)
-        // Use the supplied TT verbatim when present (preserves timeout/propagation/isolation).
-        // Otherwise build a minimal TT with isReadOnly=false. NOTE: with PROPAGATION_REQUIRED a
-        // tick joining an outer readOnly=true TX inherits that flag silently — keep scheduler
-        // invocations outside @Transactional scopes to avoid FOR UPDATE SKIP LOCKED failures.
-        return SpringTransactionRunner(
-            anyTemplate ?: TransactionTemplate(ptm).apply { isReadOnly = false },
-        )
+        // Use the supplied TT verbatim ONLY when it actually wraps the PTM we picked (preserves
+        // timeout/propagation/isolation). When qualifier forced a different PTM, build a fresh TT
+        // around it — otherwise we'd run on a TT bound to the wrong PTM. NOTE: with
+        // PROPAGATION_REQUIRED a tick joining an outer readOnly=true TX inherits that flag
+        // silently — keep scheduler invocations outside @Transactional scopes to avoid FOR UPDATE
+        // SKIP LOCKED failures.
+        val ttToUse = if (anyTemplate != null && anyTemplate.transactionManager === ptm) {
+            anyTemplate
+        } else {
+            TransactionTemplate(ptm).apply { isReadOnly = false }
+        }
+        return SpringTransactionRunner(ttToUse)
     }
 
     @Bean
