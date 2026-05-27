@@ -9,7 +9,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Standalone scheduler that periodically calls [OutboxProcessor.processNext].
  *
- * Each tick is optionally wrapped in a transaction via [transactionRunner].
+ * Each tick runs inside [transactionRunner]. The runner is required: without a surrounding
+ * transaction, `FOR UPDATE SKIP LOCKED` releases its row lock at the end of the claim
+ * SELECT and concurrent processor instances deliver the same entry multiple times.
+ *
  * Runs on a single daemon thread with explicit [start]/[stop] lifecycle.
  * [start] and [stop] are single-use -- the internal executor cannot be restarted after shutdown.
  * [AtomicBoolean] guards against accidental double-start, not restart.
@@ -20,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class OutboxScheduler @JvmOverloads constructor(
     private val outboxProcessor: OutboxProcessor,
-    private val transactionRunner: TransactionRunner? = null,
+    private val transactionRunner: TransactionRunner,
     private val config: OutboxSchedulerConfig = OutboxSchedulerConfig(),
 ) {
     private val running = AtomicBoolean(false)
@@ -50,8 +53,7 @@ class OutboxScheduler @JvmOverloads constructor(
 
     private fun tick() {
         try {
-            transactionRunner?.runInTransaction { outboxProcessor.processNext(config.batchSize) }
-                ?: outboxProcessor.processNext(config.batchSize)
+            transactionRunner.runInTransaction { outboxProcessor.processNext(config.batchSize) }
             logger.debug("Outbox processor tick completed [batchSize={}]", config.batchSize)
         } catch (e: Exception) {
             logger.error("Outbox processor tick failed, will retry at next scheduled interval", e)

@@ -10,6 +10,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Periodically removes DELIVERED outbox entries older than [OutboxPurgerConfig.retention].
  *
+ * Each batch delete runs inside [transactionRunner].
+ *
  * Runs on a single daemon thread with explicit [start]/[stop] lifecycle.
  * [start] and [stop] are single-use -- the internal executor cannot be restarted after shutdown.
  * [AtomicBoolean] guards against accidental double-start, not restart.
@@ -18,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class OutboxPurger @JvmOverloads constructor(
     private val outboxStore: OutboxStore,
-    private val transactionRunner: TransactionRunner? = null,
+    private val transactionRunner: TransactionRunner,
     private val config: OutboxPurgerConfig = OutboxPurgerConfig(),
     private val clock: Clock = Clock.systemUTC(),
 ) {
@@ -59,9 +61,9 @@ class OutboxPurger @JvmOverloads constructor(
             var totalDeleted = 0
             var batches = 0
             do {
-                val deleted = transactionRunner?.runInTransaction {
+                val deleted = transactionRunner.runInTransaction {
                     outboxStore.removeDeliveredBefore(cutoff, config.batchSize)
-                } ?: outboxStore.removeDeliveredBefore(cutoff, config.batchSize)
+                }
                 totalDeleted += deleted
                 batches++
             } while (deleted == config.batchSize && batches < MAX_BATCHES_PER_TICK)

@@ -22,6 +22,7 @@ class OutboxSchedulerTest : FunSpec({
 
         val scheduler = OutboxScheduler(
             outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxSchedulerConfig(interval = ofMillis(50), batchSize = 25),
         )
 
@@ -43,6 +44,7 @@ class OutboxSchedulerTest : FunSpec({
 
         val scheduler = OutboxScheduler(
             outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxSchedulerConfig(interval = ofMillis(50)),
         )
 
@@ -63,6 +65,7 @@ class OutboxSchedulerTest : FunSpec({
 
         val scheduler = OutboxScheduler(
             outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxSchedulerConfig(interval = ofMillis(50)),
         )
 
@@ -78,6 +81,7 @@ class OutboxSchedulerTest : FunSpec({
         val processor = stubProcessor { _ -> }
         val scheduler = OutboxScheduler(
             outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxSchedulerConfig(interval = ofMinutes(1)),
         )
 
@@ -92,6 +96,7 @@ class OutboxSchedulerTest : FunSpec({
         val processor = stubProcessor { _ -> }
         val scheduler = OutboxScheduler(
             outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxSchedulerConfig(interval = ofMinutes(1)),
         )
 
@@ -103,7 +108,7 @@ class OutboxSchedulerTest : FunSpec({
         }.message shouldBe "OutboxScheduler cannot be restarted after stop()"
     }
 
-    test("transactionRunner wraps tick when provided") {
+    test("transactionRunner wraps tick") {
         val txInvoked = AtomicBoolean(false)
         val latch = CountDownLatch(1)
         val processor = stubProcessor { _ -> latch.countDown() }
@@ -126,22 +131,11 @@ class OutboxSchedulerTest : FunSpec({
 
         txInvoked.get() shouldBe true
     }
-
-    test("tick runs without transactionRunner") {
-        val latch = CountDownLatch(1)
-        val processor = stubProcessor { _ -> latch.countDown() }
-
-        val scheduler = OutboxScheduler(
-            outboxProcessor = processor,
-            transactionRunner = null,
-            config = OutboxSchedulerConfig(interval = ofMillis(50)),
-        )
-
-        scheduler.start()
-        latch.await(2, TimeUnit.SECONDS) shouldBe true
-        scheduler.stop()
-    }
 })
+
+private fun noOpTransactionRunner() = object : TransactionRunner {
+    override fun <T> runInTransaction(block: () -> T): T = block()
+}
 
 private fun stubProcessor(onProcessNext: (Int) -> Unit): OutboxProcessor {
     val store = object : OutboxStore {

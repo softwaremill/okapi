@@ -31,6 +31,7 @@ class OutboxPurgerTest : FunSpec({
 
         val purger = OutboxPurger(
             outboxStore = store,
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxPurgerConfig(
                 retention = ofDays(7),
                 interval = ofMillis(50),
@@ -62,6 +63,7 @@ class OutboxPurgerTest : FunSpec({
 
         val purger = OutboxPurger(
             outboxStore = store,
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxPurgerConfig(interval = ofMillis(50), batchSize = 100),
             clock = fixedClock,
         )
@@ -83,6 +85,7 @@ class OutboxPurgerTest : FunSpec({
 
         val purger = OutboxPurger(
             outboxStore = store,
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxPurgerConfig(interval = ofMillis(50), batchSize = 100),
             clock = fixedClock,
         )
@@ -105,6 +108,7 @@ class OutboxPurgerTest : FunSpec({
 
         val purger = OutboxPurger(
             outboxStore = store,
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxPurgerConfig(interval = ofMillis(50), batchSize = 100),
             clock = fixedClock,
         )
@@ -126,6 +130,7 @@ class OutboxPurgerTest : FunSpec({
 
         val purger = OutboxPurger(
             outboxStore = store,
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxPurgerConfig(interval = ofMillis(50), batchSize = 100),
             clock = fixedClock,
         )
@@ -141,6 +146,7 @@ class OutboxPurgerTest : FunSpec({
         val store = stubStore(onRemove = { _, _ -> 0 })
         val purger = OutboxPurger(
             outboxStore = store,
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxPurgerConfig(interval = ofMinutes(1), batchSize = 100),
             clock = fixedClock,
         )
@@ -155,6 +161,7 @@ class OutboxPurgerTest : FunSpec({
     test("start after stop throws") {
         val purger = OutboxPurger(
             outboxStore = stubStore(),
+            transactionRunner = noOpTransactionRunner(),
             config = OutboxPurgerConfig(interval = ofMinutes(1), batchSize = 100),
             clock = fixedClock,
         )
@@ -166,7 +173,45 @@ class OutboxPurgerTest : FunSpec({
             purger.start()
         }.message shouldBe "OutboxPurger cannot be restarted after stop()"
     }
+
+    test("transactionRunner wraps each batch delete") {
+        val txInvocations = AtomicInteger(0)
+        val storeInvocations = AtomicInteger(0)
+        val latch = CountDownLatch(1)
+        val store = stubStore(onRemove = { _, _ ->
+            val count = storeInvocations.incrementAndGet()
+            if (count == 1) {
+                100
+            } else {
+                latch.countDown()
+                42
+            }
+        })
+        val txRunner = object : TransactionRunner {
+            override fun <T> runInTransaction(block: () -> T): T {
+                txInvocations.incrementAndGet()
+                return block()
+            }
+        }
+
+        val purger = OutboxPurger(
+            outboxStore = store,
+            transactionRunner = txRunner,
+            config = OutboxPurgerConfig(interval = ofMillis(50), batchSize = 100),
+            clock = fixedClock,
+        )
+        purger.start()
+        latch.await(2, TimeUnit.SECONDS) shouldBe true
+        purger.stop()
+
+        storeInvocations.get() shouldBe 2
+        txInvocations.get() shouldBe storeInvocations.get()
+    }
 })
+
+private fun noOpTransactionRunner() = object : TransactionRunner {
+    override fun <T> runInTransaction(block: () -> T): T = block()
+}
 
 private fun stubStore(onRemove: (Instant, Int) -> Int = { _, _ -> 0 }) = object : OutboxStore {
     override fun persist(entry: OutboxEntry) = entry
