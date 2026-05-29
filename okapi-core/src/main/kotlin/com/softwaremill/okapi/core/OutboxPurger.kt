@@ -55,10 +55,11 @@ class OutboxPurger @JvmOverloads constructor(
 
     private fun tick() {
         // Counters live outside the try so the catch handler can include partial progress in
-        // the error log. Each batch runs in its own transaction (see do-loop body), so batches
-        // 0..N-1 are already durably committed when iteration N throws -- without this an
-        // operator sees only "Outbox purge failed" and has no way to know whether any rows
-        // were actually purged before the failure.
+        // the error log. Each batch is a separate delete (wrapped in its own transaction when a
+        // transactionRunner is present, otherwise committed per the store adapter's own
+        // semantics), so batches 0..N-1 are not rolled back when iteration N throws -- without
+        // surfacing the counts an operator sees only "Outbox purge failed" and has no way to know
+        // whether any rows were actually purged before the failure.
         var totalDeleted = 0
         var batches = 0
         try {
