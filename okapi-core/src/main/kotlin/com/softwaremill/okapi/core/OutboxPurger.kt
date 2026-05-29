@@ -10,7 +10,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Periodically removes DELIVERED outbox entries older than [OutboxPurgerConfig.retention].
  *
- * Each batch delete runs inside [transactionRunner].
+ * Each batch delete is its own transaction -- a mid-batch failure rolls back only
+ * that batch, and a long retention sweep does not hold one multi-minute transaction.
  *
  * Runs on a single daemon thread with explicit [start]/[stop] lifecycle.
  * [start] and [stop] are single-use -- the internal executor cannot be restarted after shutdown.

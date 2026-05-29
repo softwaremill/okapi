@@ -41,9 +41,6 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   }
   ```
 
-  (`TransactionRunner` is intentionally a plain interface, not a `fun interface`,
-  because its abstract method is generic — Kotlin forbids SAM conversion for
-  generic abstract methods.)
   ([#51](https://github.com/softwaremill/okapi/issues/51))
 - **`OutboxProcessorScheduler` / `OutboxPurgerScheduler` constructors now require a
   non-null `TransactionRunner`** (previously a nullable `TransactionTemplate?`, with
