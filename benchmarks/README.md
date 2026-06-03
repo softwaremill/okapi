@@ -13,13 +13,15 @@ Default JMH config in `okapi-benchmarks/build.gradle.kts` uses:
 - `fork = 2` — isolated JVMs to neutralize JIT-profile variance
 - `warmupIterations = 3`, `warmup = 10s` — let JIT C2 settle
 - `iterations = 5`, `timeOnIteration = 30s` — statistically meaningful sample
-- `-Xms2g -Xmx2g -XX:+UseG1GC` — pinned memory and GC for reproducibility
+- `-Xms8g -Xmx8g -XX:+UseG1GC` — pinned memory and GC for reproducibility
 
 ```sh
 ./gradlew :okapi-benchmarks:jmh
 ```
 
-Wall time: ~30 minutes (Testcontainers spin-up + 2 transports × 3 batchSize values × 8 iterations).
+Wall time ~30 min: Testcontainers spin-up plus the full JMH matrix — Kafka (3 batchSize combos) and HTTP
+(3 batchSize × 3 httpLatencyMs = 9 combos) throughput benchmarks plus DelivererMicroBenchmark, each with
+fork=2, 3 warmup + 5 measurement iterations.
 
 Result JSON: `okapi-benchmarks/build/reports/jmh/results.json`
 
@@ -87,7 +89,7 @@ investigate variability sources (background processes, thermal throttling, GC).
   benchmarks suggest. Treat numbers as **upper bounds** for the library's processing capacity.
 - **HTTP benchmark uses WireMock in-JVM**, which adds ~0.3 ms overhead per request (Jetty
   servlet pipeline). At `httpLatencyMs=0` the measurement reflects "library + DB + WireMock
-  overhead", not pure library throughput. For tighter pomiar consider replacing WireMock
+  overhead", not pure library throughput. For tighter measurement consider replacing WireMock
   with `MockWebServer` (Square) — see [`results-baseline-2026-04.md`](results-baseline-2026-04.md)
   notes on benchmark methodology.
 - **`httpLatencyMs` is server-side delay**, not network RTT. Real production webhook latency

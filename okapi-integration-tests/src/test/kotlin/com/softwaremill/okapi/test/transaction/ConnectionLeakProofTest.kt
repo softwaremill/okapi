@@ -19,10 +19,12 @@ import java.time.Clock
 
 /**
  * Proves that [SpringConnectionProvider] releases every JDBC connection it borrows from
- * the pool when store methods are called outside a Spring transaction — the exact path
- * that previously leaked because the old `getConnection(): Connection` contract had no
- * release hook. Every physical `Connection.close()` is counted via a wrapping DataSource,
- * and the assertion `opened == closed` must hold at the end of each test.
+ * the pool when store methods are called outside a Spring transaction. This guards against
+ * the design pitfall of a getter-style connection API: a `getConnection(): Connection`
+ * contract would leak because callers can forget to release the borrowed connection.
+ * `withConnection` prevents this by scoping the borrow so the connection is always released
+ * when the lambda returns. Every physical `Connection.close()` is counted via a wrapping
+ * DataSource, and the assertion `opened == closed` must hold at the end of each test.
  */
 class ConnectionLeakProofTest : FunSpec({
 

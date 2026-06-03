@@ -7,7 +7,8 @@ import java.time.Duration
  * Configuration for Okapi Micrometer metrics.
  *
  * @property refreshInterval How often gauge metrics (`okapi.entries.count`, `okapi.entries.lag.seconds`)
- *   are refreshed from the outbox store. Each refresh runs one transaction with two queries.
+ *   are refreshed from the outbox store. Each refresh runs two store queries, wrapped in a single
+ *   read-only transaction when a transaction manager is available.
  *   Set under property `okapi.metrics.refresh-interval`, e.g. `PT15S`, `30s`, `1m`. Default: 15 seconds.
  */
 @ConfigurationProperties(prefix = "okapi.metrics")

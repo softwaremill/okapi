@@ -38,7 +38,8 @@ import javax.sql.DataSource
 /**
  * Spring Boot autoconfiguration for the outbox processing pipeline.
  *
- * Requires a [TransactionRunner] bean, or a [PlatformTransactionManager] from which one can be derived.
+ * Requires a [TransactionRunner] bean (or a [PlatformTransactionManager] from which one can be derived) only when at
+ * least one scheduler (processor or purger) is enabled.
  *
  * Required beans (must be provided by the application):
  * - One or more [MessageDeliverer] beans — transport implementations

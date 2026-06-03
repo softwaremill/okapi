@@ -394,7 +394,8 @@ class LiquibaseAutoConfigurationTest : FunSpec({
         test("dual-module classpath: only ONE okapi*Liquibase bean activates — matching OutboxStore winner") {
             // Pins the OutboxStore-precedence contract for Liquibase auto-config (issue #38
             // / KOJAK-80). Both `okapi-postgres` and `okapi-mysql` are on the test classpath
-            // (build.gradle.kts:35-36). The `*OutboxStore` factories share
+            // (see okapi-spring-boot/build.gradle.kts testImplementation declarations). The
+            // `*OutboxStore` factories share
             // `@ConditionalOnMissingBean(OutboxStore::class)`, so exactly ONE store bean wins.
             // The Liquibase configs MUST mirror that precedence: registering both
             // `okapiPostgresLiquibase` and `okapiMysqlLiquibase` against the same DataSource

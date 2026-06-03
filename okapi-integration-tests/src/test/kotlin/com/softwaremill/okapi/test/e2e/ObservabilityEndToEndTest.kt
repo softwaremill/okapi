@@ -102,7 +102,6 @@ class ObservabilityEndToEndTest : FunSpec({
         registry.counter("okapi.entries.retry.scheduled").count() shouldBe 1.0 // still 1 from before
         registry.timer("okapi.batch.duration").count() shouldBe 2
 
-        // Refresh again and verify new gauge snapshot
         metrics.refresh()
         registry.find("okapi.entries.count").tag("status", "pending").gauge()!!.value() shouldBe 0.0
         registry.find("okapi.entries.count").tag("status", "delivered").gauge()!!.value() shouldBe 1.0
