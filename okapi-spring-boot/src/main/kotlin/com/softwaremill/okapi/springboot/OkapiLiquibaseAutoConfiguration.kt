@@ -25,7 +25,7 @@ private val LIQUIBASE_DISABLED_LOGGER = LoggerFactory.getLogger("com.softwaremil
  * `@AutoConfiguration` pass, `@ConditionalOnBean` cannot reliably observe sibling beans defined
  * in the same auto-config — Spring's `OnBeanCondition` runs at REGISTER_BEAN phase and is
  * evaluated together with the conditions of the bean it is supposed to observe. Splitting
- * Liquibase into a downstream auto-config (`@AutoConfigureAfter(OutboxAutoConfiguration)`)
+ * Liquibase into a downstream auto-config (via `@AutoConfiguration(after = [OutboxAutoConfiguration::class])`)
  * guarantees that by the time Liquibase conditions are evaluated, the chosen `*OutboxStore`
  * bean has already been fully registered and is visible to `@ConditionalOnBean`.
  *
@@ -63,7 +63,7 @@ class OkapiLiquibaseAutoConfiguration {
      * okapi-spring-boot, e.g. Flyway-only consumers do not pull it in).
      *
      * **Why class-level [ConditionalOnBean]:** this auto-config is processed AFTER
-     * [OutboxAutoConfiguration] (see `@AutoConfigureAfter` on the outer class), so at the
+     * [OutboxAutoConfiguration] (see `@AutoConfiguration(after = ...)` on the outer class), so at the
      * time `@ConditionalOnBean(PostgresOutboxStore)` is evaluated, the chosen `*OutboxStore`
      * bean is already registered and visible. When MySQL wins precedence instead, this gate
      * skips the entire class — preventing the dual-Liquibase / wrong-engine-DDL startup

@@ -108,9 +108,11 @@ class MultiDataSourceTransactionTest : FunSpec({
         }
     }
 
-    test("publish succeeds with nested transaction (savepoint) on outbox DataSource") {
+    test("publish succeeds with re-entrant (PROPAGATION_REQUIRED) transaction on outbox DataSource") {
         val outboxId = outboxTxTemplate.execute {
-            // Nested call creates a savepoint (PROPAGATION_REQUIRED by default nests via savepoints)
+            // The re-entrant call uses PROPAGATION_REQUIRED (the TransactionTemplate default), which joins/participates
+            // in the existing outbox transaction, so publish runs inside the active tx — no savepoint involved
+            // (savepoints would require PROPAGATION_NESTED).
             outboxTxTemplate.execute {
                 publisher.publish(testMessage, stubDeliveryInfo)
             }

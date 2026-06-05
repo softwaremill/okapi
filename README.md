@@ -90,6 +90,12 @@ fun outboxTransactionRunner(): TransactionRunner = object : TransactionRunner {
 }
 ```
 
+Without a `TransactionRunner` each scheduler tick runs in auto-commit, which can cause duplicate delivery across instances — see Advanced below.
+
+Advanced setups — multiple DataSources, JTA/Exposed PTMs, qualifier precedence — see [Advanced: transactions & multi-DataSource](#advanced-transactions--multi-datasource) below.
+
+## Advanced: transactions & multi-DataSource
+
 Without bracketing, `FOR UPDATE SKIP LOCKED` collapses to the single SELECT statement under JDBC auto-commit, which silently allows duplicate delivery across processor instances. This opt-in is intentionally manual to keep accidental misconfiguration out of multi-instance deployments.
 
 **Multi-DataSource contexts.** If your application has multiple `DataSource` beans and uses a `PlatformTransactionManager` from which okapi cannot extract a `DataSource` (JTA, Exposed's `SpringTransactionManager`, JPA without a JDBC `DataSource`), the autoconfiguration refuses to start until you set `okapi.transaction-manager-qualifier` to the bean name of the PTM that brackets the outbox `DataSource`. `okapi.datasource-qualifier` alone is not sufficient: it picks the outbox `DataSource` but does not constrain which PTM brackets it. Alternative escape hatch: supply your own `@Bean TransactionRunner`. Single-DataSource setups and PTMs whose `DataSource` can be introspected (`DataSourceTransactionManager`, `JpaTransactionManager`, `HibernateTransactionManager`) are unaffected.

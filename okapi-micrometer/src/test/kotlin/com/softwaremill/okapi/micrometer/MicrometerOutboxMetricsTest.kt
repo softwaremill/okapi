@@ -149,9 +149,9 @@ class MicrometerOutboxMetricsTest : FunSpec({
         registry.find("okapi.entries.lag.seconds").tag("status", "pending").gauge()!!.value().isNaN() shouldBe true
     }
 
-    test("gauges are registered eagerly with NaN before first refresh") {
-        // Ensures Prometheus scrape between bean construction and first refresh sees the metric
-        // (with NaN value), not a missing series.
+    test("no store query happens on construction (refresh is lazy)") {
+        // MultiGauge registers no rows until the first refresh, so no series exists before then;
+        // construction must not query the store either. This verifies refresh is lazy.
         val store = CountingStubStore(counts = mapOf(OutboxStatus.PENDING to 5L))
         val registry = SimpleMeterRegistry()
         MicrometerOutboxMetrics(store, registry)

@@ -6,7 +6,7 @@ package com.softwaremill.okapi.core
  * Framework-specific modules provide implementations:
  * - `okapi-spring-boot`: `SpringTransactionContextValidator` — checks via `TransactionSynchronizationManager`
  * - `okapi-exposed`: `ExposedTransactionContextValidator` — checks via Exposed's `TransactionManager.currentOrNull()`
- * - Standalone: no-op (always returns true)
+ * - Standalone: user-provided implementation
  */
 interface TransactionContextValidator {
     fun isInActiveReadWriteTransaction(): Boolean

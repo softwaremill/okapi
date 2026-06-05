@@ -558,7 +558,7 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
     // pins that the cast failure now falls through to the WARN branch instead.
     // -----------------------------------------------------------------------------------------
     test(
-        "BUG C1: RTM with non-DataSource resourceFactory + okapi.datasource-qualifier set: WARN should be logged but currently is silent",
+        "BUG C1: non-DataSource RTM resourceFactory + datasource-qualifier set falls through to WARN (not a silent early-return)",
     ) {
         val ds: DataSource = SimpleDriverDataSource()
         val jpaLikeTm = JpaLikeRtmTransactionManager(resourceFactory = Any())

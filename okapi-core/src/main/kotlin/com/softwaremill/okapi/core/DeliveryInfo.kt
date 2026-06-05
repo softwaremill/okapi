@@ -8,8 +8,10 @@ package com.softwaremill.okapi.core
  * the storage layer never interprets it.
  *
  * [type] is a stable, unique identifier for the transport (e.g. "http", "kafka").
- * It must be included in [serialize] so that [CompositeMessageDeliverer] can
- * route entries to the correct [MessageDeliverer] without deserializing the full metadata.
+ * It must be included in [serialize] so that the concrete [MessageDeliverer]'s
+ * `deserialize` can reconstruct and validate this metadata.
+ * (Routing in [CompositeMessageDeliverer] uses the separate [OutboxEntry.deliveryType]
+ * field, not the serialized JSON.)
  *
  * Implementors are responsible for:
  * - declaring a unique [type] constant

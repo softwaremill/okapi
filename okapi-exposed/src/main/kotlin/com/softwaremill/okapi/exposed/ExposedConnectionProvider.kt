@@ -7,7 +7,7 @@ import java.sql.Connection
 /**
  * Exposed implementation of [ConnectionProvider].
  *
- * Reads the JDBC [Connection] from Exposed's active `TransactionManager.current()` and
+ * Reads the JDBC [Connection] from Exposed's active transaction (via `TransactionManager.currentOrNull()`) and
  * passes it to the caller's block. Exposed owns the connection's lifecycle — it commits
  * or rolls back, and returns the connection to the pool when the enclosing
  * `transaction(database) { }` block completes — so this provider performs no cleanup.
