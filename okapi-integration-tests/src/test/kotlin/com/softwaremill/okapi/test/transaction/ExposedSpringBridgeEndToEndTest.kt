@@ -23,7 +23,6 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.containers.PostgreSQLContainer
-import java.time.Clock
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
@@ -69,7 +68,7 @@ class ExposedSpringBridgeEndToEndTest : FunSpec({
         .withBean(MessageDeliverer::class.java, { recorder })
         .withBean(PlatformTransactionManager::class.java, { SpringTransactionManager(counter) })
         .withBean(PostgresOutboxStore::class.java, {
-            PostgresOutboxStore(SpringConnectionProvider(counter), Clock.systemUTC())
+            PostgresOutboxStore(SpringConnectionProvider(counter))
         })
 
     test("publish inside Spring TX driven by Exposed-bridge PTM uses a single physical connection") {

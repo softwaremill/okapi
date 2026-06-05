@@ -63,7 +63,7 @@ class JpaTransactionManagerMatchedDataSourceTest : FunSpec({
             .withBean("jpaTm", PlatformTransactionManager::class.java, { jpaPtm })
             .withBean(MessageDeliverer::class.java, { JpaMatchStubDeliverer })
             .withBean(PostgresOutboxStore::class.java, {
-                PostgresOutboxStore(SpringConnectionProvider(ds), java.time.Clock.systemUTC())
+                PostgresOutboxStore(SpringConnectionProvider(ds))
             })
             .withPropertyValues("okapi.liquibase.enabled=false")
             .run { ctx ->

@@ -239,9 +239,8 @@ class OutboxAutoConfiguration(
     ) {
         @Bean
         @ConditionalOnMissingBean(OutboxStore::class)
-        fun outboxStore(clock: ObjectProvider<Clock>): PostgresOutboxStore = PostgresOutboxStore(
+        fun outboxStore(): PostgresOutboxStore = PostgresOutboxStore(
             connectionProvider = SpringConnectionProvider(resolveDataSource(dataSources, primaryDataSource, okapiProperties)),
-            clock = clock.getIfAvailable { Clock.systemUTC() },
         )
     }
 
@@ -255,9 +254,8 @@ class OutboxAutoConfiguration(
     ) {
         @Bean
         @ConditionalOnMissingBean(OutboxStore::class)
-        fun outboxStore(clock: ObjectProvider<Clock>): MysqlOutboxStore = MysqlOutboxStore(
+        fun outboxStore(): MysqlOutboxStore = MysqlOutboxStore(
             connectionProvider = SpringConnectionProvider(resolveDataSource(dataSources, primaryDataSource, okapiProperties)),
-            clock = clock.getIfAvailable { Clock.systemUTC() },
         )
     }
 

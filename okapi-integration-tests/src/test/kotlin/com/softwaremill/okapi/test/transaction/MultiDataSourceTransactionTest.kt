@@ -67,7 +67,7 @@ class MultiDataSourceTransactionTest : FunSpec({
         val otherTxManager = DataSourceTransactionManager(otherDataSource)
         otherTxTemplate = TransactionTemplate(otherTxManager)
 
-        store = PostgresOutboxStore(SpringConnectionProvider(outboxDataSource), clock)
+        store = PostgresOutboxStore(SpringConnectionProvider(outboxDataSource))
         val corePublisher = OutboxPublisher(store, clock)
         publisher = SpringOutboxPublisher(delegate = corePublisher, dataSource = outboxDataSource)
     }

@@ -56,7 +56,7 @@ class ObservabilityEndToEndTest : FunSpec({
 
     test("full pipeline: publish, deliver, verify Micrometer counters and gauges") {
         val registry = SimpleMeterRegistry()
-        val store = PostgresOutboxStore(db.jdbc, clock)
+        val store = PostgresOutboxStore(db.jdbc)
         val publisher = OutboxPublisher(store, clock)
         val listener = MicrometerOutboxListener(registry)
         val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = jdbcTransactionRunner, clock = clock)
@@ -109,7 +109,7 @@ class ObservabilityEndToEndTest : FunSpec({
 
     test("permanent failure: HTTP 400 → Failed counter incremented, gauge reflects FAILED") {
         val registry = SimpleMeterRegistry()
-        val store = PostgresOutboxStore(db.jdbc, clock)
+        val store = PostgresOutboxStore(db.jdbc)
         val publisher = OutboxPublisher(store, clock)
         val listener = MicrometerOutboxListener(registry)
         val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = jdbcTransactionRunner, clock = clock)
@@ -135,7 +135,7 @@ class ObservabilityEndToEndTest : FunSpec({
 
     test("batch duration timer records realistic delivery time") {
         val registry = SimpleMeterRegistry()
-        val store = PostgresOutboxStore(db.jdbc, clock)
+        val store = PostgresOutboxStore(db.jdbc)
         val publisher = OutboxPublisher(store, clock)
         val listener = MicrometerOutboxListener(registry)
 
@@ -158,7 +158,7 @@ class ObservabilityEndToEndTest : FunSpec({
 
     test("lag gauge reflects real time difference for pending entries") {
         val registry = SimpleMeterRegistry()
-        val store = PostgresOutboxStore(db.jdbc, clock)
+        val store = PostgresOutboxStore(db.jdbc)
         val publisher = OutboxPublisher(store, clock)
         val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = jdbcTransactionRunner, clock = clock)
 

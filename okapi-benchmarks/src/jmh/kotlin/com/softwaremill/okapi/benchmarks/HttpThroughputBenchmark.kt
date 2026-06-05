@@ -79,7 +79,7 @@ open class HttpThroughputBenchmark {
         )
 
         val clock = Clock.systemUTC()
-        val store = PostgresOutboxStore(postgres.jdbc, clock)
+        val store = PostgresOutboxStore(postgres.jdbc)
         publisher = OutboxPublisher(store, clock)
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
         val deliverer = HttpMessageDeliverer(urlResolver)

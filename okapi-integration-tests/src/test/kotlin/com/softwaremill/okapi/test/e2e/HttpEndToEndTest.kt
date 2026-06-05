@@ -44,7 +44,7 @@ class HttpEndToEndTest : FunSpec({
 
     fun buildPipeline(maxRetries: Int = 3): Triple<OutboxPublisher, OutboxProcessor, PostgresOutboxStore> {
         val clock = Clock.systemUTC()
-        val store = PostgresOutboxStore(db.jdbc, clock)
+        val store = PostgresOutboxStore(db.jdbc)
         val publisher = OutboxPublisher(store, clock)
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
         val entryProcessor = OutboxEntryProcessor(

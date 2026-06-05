@@ -7,14 +7,12 @@ import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import java.sql.ResultSet
 import java.sql.Timestamp
-import java.time.Clock
 import java.time.Instant
 import java.util.UUID
 
 /** MySQL [OutboxStore] implementation using plain JDBC. */
 class MysqlOutboxStore(
     private val connectionProvider: ConnectionProvider,
-    private val clock: Clock = Clock.systemUTC(),
 ) : OutboxStore {
 
     override fun persist(entry: OutboxEntry): OutboxEntry {

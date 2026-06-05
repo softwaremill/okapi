@@ -7,14 +7,12 @@ import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import java.sql.ResultSet
 import java.sql.Timestamp
-import java.time.Clock
 import java.time.Instant
 import java.util.UUID
 
 /** PostgreSQL [OutboxStore] implementation using plain JDBC. */
 class PostgresOutboxStore(
     private val connectionProvider: ConnectionProvider,
-    private val clock: Clock = Clock.systemUTC(),
 ) : OutboxStore {
 
     override fun persist(entry: OutboxEntry): OutboxEntry {

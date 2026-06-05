@@ -44,7 +44,7 @@ class MysqlHttpEndToEndTest : FunSpec({
 
     fun buildPipeline(): Triple<OutboxPublisher, OutboxProcessor, MysqlOutboxStore> {
         val clock = Clock.systemUTC()
-        val store = MysqlOutboxStore(db.jdbc, clock)
+        val store = MysqlOutboxStore(db.jdbc)
         val publisher = OutboxPublisher(store, clock)
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
         val entryProcessor = OutboxEntryProcessor(

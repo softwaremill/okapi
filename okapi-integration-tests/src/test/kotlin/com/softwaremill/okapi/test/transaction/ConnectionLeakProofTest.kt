@@ -42,7 +42,7 @@ class ConnectionLeakProofTest : FunSpec({
         }
         runLiquibase(container)
         counter = CountingDataSource(raw)
-        store = PostgresOutboxStore(SpringConnectionProvider(counter), clock)
+        store = PostgresOutboxStore(SpringConnectionProvider(counter))
     }
 
     afterSpec {

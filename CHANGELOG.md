@@ -10,6 +10,12 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ### Changed (BREAKING)
 
+- **`PostgresOutboxStore` / `MysqlOutboxStore` no longer take a `clock` constructor
+  parameter.** It became unused after the lag-gauge fix ([#58](https://github.com/softwaremill/okapi/pull/58)) —
+  the stores derive no timestamps from a clock. Code that passed an explicit clock
+  (`PostgresOutboxStore(connectionProvider, clock)`) must drop the second argument;
+  the usual `PostgresOutboxStore(connectionProvider)` form is unchanged. Spring Boot
+  users are unaffected.
 - **Outbox domain table renamed `outbox` → `okapi_outbox`.** Indexes follow the rename
   (`idx_outbox_*` → `idx_okapi_outbox_*`). Host applications with a pre-existing `outbox`
   table are no longer affected — okapi creates its own table under the `okapi_` prefix.
