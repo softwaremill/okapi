@@ -101,7 +101,3 @@ class OutboxPurgerAutoConfigurationTest : FunSpec({
         scheduler.isRunning shouldBe false
     }
 })
-
-private fun noOpTransactionRunner() = object : TransactionRunner {
-    override fun <T> runInTransaction(block: () -> T): T = block()
-}

@@ -299,10 +299,6 @@ class OutboxPurgerTest : FunSpec({
     }
 })
 
-private fun noOpTransactionRunner() = object : TransactionRunner {
-    override fun <T> runInTransaction(block: () -> T): T = block()
-}
-
 private fun stubStore(onRemove: (Instant, Int) -> Int = { _, _ -> 0 }) = object : OutboxStore {
     override fun persist(entry: OutboxEntry) = entry
     override fun claimPending(limit: Int) = emptyList<OutboxEntry>()

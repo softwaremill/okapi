@@ -133,10 +133,6 @@ class OutboxSchedulerTest : FunSpec({
     }
 })
 
-private fun noOpTransactionRunner() = object : TransactionRunner {
-    override fun <T> runInTransaction(block: () -> T): T = block()
-}
-
 private fun stubProcessor(onProcessNext: (Int) -> Unit): OutboxProcessor {
     val store = object : OutboxStore {
         override fun persist(entry: OutboxEntry) = entry
