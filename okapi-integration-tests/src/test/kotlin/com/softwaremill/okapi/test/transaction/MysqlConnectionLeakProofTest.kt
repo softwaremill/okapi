@@ -39,7 +39,7 @@ class MysqlConnectionLeakProofTest : FunSpec({
         }
         runLiquibase(container)
         counter = CountingDataSource(raw)
-        store = MysqlOutboxStore(SpringConnectionProvider(counter), clock)
+        store = MysqlOutboxStore(SpringConnectionProvider(counter))
     }
 
     afterSpec {

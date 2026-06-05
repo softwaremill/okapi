@@ -65,7 +65,7 @@ class JpaTransactionManagerFailFastTest : FunSpec({
             .withBean("jpaTmA", PlatformTransactionManager::class.java, { JpaTransactionManager(emf) })
             .withBean(MessageDeliverer::class.java, { JpaTestStubDeliverer })
             .withBean(PostgresOutboxStore::class.java, {
-                PostgresOutboxStore(SpringConnectionProvider(dsB), java.time.Clock.systemUTC())
+                PostgresOutboxStore(SpringConnectionProvider(dsB))
             })
             .withPropertyValues("okapi.liquibase.enabled=false")
             .run { ctx ->

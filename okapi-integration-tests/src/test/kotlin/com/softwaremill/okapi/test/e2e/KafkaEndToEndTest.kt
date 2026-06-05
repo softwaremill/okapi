@@ -42,7 +42,7 @@ class KafkaEndToEndTest : FunSpec({
 
     test("full pipeline: publish to outbox -> processNext -> message on Kafka topic") {
         val clock = Clock.systemUTC()
-        val store = PostgresOutboxStore(db.jdbc, clock)
+        val store = PostgresOutboxStore(db.jdbc)
         val publisher = OutboxPublisher(store, clock)
         val deliverer = KafkaMessageDeliverer(producer!!)
         val entryProcessor = OutboxEntryProcessor(deliverer, RetryPolicy(maxRetries = 3), clock)

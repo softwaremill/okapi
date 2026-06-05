@@ -58,7 +58,7 @@ open class KafkaThroughputBenchmark {
         topic = "bench-${UUID.randomUUID()}"
 
         val clock = Clock.systemUTC()
-        val store = PostgresOutboxStore(postgres.jdbc, clock)
+        val store = PostgresOutboxStore(postgres.jdbc)
         publisher = OutboxPublisher(store, clock)
         val deliverer = KafkaMessageDeliverer(producer)
         val entryProcessor = OutboxEntryProcessor(deliverer, RetryPolicy(maxRetries = 0), clock)

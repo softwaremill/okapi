@@ -56,7 +56,7 @@ class OutboxMysqlEndToEndTest :
             connection.close()
 
             val clock = Clock.systemUTC()
-            store = MysqlOutboxStore(jdbc, clock)
+            store = MysqlOutboxStore(jdbc)
             publisher = OutboxPublisher(store, clock)
 
             val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }

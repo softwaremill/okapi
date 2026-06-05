@@ -38,7 +38,7 @@ class WrongPtmMultiDataSourceFailFastTest : FunSpec({
             .withBean("exposedTmA", PlatformTransactionManager::class.java, { SpringTransactionManager(dsA) })
             .withBean(MessageDeliverer::class.java, { RecordingMessageDeliverer() })
             .withBean(PostgresOutboxStore::class.java, {
-                PostgresOutboxStore(SpringConnectionProvider(dsB), java.time.Clock.systemUTC())
+                PostgresOutboxStore(SpringConnectionProvider(dsB))
             })
             .withPropertyValues("okapi.processor.enabled=false", "okapi.liquibase.enabled=false")
             .run { ctx ->
@@ -61,7 +61,7 @@ class WrongPtmMultiDataSourceFailFastTest : FunSpec({
             .withBean("exposedTmA", PlatformTransactionManager::class.java, { SpringTransactionManager(dsA) })
             .withBean(MessageDeliverer::class.java, { RecordingMessageDeliverer() })
             .withBean(PostgresOutboxStore::class.java, {
-                PostgresOutboxStore(SpringConnectionProvider(dsB), java.time.Clock.systemUTC())
+                PostgresOutboxStore(SpringConnectionProvider(dsB))
             })
             .withPropertyValues(
                 "okapi.processor.enabled=false",
@@ -90,7 +90,7 @@ class WrongPtmMultiDataSourceFailFastTest : FunSpec({
             .withBean("exposedTmA", PlatformTransactionManager::class.java, { SpringTransactionManager(dsA) })
             .withBean(MessageDeliverer::class.java, { RecordingMessageDeliverer() })
             .withBean(PostgresOutboxStore::class.java, {
-                PostgresOutboxStore(SpringConnectionProvider(dsB), java.time.Clock.systemUTC())
+                PostgresOutboxStore(SpringConnectionProvider(dsB))
             })
             .withPropertyValues(
                 "okapi.processor.enabled=false",
