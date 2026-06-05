@@ -25,15 +25,31 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   history; the resulting schema is unchanged. Existing installations from an earlier
   release: the `outbox:001` changeset checksum changed — they must start on a fresh
   okapi schema, or clear okapi's rows from `okapi_databasechangelog`, before upgrading.
+- **`OutboxScheduler` / `OutboxPurger` in `okapi-core` now require a non-null
+  `TransactionRunner`** constructor parameter. The previous nullable default
+  caused `tick()` to silently fall back to a non-transactional path; under JDBC
+  auto-commit, `FOR UPDATE SKIP LOCKED` releases its row lock at the end of the
+  claim `SELECT` and concurrent processor instances deliver the same entry
+  multiple times. Spring Boot users are unaffected. Direct constructor users
+  (Ktor, manual Spring wiring, plain Java/Kotlin) must supply a
+  `TransactionRunner`; adapters with their own transaction primitive wrap it
+  in a thin implementation, e.g.
+
+  ```kotlin
+  object : TransactionRunner {
+      override fun <T> runInTransaction(block: () -> T): T = transaction { block() }
+  }
+  ```
+
+  ([#51](https://github.com/softwaremill/okapi/issues/51))
 - **`OutboxProcessorScheduler` / `OutboxPurgerScheduler` constructors now require a
   non-null `TransactionRunner`** (previously a nullable `TransactionTemplate?`, with
   `OutboxPurgerScheduler`'s parameter defaulted to `null`). Spring Boot autoconfig users
   are unaffected — the autoconfig derives a `TransactionRunner` from any
   `PlatformTransactionManager` on the classpath. Users constructing the schedulers
   directly must supply a `TransactionRunner` (e.g. `SpringTransactionRunner(template)` or
-  a thin lambda wrapping their framework's native transaction primitive). The previous
-  null-default silently degraded `FOR UPDATE SKIP LOCKED` to JDBC auto-commit, permitting
-  duplicate delivery across processor instances. ([#49](https://github.com/softwaremill/okapi/pull/49))
+  a thin lambda wrapping their framework's native transaction primitive).
+  ([#49](https://github.com/softwaremill/okapi/pull/49))
 - **`okapi-spring-boot` autoconfig refuses to start when it cannot verify the
   PlatformTransactionManager↔outbox-DataSource binding** in a multi-DataSource context.
   Specifically: if `extractDataSource` cannot determine the PTM's DataSource (e.g. JTA,
