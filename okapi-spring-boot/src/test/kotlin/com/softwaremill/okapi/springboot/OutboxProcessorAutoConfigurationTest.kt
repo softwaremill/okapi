@@ -227,7 +227,3 @@ private fun resolveSpringBootClass(vararg candidateFqcns: String): Class<*> {
         }
     } ?: error("None of $candidateFqcns resolves on this Spring Boot runtime; check spring-boot-starter-actuator on the test classpath.")
 }
-
-private fun noOpTransactionRunner() = object : TransactionRunner {
-    override fun <T> runInTransaction(block: () -> T): T = block()
-}

@@ -511,7 +511,3 @@ private fun canLoadClass(fqcn: String, classLoader: ClassLoader): Boolean = try 
 } catch (_: ClassNotFoundException) {
     false
 }
-
-private fun noOpTransactionRunner() = object : TransactionRunner {
-    override fun <T> runInTransaction(block: () -> T): T = block()
-}

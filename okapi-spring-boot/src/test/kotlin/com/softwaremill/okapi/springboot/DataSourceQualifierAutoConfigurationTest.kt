@@ -79,7 +79,3 @@ class DataSourceQualifierAutoConfigurationTest : FunSpec({
             }
     }
 })
-
-private fun noOpTransactionRunner() = object : TransactionRunner {
-    override fun <T> runInTransaction(block: () -> T): T = block()
-}

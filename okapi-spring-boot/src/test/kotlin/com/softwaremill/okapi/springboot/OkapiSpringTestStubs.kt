@@ -5,6 +5,7 @@ import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.core.TransactionRunner
 import org.springframework.beans.factory.support.BeanDefinitionBuilder
 import org.springframework.context.support.GenericApplicationContext
 import java.time.Instant
@@ -29,6 +30,10 @@ internal fun stubDeliverer() = stubDelivererWithType("stub")
 internal fun stubDelivererWithType(t: String) = object : MessageDeliverer {
     override val type = t
     override fun deliver(entry: OutboxEntry) = DeliveryResult.Success
+}
+
+internal fun noOpTransactionRunner() = object : TransactionRunner {
+    override fun <T> runInTransaction(block: () -> T): T = block()
 }
 
 /**
