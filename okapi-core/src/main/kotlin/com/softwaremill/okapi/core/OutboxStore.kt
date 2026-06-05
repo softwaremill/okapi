@@ -19,7 +19,13 @@ interface OutboxStore {
      */
     fun removeDeliveredBefore(time: Instant, limit: Int): Int
 
-    /** Returns the oldest createdAt per status (useful for lag metrics). */
+    /**
+     * For each of the given [statuses] that has at least one entry, maps that status to the
+     * [OutboxEntry.createdAt] of its oldest entry (the minimum `createdAt` among entries in
+     * that status). Statuses with no entries are omitted from the result -- callers rely on
+     * absence to mean "no backlog" (e.g. the lag gauge reports 0 for an omitted status).
+     * Useful for lag metrics.
+     */
     fun findOldestCreatedAt(statuses: Set<OutboxStatus>): Map<OutboxStatus, Instant>
 
     /** Returns entry count per status. */

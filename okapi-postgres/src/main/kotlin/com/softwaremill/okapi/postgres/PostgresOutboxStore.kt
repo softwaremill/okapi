@@ -101,7 +101,7 @@ class PostgresOutboxStore(
     }
 
     override fun findOldestCreatedAt(statuses: Set<OutboxStatus>): Map<OutboxStatus, Instant> {
-        val result = statuses.associateWith { clock.instant() }.toMutableMap()
+        val result = mutableMapOf<OutboxStatus, Instant>()
         val placeholders = statuses.joinToString(",") { "?" }
         val sql = "SELECT status, MIN(created_at) AS min_created_at FROM okapi_outbox WHERE status IN ($placeholders) GROUP BY status"
 
