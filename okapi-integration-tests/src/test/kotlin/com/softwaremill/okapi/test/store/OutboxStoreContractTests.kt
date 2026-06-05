@@ -225,6 +225,27 @@ fun FunSpec.outboxStoreContractTests(
         counts shouldContain (OutboxStatus.FAILED to 1L)
     }
 
+    test("[$dbName] findOldestCreatedAt returns the oldest entry only for statuses that have rows") {
+        // Regression guard: a status with no rows must be ABSENT from the result map, not defaulted
+        // to "now". The lag gauge (okapi-micrometer) relies on absence to report 0 for empty statuses;
+        // if the store returns a near-now timestamp for an empty status the gauge shows a tiny false lag.
+        val older = Instant.parse("2024-01-01T00:00:00Z")
+        val newer = Instant.parse("2024-01-02T00:00:00Z")
+        jdbc.withTransaction {
+            store.persist(createTestEntry(now = older, messageType = "type.older"))
+            store.persist(createTestEntry(now = newer, messageType = "type.newer"))
+        }
+
+        val oldest = jdbc.withTransaction {
+            store.findOldestCreatedAt(setOf(OutboxStatus.PENDING, OutboxStatus.DELIVERED, OutboxStatus.FAILED))
+        }
+
+        // PENDING has two entries -> oldest createdAt is the earlier one.
+        oldest shouldContain (OutboxStatus.PENDING to older)
+        // DELIVERED / FAILED have no rows -> omitted entirely, not seeded with the current time.
+        oldest.keys shouldBe setOf(OutboxStatus.PENDING)
+    }
+
     test("[$dbName] claimPending returns empty when no PENDING entries") {
         val claimed = jdbc.withTransaction { store.claimPending(10) }
 
