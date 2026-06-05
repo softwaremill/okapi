@@ -153,6 +153,7 @@ class OutboxPurgerTest : FunSpec({
         try {
             val purger = OutboxPurger(
                 outboxStore = store,
+                transactionRunner = noOpTransactionRunner(),
                 config = OutboxPurgerConfig(interval = ofMillis(50), batchSize = 100),
                 clock = fixedClock,
             )
@@ -192,6 +193,7 @@ class OutboxPurgerTest : FunSpec({
         try {
             val purger = OutboxPurger(
                 outboxStore = store,
+                transactionRunner = noOpTransactionRunner(),
                 config = OutboxPurgerConfig(interval = ofMillis(50), batchSize = 100),
                 clock = fixedClock,
             )
