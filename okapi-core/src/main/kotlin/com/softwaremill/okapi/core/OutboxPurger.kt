@@ -54,10 +54,16 @@ class OutboxPurger @JvmOverloads constructor(
     fun isRunning(): Boolean = running.get()
 
     private fun tick() {
+        // Counters live outside the try so the catch handler can include partial progress in
+        // the error log. Each batch is a separate delete (wrapped in its own transaction when a
+        // transactionRunner is present, otherwise committed per the store adapter's own
+        // semantics), so batches 0..N-1 are not rolled back when iteration N throws -- without
+        // surfacing the counts an operator sees only "Outbox purge failed" and has no way to know
+        // whether any rows were actually purged before the failure.
+        var totalDeleted = 0
+        var batches = 0
         try {
             val cutoff = clock.instant().minus(config.retention)
-            var totalDeleted = 0
-            var batches = 0
             do {
                 val deleted = transactionRunner?.runInTransaction {
                     outboxStore.removeDeliveredBefore(cutoff, config.batchSize)
@@ -70,7 +76,13 @@ class OutboxPurger @JvmOverloads constructor(
                 logger.debug("Purged {} delivered entries in {} batches", totalDeleted, batches)
             }
         } catch (e: Exception) {
-            logger.error("Outbox purge failed, will retry at next scheduled interval", e)
+            logger.error(
+                "Outbox purge failed after {} batches ({} entries purged this tick), " +
+                    "will retry at next scheduled interval",
+                batches,
+                totalDeleted,
+                e,
+            )
         }
     }
 
