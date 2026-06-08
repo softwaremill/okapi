@@ -41,16 +41,44 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ### Added
 
+- **`MessageDeliverer.deliverBatch(entries)`** — batch-aware delivery method with a
+  sequential default impl (loops `deliver()`, preserving order and per-entry result
+  classification). Existing deliverers need no change; transports can override it for
+  concurrent I/O, and `CompositeMessageDeliverer` routes batches by delivery type.
+  ([#35](https://github.com/softwaremill/okapi/pull/35))
 - `okapi.liquibase.changelog-table` / `okapi.liquibase.changelog-lock-table` — Spring Boot
   properties to override okapi's Liquibase tracking-table names (defaults
   `okapi_databasechangelog` / `okapi_databasechangeloglock`).
 
 ### Fixed
 
+- **HTTP delivery exception classification.** `HttpMessageDeliverer` previously caught
+  every exception as `RetriableFailure`, so corrupt delivery metadata or an unknown
+  service triggered an infinite retry loop. `JsonProcessingException` and other non-IO
+  errors (malformed URI, unknown service) are now `PermanentFailure`; `IOException` /
+  `InterruptedException` stay retriable. ([#44](https://github.com/softwaremill/okapi/pull/44))
 - **`okapi.transaction-manager-qualifier` is now honoured even when
   `TransactionAutoConfiguration` registers a unique `TransactionTemplate`.** Previously the
   qualifier was silently ignored in multi-PTM setups, defaulting to the @Primary PTM. Rule
   is now: explicit qualifier > auto-wired TT. ([#49](https://github.com/softwaremill/okapi/pull/49))
+- **`okapi-kafka` now exposes `kafka-clients` and `okapi-core` as `api` dependencies.**
+  `KafkaMessageDeliverer`'s public constructor takes `Producer<String, String>`, so those
+  types belong on the consumer's compile classpath transitively — no more adding
+  `kafka-clients` by hand or hitting surprising `okapi-core` classpath failures.
+  ([#47](https://github.com/softwaremill/okapi/pull/47))
+- **Startup `NoClassDefFoundError` on Spring Boot 3.5.x without `liquibase-core`** (e.g.
+  Flyway-only apps) — okapi's Liquibase beans are now guarded by class-level
+  `@ConditionalOnClass(SpringLiquibase)`. Also stops okapi's `SpringLiquibase` bean from
+  shadowing the host application's own changelog (via `@AutoConfigureAfter` Boot's
+  `LiquibaseAutoConfiguration`). ([#42](https://github.com/softwaremill/okapi/pull/42),
+  [#38](https://github.com/softwaremill/okapi/issues/38))
+- **`okapi-micrometer` auto-config ordering on Spring Boot 3.5.x.** `@AutoConfigureAfter`
+  now lists both the 3.5.x and 4.0.x metrics-package locations, so the listener / metrics /
+  refresher are no longer silently skipped when `MeterRegistry` registers later.
+  ([#41](https://github.com/softwaremill/okapi/pull/41))
+- **`OutboxPurger` error log preserves partial-batch progress.** A mid-loop failure now
+  reports how many entries / batches were already purged this tick, so operators can tell
+  an early outage from a late transient hiccup. ([#55](https://github.com/softwaremill/okapi/pull/55))
 
 ### Migration from 0.2.x
 
