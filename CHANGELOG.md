@@ -8,98 +8,88 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-06-08
+
 ### Changed (BREAKING)
 
-- **`PostgresOutboxStore` / `MysqlOutboxStore` no longer take a `clock` constructor
-  parameter.** It became unused after the lag-gauge fix ([#58](https://github.com/softwaremill/okapi/pull/58)) —
-  the stores derive no timestamps from a clock. Code that passed an explicit clock
-  (`PostgresOutboxStore(connectionProvider, clock)`) must drop the second argument;
-  the usual `PostgresOutboxStore(connectionProvider)` form is unchanged. Spring Boot
-  users are unaffected.
-- **Outbox domain table renamed `outbox` → `okapi_outbox`.** Indexes follow the rename
-  (`idx_outbox_*` → `idx_okapi_outbox_*`). Host applications with a pre-existing `outbox`
-  table are no longer affected — okapi creates its own table under the `okapi_` prefix.
-  The new name is fixed; it is not configurable. ([#37](https://github.com/softwaremill/okapi/issues/37))
+- **Domain table renamed `outbox` → `okapi_outbox`** (indexes `idx_outbox_*` →
+  `idx_okapi_outbox_*`). okapi now owns a prefixed table, so a pre-existing `outbox`
+  no longer collides. Not configurable. ([#37](https://github.com/softwaremill/okapi/issues/37))
 - **Liquibase tracking tables default to `okapi_databasechangelog` /
-  `okapi_databasechangeloglock`.** Previously okapi shared the application's
-  default `databasechangelog` / `databasechangeloglock`. Override the new defaults
-  via configuration to keep the shared-table layout (see Added below).
-  ([#37](https://github.com/softwaremill/okapi/issues/37))
+  `okapi_databasechangeloglock`** instead of sharing the app's defaults; override via
+  the new properties to keep the old layout. ([#37](https://github.com/softwaremill/okapi/issues/37))
 - **okapi's Liquibase migrations consolidated into a single
-  `001__create_okapi_outbox_table.sql` per database.** New installations create the
-  full schema (table + indexes) from one changeset instead of replaying the change
-  history; the resulting schema is unchanged. Existing installations from an earlier
-  release: the `outbox:001` changeset checksum changed — they must start on a fresh
-  okapi schema, or clear okapi's rows from `okapi_databasechangelog`, before upgrading.
-- **`OutboxScheduler` / `OutboxPurger` in `okapi-core` now require a non-null
-  `TransactionRunner`** constructor parameter. The previous nullable default
-  caused `tick()` to silently fall back to a non-transactional path; under JDBC
-  auto-commit, `FOR UPDATE SKIP LOCKED` releases its row lock at the end of the
-  claim `SELECT` and concurrent processor instances deliver the same entry
-  multiple times. Spring Boot users are unaffected. Direct constructor users
-  (Ktor, manual Spring wiring, plain Java/Kotlin) must supply a
-  `TransactionRunner`; adapters with their own transaction primitive wrap it
-  in a thin implementation, e.g.
-
-  ```kotlin
-  object : TransactionRunner {
-      override fun <T> runInTransaction(block: () -> T): T = transaction { block() }
-  }
-  ```
-
-  ([#51](https://github.com/softwaremill/okapi/issues/51))
-- **`OutboxProcessorScheduler` / `OutboxPurgerScheduler` constructors now require a
-  non-null `TransactionRunner`** (previously a nullable `TransactionTemplate?`, with
-  `OutboxPurgerScheduler`'s parameter defaulted to `null`). Spring Boot autoconfig users
-  are unaffected — the autoconfig derives a `TransactionRunner` from any
-  `PlatformTransactionManager` on the classpath. Users constructing the schedulers
-  directly must supply a `TransactionRunner` (e.g. `SpringTransactionRunner(template)` or
-  a thin lambda wrapping their framework's native transaction primitive).
-  ([#49](https://github.com/softwaremill/okapi/pull/49))
-- **`okapi-spring-boot` autoconfig refuses to start when it cannot verify the
-  PlatformTransactionManager↔outbox-DataSource binding** in a multi-DataSource context.
-  Specifically: if `extractDataSource` cannot determine the PTM's DataSource (e.g. JTA,
-  Exposed's `SpringTransactionManager`, or any PTM that exposes neither a `DataSource`
-  resourceFactory nor a public `getDataSource()`), AND the context has ≥2 `DataSource`
-  beans, AND `okapi.transaction-manager-qualifier` is not set, the context refresh now
-  fails with an actionable message. `okapi.datasource-qualifier` alone is not
-  sufficient — it picks the outbox DataSource but does not constrain which PTM
-  brackets it. Single-DataSource contexts and setups that explicitly name the PTM
-  via `okapi.transaction-manager-qualifier` are unaffected. Escape hatch: supply an
-  explicit `@Bean TransactionRunner` to bypass validation.
-  ([#49](https://github.com/softwaremill/okapi/pull/49))
+  `001__create_okapi_outbox_table.sql` per database.** Resulting schema is unchanged,
+  but the `outbox:001` checksum changed — upgraders must start on a fresh okapi schema
+  or clear okapi's rows from `okapi_databasechangelog`.
+  ([#50](https://github.com/softwaremill/okapi/pull/50))
+- **`OutboxScheduler` / `OutboxPurger` (okapi-core) now require a non-null
+  `TransactionRunner`.** The old nullable default silently ran non-transactionally,
+  letting `FOR UPDATE SKIP LOCKED` drop its lock under JDBC auto-commit and deliver
+  entries more than once. Spring Boot users unaffected; direct users (Ktor, manual
+  wiring, Java/Kotlin) must supply one. ([#51](https://github.com/softwaremill/okapi/issues/51))
+- **`OutboxProcessorScheduler` / `OutboxPurgerScheduler` now require a non-null
+  `TransactionRunner`** (was a nullable `TransactionTemplate?`). Spring autoconfig
+  derives it from any `PlatformTransactionManager`; direct constructor users must pass
+  `SpringTransactionRunner(template)` or a thin wrapper. ([#49](https://github.com/softwaremill/okapi/pull/49))
+- **`PostgresOutboxStore` / `MysqlOutboxStore` no longer take a `clock` parameter** —
+  it became unused after the lag-gauge fix ([#58](https://github.com/softwaremill/okapi/pull/58)).
+  Drop the second constructor argument; Spring Boot users unaffected.
+  ([#59](https://github.com/softwaremill/okapi/pull/59))
+- **`okapi-spring-boot` autoconfig fails fast when it cannot verify the
+  PlatformTransactionManager↔outbox-DataSource binding** in a multi-DataSource context
+  with no `okapi.transaction-manager-qualifier` set. Name the PTM via that qualifier, or
+  supply an explicit `@Bean TransactionRunner` to bypass. ([#49](https://github.com/softwaremill/okapi/pull/49))
 
 ### Added
 
-- `okapi.liquibase.changelog-table` — Spring Boot property that configures the
-  `databaseChangeLogTable` of okapi's autoconfigured `SpringLiquibase` beans
-  (`okapiPostgresLiquibase` / `okapiMysqlLiquibase`). Default: `okapi_databasechangelog`.
-- `okapi.liquibase.changelog-lock-table` — likewise for `databaseChangeLogLockTable`.
-  Default: `okapi_databasechangeloglock`.
+- **`MessageDeliverer.deliverBatch(entries)`** — batch-aware delivery method with a
+  sequential default impl (loops `deliver()`, preserving order and per-entry result
+  classification). Existing deliverers need no change; transports can override it for
+  concurrent I/O, and `CompositeMessageDeliverer` routes batches by delivery type.
+  ([#35](https://github.com/softwaremill/okapi/pull/35))
+- `okapi.liquibase.changelog-table` / `okapi.liquibase.changelog-lock-table` — Spring Boot
+  properties to override okapi's Liquibase tracking-table names (defaults
+  `okapi_databasechangelog` / `okapi_databasechangeloglock`).
 
 ### Fixed
 
-- **`okapi.transaction-manager-qualifier` is now honoured in Spring Boot apps that
-  load `TransactionAutoConfiguration`.** Previously the qualifier was silently
-  ignored whenever a unique `TransactionTemplate` was present in the context —
-  which Spring Boot's `TransactionAutoConfiguration` registers out of the box around
-  the @Primary `PlatformTransactionManager`. The factory short-circuited on the
-  auto-TT's bound PTM and never consulted the qualifier. In a multi-PTM setup this
-  meant the @Primary PTM was used even when the user explicitly named a different
-  one. Resolution rule is now: explicit qualifier > auto-wired TT; when the
-  qualified PTM matches the unique TT's PTM the TT is reused verbatim (preserving
-  its `timeout`/`isolation`/`propagation`), otherwise a fresh `TransactionTemplate`
-  is built around the qualified PTM. ([#49](https://github.com/softwaremill/okapi/pull/49))
+- **HTTP delivery exception classification.** `HttpMessageDeliverer` previously caught
+  every exception as `RetriableFailure`, so corrupt delivery metadata or an unknown
+  service wasted the whole retry budget before being marked `FAILED` instead of failing
+  fast. `JsonProcessingException` and other non-IO errors (malformed URI, unknown
+  service) are now `PermanentFailure`; `IOException` / `InterruptedException` stay
+  retriable. ([#44](https://github.com/softwaremill/okapi/pull/44))
+- **`okapi.transaction-manager-qualifier` is now honoured even when
+  `TransactionAutoConfiguration` registers a unique `TransactionTemplate`.** Previously the
+  qualifier was silently ignored in multi-PTM setups, defaulting to the @Primary PTM. Rule
+  is now: explicit qualifier > auto-wired TT. ([#49](https://github.com/softwaremill/okapi/pull/49))
+- **`okapi-kafka` now exposes `kafka-clients` and `okapi-core` as `api` dependencies.**
+  `KafkaMessageDeliverer`'s public constructor takes `Producer<String, String>`, so those
+  types belong on the consumer's compile classpath transitively — no more adding
+  `kafka-clients` by hand or hitting surprising `okapi-core` classpath failures.
+  ([#47](https://github.com/softwaremill/okapi/pull/47))
+- **Startup `NoClassDefFoundError` on Spring Boot 3.5.x without `liquibase-core`** (e.g.
+  Flyway-only apps) — okapi's Liquibase beans are now guarded by class-level
+  `@ConditionalOnClass(SpringLiquibase)`. Also stops okapi's `SpringLiquibase` bean from
+  shadowing the host application's own changelog — okapi's auto-config is now ordered
+  after Spring Boot's `LiquibaseAutoConfiguration`.
+  ([#42](https://github.com/softwaremill/okapi/pull/42),
+  [#38](https://github.com/softwaremill/okapi/issues/38))
+- **`okapi-micrometer` auto-config ordering on Spring Boot 3.5.x.** `@AutoConfigureAfter`
+  now lists both the 3.5.x and 4.0.x metrics-package locations, so the listener / metrics /
+  refresher are no longer silently skipped when `MeterRegistry` registers later.
+  ([#41](https://github.com/softwaremill/okapi/pull/41))
+- **`OutboxPurger` error log preserves partial-batch progress.** A mid-loop failure now
+  reports how many entries / batches were already purged this tick, so operators can tell
+  an early outage from a late transient hiccup. ([#55](https://github.com/softwaremill/okapi/pull/55))
 
 ### Migration from 0.2.x
 
-These are breaking changes; existing deployments must take action before the first
-`0.3.0` startup. The README has the full SQL: see
-[Database migrations § Upgrading from 0.2.x](README.md#upgrading-from-02x).
-Two paths are documented: rename in place (recommended) or stay on the legacy
-changelog table names by overriding `okapi.liquibase.changelog-table` /
-`changelog-lock-table`. The domain-table rename has no opt-out — run the
-provided `ALTER TABLE ... RENAME TO okapi_outbox` script.
+Breaking — existing deployments must act before the first `0.3.0` startup. Full SQL is in
+the README: [Database migrations § Upgrading from 0.2.x](README.md#upgrading-from-02x).
+Rename the domain table in place (no opt-out), and either adopt the new Liquibase
+tracking-table names or override them back to the legacy ones.
 
 ## [0.2.0] — 2026-04-29
 
@@ -143,6 +133,7 @@ Initial public release.
 - `okapi-exposed` integration (transaction runner, connection provider, validator).
 - Concurrent processing via `FOR UPDATE SKIP LOCKED`.
 
-[Unreleased]: https://github.com/softwaremill/okapi/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/softwaremill/okapi/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/softwaremill/okapi/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/softwaremill/okapi/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/softwaremill/okapi/releases/tag/v0.1.0
