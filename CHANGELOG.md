@@ -22,6 +22,7 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   `001__create_okapi_outbox_table.sql` per database.** Resulting schema is unchanged,
   but the `outbox:001` checksum changed — upgraders must start on a fresh okapi schema
   or clear okapi's rows from `okapi_databasechangelog`.
+  ([#50](https://github.com/softwaremill/okapi/pull/50))
 - **`OutboxScheduler` / `OutboxPurger` (okapi-core) now require a non-null
   `TransactionRunner`.** The old nullable default silently ran non-transactionally,
   letting `FOR UPDATE SKIP LOCKED` drop its lock under JDBC auto-commit and deliver
@@ -32,8 +33,9 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   derives it from any `PlatformTransactionManager`; direct constructor users must pass
   `SpringTransactionRunner(template)` or a thin wrapper. ([#49](https://github.com/softwaremill/okapi/pull/49))
 - **`PostgresOutboxStore` / `MysqlOutboxStore` no longer take a `clock` parameter** —
-  unused after the lag-gauge fix. Drop the second constructor argument; Spring Boot
-  users unaffected. ([#58](https://github.com/softwaremill/okapi/pull/58))
+  it became unused after the lag-gauge fix ([#58](https://github.com/softwaremill/okapi/pull/58)).
+  Drop the second constructor argument; Spring Boot users unaffected.
+  ([#59](https://github.com/softwaremill/okapi/pull/59))
 - **`okapi-spring-boot` autoconfig fails fast when it cannot verify the
   PlatformTransactionManager↔outbox-DataSource binding** in a multi-DataSource context
   with no `okapi.transaction-manager-qualifier` set. Name the PTM via that qualifier, or
@@ -54,9 +56,10 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 - **HTTP delivery exception classification.** `HttpMessageDeliverer` previously caught
   every exception as `RetriableFailure`, so corrupt delivery metadata or an unknown
-  service triggered an infinite retry loop. `JsonProcessingException` and other non-IO
-  errors (malformed URI, unknown service) are now `PermanentFailure`; `IOException` /
-  `InterruptedException` stay retriable. ([#44](https://github.com/softwaremill/okapi/pull/44))
+  service wasted the whole retry budget before being marked `FAILED` instead of failing
+  fast. `JsonProcessingException` and other non-IO errors (malformed URI, unknown
+  service) are now `PermanentFailure`; `IOException` / `InterruptedException` stay
+  retriable. ([#44](https://github.com/softwaremill/okapi/pull/44))
 - **`okapi.transaction-manager-qualifier` is now honoured even when
   `TransactionAutoConfiguration` registers a unique `TransactionTemplate`.** Previously the
   qualifier was silently ignored in multi-PTM setups, defaulting to the @Primary PTM. Rule
@@ -69,8 +72,9 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 - **Startup `NoClassDefFoundError` on Spring Boot 3.5.x without `liquibase-core`** (e.g.
   Flyway-only apps) — okapi's Liquibase beans are now guarded by class-level
   `@ConditionalOnClass(SpringLiquibase)`. Also stops okapi's `SpringLiquibase` bean from
-  shadowing the host application's own changelog (via `@AutoConfigureAfter` Boot's
-  `LiquibaseAutoConfiguration`). ([#42](https://github.com/softwaremill/okapi/pull/42),
+  shadowing the host application's own changelog — okapi's auto-config is now ordered
+  after Spring Boot's `LiquibaseAutoConfiguration`.
+  ([#42](https://github.com/softwaremill/okapi/pull/42),
   [#38](https://github.com/softwaremill/okapi/issues/38))
 - **`okapi-micrometer` auto-config ordering on Spring Boot 3.5.x.** `@AutoConfigureAfter`
   now lists both the 3.5.x and 4.0.x metrics-package locations, so the listener / metrics /
