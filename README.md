@@ -296,17 +296,17 @@ graph BT
 
 ## Performance
 
-Throughput baseline (single instance, sync sequential delivery, MacBook M3 Max, JDK 25 LTS, April 2026):
+Throughput on a single instance (MacBook M3 Max, JDK 21 LTS, May 2026):
 
 | Transport | batchSize=10 | batchSize=100 |
 |-----------|--------------|----------------|
-| Kafka (`acks=all`, localhost broker) | ~110 msg/s | ~115 msg/s |
-| HTTP @ webhook latency 20 ms | ~33 msg/s | ~36 msg/s |
-| HTTP @ webhook latency 100 ms | ~9 msg/s | ~9 msg/s |
+| Kafka (`acks=all`, localhost broker, async batch via `deliverBatch`) | **~1,790 msg/s** | **~5,180 msg/s** |
+| HTTP @ webhook latency 20 ms (sync sequential — parallel `sendAsync` planned) | ~38 msg/s | ~38 msg/s |
+| HTTP @ webhook latency 100 ms (sync sequential — parallel `sendAsync` planned) | ~9 msg/s | ~9 msg/s |
 
-These numbers reflect the current sync-sequential delivery model. Throughput is bounded by per-message round-trip time × batch size.
+Kafka throughput jumped 16-45× over the original sync-sequential baseline thanks to the `deliverBatch` fire-flush-await pattern. HTTP parallel `sendAsync` is next; multi-threaded scheduler scaling is in the roadmap.
 
-Full methodology, raw JMH results, and reproduction instructions: [`benchmarks/`](benchmarks/).
+Full methodology, raw JMH results, before/after per change: [`benchmarks/`](benchmarks/).
 
 ## Build
 

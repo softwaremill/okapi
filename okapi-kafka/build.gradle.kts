@@ -9,6 +9,7 @@ dependencies {
     api(project(":okapi-core"))
     implementation(libs.jacksonModuleKotlin)
     implementation(libs.jacksonDatatypeJsr310)
+    implementation(libs.slf4jApi)
     api(libs.kafkaClients)
 
     testImplementation(libs.kotestRunnerJunit5)
