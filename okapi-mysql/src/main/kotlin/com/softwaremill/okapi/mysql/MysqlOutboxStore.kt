@@ -5,8 +5,10 @@ import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxId
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.Timestamp
+import java.sql.Types
 import java.time.Instant
 import java.util.UUID
 
@@ -66,7 +68,14 @@ class MysqlOutboxStore(
         }
     }
 
-    override fun updateAfterProcessing(entry: OutboxEntry): OutboxEntry = persist(entry)
+    override fun updateAfterProcessing(entry: OutboxEntry): OutboxEntry {
+        connectionProvider.withConnection { conn ->
+            conn.prepareStatement(updateSql).use { stmt ->
+                stmt.prepareForUpdateFrom(entry).executeUpdate()
+            }
+        }
+        return entry
+    }
 
     override fun removeDeliveredBefore(time: Instant, limit: Int): Int {
         val sql = """
@@ -132,18 +141,7 @@ class MysqlOutboxStore(
         connectionProvider.withConnection { conn ->
             conn.prepareStatement(updateSql).use { stmt ->
                 entries.forEach { entry ->
-                    stmt.setString(1, entry.status.name)
-                    stmt.setTimestamp(2, Timestamp.from(entry.updatedAt))
-                    stmt.setInt(3, entry.retries)
-                    if (entry.lastAttempt != null) {
-                        stmt.setTimestamp(4, Timestamp.from(entry.lastAttempt))
-                    } else {
-                        stmt.setNull(4, java.sql.Types.TIMESTAMP)
-                    }
-                    if (entry.lastError != null) stmt.setString(5, entry.lastError) else stmt.setNull(5, java.sql.Types.VARCHAR)
-                    // CHAR(36) column — MySQL has no native UUID type, so the id travels as a string.
-                    stmt.setString(6, entry.outboxId.raw.toString())
-                    stmt.addBatch()
+                    stmt.prepareForUpdateFrom(entry).addBatch()
                 }
                 stmt.executeBatch()
             }
@@ -164,6 +162,21 @@ class MysqlOutboxStore(
         lastError = getString("last_error"),
         deliveryMetadata = getString("delivery_metadata"),
     )
+
+    private fun PreparedStatement.prepareForUpdateFrom(entry: OutboxEntry): PreparedStatement {
+        setString(1, entry.status.name)
+        setTimestamp(2, Timestamp.from(entry.updatedAt))
+        setInt(3, entry.retries)
+        if (entry.lastAttempt != null) {
+            setTimestamp(4, Timestamp.from(entry.lastAttempt))
+        } else {
+            setNull(4, Types.TIMESTAMP)
+        }
+        if (entry.lastError != null) setString(5, entry.lastError) else setNull(5, Types.VARCHAR)
+        // CHAR(36) column — MySQL has no native UUID type, so the id travels as a string.
+        setString(6, entry.outboxId.raw.toString())
+        return this
+    }
 
     companion object {
         private val upsertSql = """
