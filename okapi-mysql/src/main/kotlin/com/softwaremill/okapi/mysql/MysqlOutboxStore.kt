@@ -166,7 +166,7 @@ class MysqlOutboxStore(
     )
 
     companion object {
-        val upsertSql = """
+        private val upsertSql = """
             INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
