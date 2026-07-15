@@ -7,6 +7,7 @@ import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import java.sql.ResultSet
 import java.sql.Timestamp
+import java.sql.Types
 import java.time.Instant
 import java.util.UUID
 
@@ -16,20 +17,8 @@ class PostgresOutboxStore(
 ) : OutboxStore {
 
     override fun persist(entry: OutboxEntry): OutboxEntry {
-        val sql = """
-            INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata)
-            VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
-            ON CONFLICT (id) DO UPDATE SET
-                status = EXCLUDED.status,
-                updated_at = EXCLUDED.updated_at,
-                retries = EXCLUDED.retries,
-                last_attempt = EXCLUDED.last_attempt,
-                last_error = EXCLUDED.last_error,
-                delivery_metadata = EXCLUDED.delivery_metadata
-        """.trimIndent()
-
         connectionProvider.withConnection { conn ->
-            conn.prepareStatement(sql).use { stmt ->
+            conn.prepareStatement(insertSql).use { stmt ->
                 stmt.setString(1, entry.outboxId.raw.toString())
                 stmt.setString(2, entry.messageType)
                 stmt.setString(3, entry.payload)
@@ -133,6 +122,32 @@ class PostgresOutboxStore(
         return OutboxStatus.entries.associateWith { counts[it] ?: 0L }
     }
 
+    override fun updateAfterProcessingBatch(entries: List<OutboxEntry>): List<OutboxEntry> {
+        if (entries.isEmpty()) return entries
+        connectionProvider.withConnection { conn ->
+            conn.prepareStatement(updateSql).use { stmt ->
+                entries.forEach { entry ->
+                    stmt.setString(1, entry.status.name)
+                    stmt.setTimestamp(2, Timestamp.from(entry.updatedAt))
+                    stmt.setInt(3, entry.retries)
+                    if (entry.lastAttempt != null) {
+                        stmt.setTimestamp(
+                            4,
+                            Timestamp.from(entry.lastAttempt),
+                        )
+                    } else {
+                        stmt.setNull(4, Types.TIMESTAMP)
+                    }
+                    if (entry.lastError != null) stmt.setString(5, entry.lastError) else stmt.setNull(5, Types.VARCHAR)
+                    stmt.setObject(6, entry.outboxId.raw)
+                    stmt.addBatch()
+                }
+                stmt.executeBatch()
+            }
+        }
+        return entries
+    }
+
     private fun ResultSet.toOutboxEntry(): OutboxEntry = OutboxEntry(
         outboxId = OutboxId(UUID.fromString(getString("id"))),
         messageType = getString("message_type"),
@@ -146,4 +161,24 @@ class PostgresOutboxStore(
         lastError = getString("last_error"),
         deliveryMetadata = getString("delivery_metadata"),
     )
+
+    companion object {
+        private val insertSql = """
+            INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata)
+            VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+            ON CONFLICT (id) DO UPDATE SET
+                status = EXCLUDED.status,
+                updated_at = EXCLUDED.updated_at,
+                retries = EXCLUDED.retries,
+                last_attempt = EXCLUDED.last_attempt,
+                last_error = EXCLUDED.last_error,
+                delivery_metadata = EXCLUDED.delivery_metadata
+        """.trimIndent()
+
+        private val updateSql = """
+            UPDATE okapi_outbox
+            SET status = ?, updated_at = ?, retries = ?, last_attempt = ?, last_error = ?
+            WHERE id = ?
+        """.trimIndent()
+    }
 }

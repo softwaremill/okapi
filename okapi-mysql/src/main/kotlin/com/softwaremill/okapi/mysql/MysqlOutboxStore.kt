@@ -16,20 +16,8 @@ class MysqlOutboxStore(
 ) : OutboxStore {
 
     override fun persist(entry: OutboxEntry): OutboxEntry {
-        val sql = """
-            INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-                status = VALUES(status),
-                updated_at = VALUES(updated_at),
-                retries = VALUES(retries),
-                last_attempt = VALUES(last_attempt),
-                last_error = VALUES(last_error),
-                delivery_metadata = VALUES(delivery_metadata)
-        """.trimIndent()
-
         connectionProvider.withConnection { conn ->
-            conn.prepareStatement(sql).use { stmt ->
+            conn.prepareStatement(upsertSql).use { stmt ->
                 stmt.setString(1, entry.outboxId.raw.toString())
                 stmt.setString(2, entry.messageType)
                 stmt.setString(3, entry.payload)
@@ -139,6 +127,30 @@ class MysqlOutboxStore(
         return OutboxStatus.entries.associateWith { counts[it] ?: 0L }
     }
 
+    override fun updateAfterProcessingBatch(entries: List<OutboxEntry>): List<OutboxEntry> {
+        if (entries.isEmpty()) return entries
+        connectionProvider.withConnection { conn ->
+            conn.prepareStatement(updateSql).use { stmt ->
+                entries.forEach { entry ->
+                    stmt.setString(1, entry.status.name)
+                    stmt.setTimestamp(2, Timestamp.from(entry.updatedAt))
+                    stmt.setInt(3, entry.retries)
+                    if (entry.lastAttempt != null) {
+                        stmt.setTimestamp(4, Timestamp.from(entry.lastAttempt))
+                    } else {
+                        stmt.setNull(4, java.sql.Types.TIMESTAMP)
+                    }
+                    if (entry.lastError != null) stmt.setString(5, entry.lastError) else stmt.setNull(5, java.sql.Types.VARCHAR)
+                    // CHAR(36) column — MySQL has no native UUID type, so the id travels as a string.
+                    stmt.setString(6, entry.outboxId.raw.toString())
+                    stmt.addBatch()
+                }
+                stmt.executeBatch()
+            }
+        }
+        return entries
+    }
+
     private fun ResultSet.toOutboxEntry(): OutboxEntry = OutboxEntry(
         outboxId = OutboxId(UUID.fromString(getString("id"))),
         messageType = getString("message_type"),
@@ -152,4 +164,24 @@ class MysqlOutboxStore(
         lastError = getString("last_error"),
         deliveryMetadata = getString("delivery_metadata"),
     )
+
+    companion object {
+        val upsertSql = """
+            INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                status = VALUES(status),
+                updated_at = VALUES(updated_at),
+                retries = VALUES(retries),
+                last_attempt = VALUES(last_attempt),
+                last_error = VALUES(last_error),
+                delivery_metadata = VALUES(delivery_metadata)
+        """.trimIndent()
+
+        private val updateSql = """
+            UPDATE okapi_outbox
+            SET status = ?, updated_at = ?, retries = ?, last_attempt = ?, last_error = ?
+            WHERE id = ?
+        """.trimIndent()
+    }
 }

@@ -30,4 +30,11 @@ interface OutboxStore {
 
     /** Returns entry count per status. */
     fun countByStatuses(): Map<OutboxStatus, Long>
+
+    /**
+     * Updates a batch of entries after a delivery attempt in a single roundtrip where
+     * possible. Default loops over [updateAfterProcessing] one at a time; storage modules
+     * override this with a single JDBC `executeBatch()` call.
+     */
+    fun updateAfterProcessingBatch(entries: List<OutboxEntry>): List<OutboxEntry> = entries.map { updateAfterProcessing(it) }
 }

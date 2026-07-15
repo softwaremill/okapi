@@ -329,4 +329,43 @@ class OutboxProcessorTest :
                 }
             }
         }
+
+        given("processNext() with three pending entries") {
+            `when`("store overrides updateAfterProcessingBatch") {
+                val batchCalls = mutableListOf<List<OutboxEntry>>()
+                val individualCalls = mutableListOf<OutboxEntry>()
+                val batchAwareStore = object : OutboxStore {
+                    override fun persist(entry: OutboxEntry) = entry
+                    override fun claimPending(limit: Int): List<OutboxEntry> = pendingEntries.take(limit)
+                    override fun updateAfterProcessing(entry: OutboxEntry): OutboxEntry = entry.also { individualCalls += it }
+                    override fun removeDeliveredBefore(time: Instant, limit: Int) = 0
+                    override fun findOldestCreatedAt(statuses: Set<OutboxStatus>) = emptyMap<OutboxStatus, Instant>()
+                    override fun countByStatuses() = emptyMap<OutboxStatus, Long>()
+
+                    override fun updateAfterProcessingBatch(entries: List<OutboxEntry>): List<OutboxEntry> {
+                        batchCalls += entries
+                        return entries
+                    }
+                }
+
+                pendingEntries = listOf(stubEntry("a"), stubEntry("b"), stubEntry("c"))
+                val entryProcessor = OutboxEntryProcessor(
+                    deliverer = stubDeliverer(DeliveryResult.Success),
+                    retryPolicy = RetryPolicy(maxRetries = 3),
+                    clock = fixedClock,
+                )
+                val returnedCount = OutboxProcessor(batchAwareStore, entryProcessor).processNext(limit = 10)
+
+                then("updateAfterProcessingBatch is called exactly once, with all processed entries") {
+                    batchCalls.size shouldBe 1
+                    batchCalls.first().size shouldBe 3
+                }
+                then("updateAfterProcessing is never called directly by the processor") {
+                    individualCalls.size shouldBe 0
+                }
+                then("processNext still returns the count of processed entries") {
+                    returnedCount shouldBe 3
+                }
+            }
+        }
     })

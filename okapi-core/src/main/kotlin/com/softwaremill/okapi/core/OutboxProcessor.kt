@@ -40,10 +40,9 @@ class OutboxProcessor(
         val processed = entryProcessor.processBatch(claimed)
         val batchDuration = Duration.between(batchStart, clock.instant())
 
-        processed.forEach { updated ->
-            store.updateAfterProcessing(updated)
-            notifyEntry(updated, batchDuration)
-        }
+        store.updateAfterProcessingBatch(processed)
+        processed.forEach { updated -> notifyEntry(updated, batchDuration) }
+
         notifyBatch(processed.size, Duration.between(batchStart, clock.instant()))
         return processed.size
     }
