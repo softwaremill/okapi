@@ -67,6 +67,14 @@ Single-entry `deliver()` calls with mocked I/O:
 Measures pure code overhead (JSON deserialization, record/request construction,
 exception classification). Useful as "did optimization X regress the hot path?" baseline.
 
+### Scheduler fan-out (`OutboxSchedulerConcurrencyBenchmark`)
+
+Drains a fixed backlog through `concurrency` parallel `processNext()` calls per round — one call
+per worker, each on its own transaction, mirroring `OutboxScheduler`'s internal fan-out (the
+scheduler's polling loop itself is still bypassed). `@Param executorType ∈ {platform, virtual}` ×
+`@Param concurrency ∈ {1, 4, 16, 64}`. Transport is Kafka `deliverBatch` — real Postgres + real
+Kafka via Testcontainers. See [`results-postopt-KOJAK-77.md`](results-postopt-KOJAK-77.md).
+
 ## How to read results
 
 Throughput benchmarks report **ops/s = msg/s** thanks to `@OperationsPerInvocation`.
@@ -96,10 +104,16 @@ investigate variability sources (background processes, thermal throttling, GC).
   is dominated by the target service's processing time + network — pick the value closest
   to your target. With `httpLatencyMs=100`, sequential delivery is bounded at
   `1000ms / 100ms = 10 msg/s/thread` regardless of library efficiency.
-- **Single-threaded scheduler.** Current `OutboxSchedulerConfig` does not expose `concurrency`.
-  Once that lands (planned), the throughput matrix will expand to `batchSize × concurrency`.
+- **Multi-threaded scheduler is single-instance, single-backend.** `OutboxSchedulerConcurrencyBenchmark`
+  fans out against one Postgres container and one Kafka broker; it measures the fan-out
+  mechanism's overhead, not unlimited horizontal DB/broker scaling. See
+  [`results-postopt-KOJAK-77.md`](results-postopt-KOJAK-77.md) for the concurrency=64 round-count
+  artifact (a single round drains the whole fixed backlog, so per-round fixed costs aren't
+  amortized the way they are at lower concurrency).
 
 ## Historical baselines
 
 - [`results-baseline-2026-04.md`](results-baseline-2026-04.md) — pre-optimization baseline
   (sync sequential delivery, single-threaded scheduler)
+- [`results-postopt-KOJAK-75.md`](results-postopt-KOJAK-75.md) — batch UPDATE via JDBC `executeBatch`
+- [`results-postopt-KOJAK-77.md`](results-postopt-KOJAK-77.md) — multi-threaded scheduler concurrency knob

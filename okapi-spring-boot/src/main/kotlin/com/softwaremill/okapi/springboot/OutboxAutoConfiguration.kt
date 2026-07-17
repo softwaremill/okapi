@@ -205,6 +205,7 @@ class OutboxAutoConfiguration(
             config = OutboxSchedulerConfig(
                 interval = props.interval,
                 batchSize = props.batchSize,
+                concurrency = props.concurrency,
             ),
         )
     }
