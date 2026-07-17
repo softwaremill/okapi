@@ -35,7 +35,7 @@ class OutboxProcessorJavaInteropTest :
 
                     override fun deliver(entry: OutboxEntry) = DeliveryResult.Success
                 },
-                retryPolicy = RetryPolicy(3),
+                retryPolicy = RetryPolicy(maxRetries = 3),
                 clock = Clock.systemUTC(),
             )
 
