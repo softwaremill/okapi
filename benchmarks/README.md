@@ -103,3 +103,8 @@ investigate variability sources (background processes, thermal throttling, GC).
 
 - [`results-baseline-2026-04.md`](results-baseline-2026-04.md) — pre-optimization baseline
   (sync sequential delivery, single-threaded scheduler)
+- [`results-postopt-KOJAK-75.md`](results-postopt-KOJAK-75.md) — batch UPDATE via JDBC
+  `executeBatch()`, Postgres: 10.2×
+- [`results-mysql-rewrite-batched-statements.md`](results-mysql-rewrite-batched-statements.md) —
+  same optimization on MySQL: mechanism verified correct, but no net speedup measured at this
+  batch size/hardware — read before assuming the Postgres multiplier transfers
