@@ -1,33 +1,46 @@
 package com.softwaremill.okapi.core
 
-import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.nulls.shouldNotBeNull
+import java.time.Clock
+import java.time.Instant
 
 /**
- * Guards the `@JvmOverloads` on [OutboxProcessor]'s constructor. Kotlin default
- * parameters are invisible to Java, so without `@JvmOverloads` a Java caller is
- * forced to pass `listener` and `clock` explicitly. These reflection checks fail
- * if the annotation is dropped — Kotlin call sites would keep compiling and hide
- * the regression otherwise.
+ * Runs the Java call sites in [JavaOutboxProcessorConstruction], which compile only when
+ * [OutboxProcessor]'s constructor carries `@JvmOverloads`. The real guard is that Java source
+ * compiling — okapi-core has no other Java interop test, which is why the missing annotation
+ * regressed unnoticed. The stubs are inert: the constructor only stores its arguments.
  */
 class OutboxProcessorJavaInteropTest :
     FunSpec({
-        test("exposes a (store, entryProcessor) constructor to Java") {
-            shouldNotThrowAny {
-                OutboxProcessor::class.java.getConstructor(
-                    OutboxStore::class.java,
-                    OutboxEntryProcessor::class.java,
-                )
-            }
-        }
+        val store =
+            object : OutboxStore {
+                override fun persist(entry: OutboxEntry) = entry
 
-        test("exposes a (store, entryProcessor, listener) constructor to Java") {
-            shouldNotThrowAny {
-                OutboxProcessor::class.java.getConstructor(
-                    OutboxStore::class.java,
-                    OutboxEntryProcessor::class.java,
-                    OutboxProcessorListener::class.java,
-                )
+                override fun claimPending(limit: Int) = emptyList<OutboxEntry>()
+
+                override fun updateAfterProcessing(entry: OutboxEntry) = entry
+
+                override fun removeDeliveredBefore(time: Instant, limit: Int) = 0
+
+                override fun findOldestCreatedAt(statuses: Set<OutboxStatus>) = emptyMap<OutboxStatus, Instant>()
+
+                override fun countByStatuses() = emptyMap<OutboxStatus, Long>()
             }
+        val entryProcessor =
+            OutboxEntryProcessor(
+                deliverer =
+                object : MessageDeliverer {
+                    override val type = "stub"
+
+                    override fun deliver(entry: OutboxEntry) = DeliveryResult.Success
+                },
+                retryPolicy = RetryPolicy(3),
+                clock = Clock.systemUTC(),
+            )
+
+        test("Java can construct OutboxProcessor with trailing defaults omitted (@JvmOverloads)") {
+            JavaOutboxProcessorConstruction.withStoreAndProcessor(store, entryProcessor).shouldNotBeNull()
+            JavaOutboxProcessorConstruction.withListener(store, entryProcessor, null).shouldNotBeNull()
         }
     })
