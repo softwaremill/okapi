@@ -18,7 +18,7 @@ import java.time.Duration
  * fire-flush-await — making per-entry timing meaningless). Use
  * [OutboxProcessorListener.onBatchProcessed] when you need batch-level timing.
  */
-class OutboxProcessor(
+class OutboxProcessor @JvmOverloads constructor(
     private val store: OutboxStore,
     private val entryProcessor: OutboxEntryProcessor,
     private val listener: OutboxProcessorListener? = null,
