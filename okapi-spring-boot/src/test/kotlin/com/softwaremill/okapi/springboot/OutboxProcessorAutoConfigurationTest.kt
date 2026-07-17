@@ -50,12 +50,14 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
                 "okapi.processor.interval=500ms",
                 "okapi.processor.batch-size=20",
                 "okapi.processor.max-retries=3",
+                "okapi.processor.concurrency=4",
             )
             .run { ctx ->
                 val props = ctx.getBean(OutboxProcessorProperties::class.java)
                 props.interval shouldBe ofMillis(500)
                 props.batchSize shouldBe 20
                 props.maxRetries shouldBe 3
+                props.concurrency shouldBe 4
             }
     }
 
@@ -65,6 +67,7 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             props.interval shouldBe ofSeconds(1)
             props.batchSize shouldBe 10
             props.maxRetries shouldBe 5
+            props.concurrency shouldBe 1
         }
     }
 
@@ -87,6 +90,14 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
     test("invalid batch-size triggers startup failure") {
         contextRunner
             .withPropertyValues("okapi.processor.batch-size=0")
+            .run { ctx ->
+                ctx.startupFailure.shouldNotBeNull()
+            }
+    }
+
+    test("invalid concurrency triggers startup failure") {
+        contextRunner
+            .withPropertyValues("okapi.processor.concurrency=0")
             .run { ctx ->
                 ctx.startupFailure.shouldNotBeNull()
             }

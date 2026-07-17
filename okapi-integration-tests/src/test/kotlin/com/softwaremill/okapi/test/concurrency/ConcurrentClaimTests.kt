@@ -6,9 +6,12 @@ import com.softwaremill.okapi.core.OutboxEntryProcessor
 import com.softwaremill.okapi.core.OutboxId
 import com.softwaremill.okapi.core.OutboxMessage
 import com.softwaremill.okapi.core.OutboxProcessor
+import com.softwaremill.okapi.core.OutboxScheduler
+import com.softwaremill.okapi.core.OutboxSchedulerConfig
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.RetryPolicy
+import com.softwaremill.okapi.core.TransactionRunner
 import com.softwaremill.okapi.test.support.JdbcConnectionProvider
 import com.softwaremill.okapi.test.support.RecordingMessageDeliverer
 import io.kotest.assertions.withClue
@@ -18,6 +21,7 @@ import io.kotest.matchers.maps.shouldContain
 import io.kotest.matchers.shouldBe
 import java.sql.Connection
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 import java.util.concurrent.CompletableFuture
@@ -162,6 +166,51 @@ fun FunSpec.concurrentClaimTests(
         val counts = jdbc.withTransaction { store.countByStatuses() }
         withClue("DB state after concurrent processing: $counts") {
             counts shouldContain (OutboxStatus.DELIVERED to 50L)
+            counts shouldContain (OutboxStatus.PENDING to 0L)
+        }
+    }
+
+    test("[$dbName] OutboxScheduler with concurrency=4 workers processes disjoint batches without amplification") {
+        val fixedClock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC)
+
+        // 80 entries, batchSize=10, concurrency=4 -> 40 claimed per tick, so it takes 2 ticks
+        // to drain everything. This exercises both the multi-worker fan-out within a single tick
+        // AND repeated ticks, unlike the single-shot manual-thread test above.
+        val entryCount = 80
+        jdbc.withTransaction {
+            (0 until entryCount).forEach { i -> store.persist(createTestEntry(i)) }
+        }
+
+        val recorder = RecordingMessageDeliverer()
+        val entryProcessor = OutboxEntryProcessor(recorder, RetryPolicy(maxRetries = 0), fixedClock)
+        val processor = OutboxProcessor(store, entryProcessor)
+
+        val transactionRunner = object : TransactionRunner {
+            override fun <T> runInTransaction(block: () -> T): T =
+                jdbc.withTransaction(transactionIsolation = Connection.TRANSACTION_READ_COMMITTED) { block() }
+        }
+
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = transactionRunner,
+            config = OutboxSchedulerConfig(interval = Duration.ofMillis(50), batchSize = 10, concurrency = 4),
+        )
+
+        scheduler.start()
+        val deadline = System.currentTimeMillis() + 30_000
+        while (recorder.deliveryCount() < entryCount && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50)
+        }
+        scheduler.stop()
+
+        recorder.assertNoAmplification()
+        withClue("Expected exactly $entryCount unique deliveries from a concurrency=4 scheduler, got ${recorder.deliveryCount()}") {
+            recorder.deliveryCount() shouldBe entryCount
+        }
+
+        val counts = jdbc.withTransaction { store.countByStatuses() }
+        withClue("DB state after scheduler run: $counts") {
+            counts shouldContain (OutboxStatus.DELIVERED to entryCount.toLong())
             counts shouldContain (OutboxStatus.PENDING to 0L)
         }
     }

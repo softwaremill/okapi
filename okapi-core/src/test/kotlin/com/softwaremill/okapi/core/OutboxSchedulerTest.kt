@@ -131,6 +131,77 @@ class OutboxSchedulerTest : FunSpec({
 
         txInvoked.get() shouldBe true
     }
+
+    test("concurrency > 1 fans out to that many workers per tick") {
+        val callCount = AtomicInteger(0)
+        val threadNames = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        val latch = CountDownLatch(4)
+        val processor = stubProcessor { _ ->
+            callCount.incrementAndGet()
+            threadNames += Thread.currentThread().name
+            latch.countDown()
+        }
+
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
+            config = OutboxSchedulerConfig(interval = ofMinutes(1), concurrency = 4),
+        )
+
+        scheduler.start()
+        latch.await(2, TimeUnit.SECONDS) shouldBe true
+        scheduler.stop()
+
+        callCount.get() shouldBe 4
+        threadNames shouldBe setOf("outbox-worker-1", "outbox-worker-2", "outbox-worker-3", "outbox-worker-4")
+    }
+
+    test("concurrency = 1 never invokes workerExecutorFactory (zero-overhead default path)") {
+        val factoryCalled = AtomicBoolean(false)
+        val latch = CountDownLatch(1)
+        val processor = stubProcessor { _ -> latch.countDown() }
+
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
+            config = OutboxSchedulerConfig(
+                interval = ofMillis(50),
+                concurrency = 1,
+                workerExecutorFactory = { n ->
+                    factoryCalled.set(true)
+                    OutboxSchedulerConfig.defaultPlatformPool(n)
+                },
+            ),
+        )
+
+        scheduler.start()
+        latch.await(2, TimeUnit.SECONDS) shouldBe true
+        scheduler.stop()
+
+        factoryCalled.get() shouldBe false
+    }
+
+    test("one worker's exception does not prevent the other workers from completing") {
+        val callCount = AtomicInteger(0)
+        val latch = CountDownLatch(4)
+        val processor = stubProcessor { _ ->
+            val count = callCount.incrementAndGet()
+            latch.countDown()
+            if (count == 1) throw RuntimeException("worker failure")
+        }
+
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
+            config = OutboxSchedulerConfig(interval = ofMinutes(1), concurrency = 4),
+        )
+
+        scheduler.start()
+        latch.await(2, TimeUnit.SECONDS) shouldBe true
+        scheduler.stop()
+
+        callCount.get() shouldBe 4
+    }
 })
 
 private fun stubProcessor(onProcessNext: (Int) -> Unit): OutboxProcessor {

@@ -304,9 +304,29 @@ Throughput on a single instance (MacBook M3 Max, JDK 21 LTS, May 2026):
 | HTTP @ webhook latency 20 ms (sync sequential — parallel `sendAsync` planned) | ~38 msg/s | ~38 msg/s |
 | HTTP @ webhook latency 100 ms (sync sequential — parallel `sendAsync` planned) | ~9 msg/s | ~9 msg/s |
 
-Kafka throughput jumped 16-45× over the original sync-sequential baseline thanks to the `deliverBatch` fire-flush-await pattern. HTTP parallel `sendAsync` is next; multi-threaded scheduler scaling is in the roadmap.
+Kafka throughput jumped 16-45× over the original sync-sequential baseline thanks to the `deliverBatch` fire-flush-await pattern. HTTP parallel `sendAsync` is next.
 
-Full methodology, raw JMH results, before/after per change: [`benchmarks/`](benchmarks/).
+**Multi-threaded scheduler** (`OutboxSchedulerConfig.concurrency`, JDK 25, single Postgres+Kafka backend):
+
+| concurrency | speedup vs. concurrency=1 |
+|---|---|
+| 4  | **3.6×** |
+| 16 | **6.2×** |
+| 64 | **6.6×** (diminishing — see caveats below) |
+
+`concurrency=4` to `16` is the practical sweet spot — most of the available speedup is already
+captured there, with marginal gains beyond it on a single-instance backend. Default to platform
+threads (`workerExecutorFactory` default): in this benchmark's tested range (1-64 workers),
+switching to `virtualThreadPool` showed **no measurable advantage** over platform threads, even
+on a JEP 491 JDK (25) — contrary to the original hypothesis that virtual threads would win at
+concurrency=16+. Virtual threads only pay off when worker count vastly exceeds the platform pool
+size; at ≤64 workers there's no oversubscription for them to fix. Tuning rule of thumb:
+`concurrency × instances ≤ max_connections / 2` (row locks make cross-instance coordination free
+via `FOR UPDATE SKIP LOCKED`, but every worker holds a DB connection for its batch's duration).
+
+Full methodology, raw JMH results, before/after per change: [`benchmarks/`](benchmarks/), including
+[`results-postopt-KOJAK-77.md`](benchmarks/results-postopt-KOJAK-77.md) for the full concurrency
+breakdown and the reasoning behind the virtual-thread finding.
 
 ## Build
 
