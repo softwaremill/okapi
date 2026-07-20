@@ -1,8 +1,10 @@
 package com.softwaremill.okapi.core
 
 import org.slf4j.LoggerFactory
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -41,8 +43,12 @@ class OutboxScheduler @JvmOverloads constructor(
             Thread(r, "outbox-processor").apply { isDaemon = true }
         }
 
-    private val workers: ExecutorService? =
-        if (config.concurrency > 1) config.workerExecutorFactory(config.concurrency) else null
+
+    // spin up threads only if needed by lazy
+    private val workers: Lazy<ExecutorService?> =
+        lazy(LazyThreadSafetyMode.NONE) {
+            if (config.concurrency > 1) config.workerExecutorFactory(config.concurrency) else null
+        }
 
     fun start() {
         check(!scheduler.isShutdown) { "OutboxScheduler cannot be restarted after stop()" }
@@ -62,9 +68,11 @@ class OutboxScheduler @JvmOverloads constructor(
         if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
             scheduler.shutdownNow()
         }
-        workers?.let {
-            it.shutdown()
-            if (!it.awaitTermination(5, TimeUnit.SECONDS)) it.shutdownNow()
+        if (workers.isInitialized()) {
+            workers.value?.let {
+                it.shutdown()
+                if (!it.awaitTermination(5, TimeUnit.SECONDS)) it.shutdownNow()
+            }
         }
         logger.info("Outbox processor stopped")
     }
@@ -72,12 +80,30 @@ class OutboxScheduler @JvmOverloads constructor(
     fun isRunning(): Boolean = running.get()
 
     private fun tick() {
-        val pool = workers
+        val pool = workers.value
         if (pool == null) {
             processBatch()
         } else {
             val futures = (1..config.concurrency).map { pool.submit(::processBatch) }
-            futures.forEach { it.get() }
+            futures.forEach(::awaitWorker)
+        }
+    }
+
+    /**
+     * Awaits one worker's completion without letting anything escape [tick] -- an uncaught
+     * exception here would make `scheduleWithFixedDelay` suppress all future ticks, silently
+     * killing the scheduler. [processBatch] already catches [Exception] internally, so this
+     * only guards against an [Error] surfacing via [ExecutionException], or an interrupt while
+     * awaiting.
+     */
+    private fun awaitWorker(future: Future<*>) {
+        try {
+            future.get()
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            logger.warn("Interrupted while awaiting outbox worker; will retry at next scheduled interval", e)
+        } catch (e: ExecutionException) {
+            logger.error("Outbox worker failed unexpectedly, will retry at next scheduled interval", e.cause ?: e)
         }
     }
 

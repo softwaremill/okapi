@@ -17,8 +17,11 @@ data class OutboxSchedulerConfig(
     val concurrency: Int = 1,
     /**
      * Builds the [ExecutorService] used to run workers when [concurrency] > 1. Defaults to
-     * a fixed platform-thread pool ([defaultPlatformPool]); pass [virtualThreadPool] for
-     * high concurrency (roughly 32+) to avoid platform-thread context-switch overhead.
+     * a fixed platform-thread pool ([defaultPlatformPool]). [virtualThreadPool] is available
+     * for workloads at concurrency well beyond what's benchmarked here; at the concurrency
+     * levels actually measured (up to 64, see `benchmarks/results-postopt-KOJAK-77.md`)
+     * platform threads were tied-or-ahead throughout, so nothing in that data recommends
+     * switching away from the default.
      */
     val workerExecutorFactory: (Int) -> ExecutorService = ::defaultPlatformPool,
 ) {

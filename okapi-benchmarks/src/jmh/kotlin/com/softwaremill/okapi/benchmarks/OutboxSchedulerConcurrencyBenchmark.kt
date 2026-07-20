@@ -100,9 +100,16 @@ open class OutboxSchedulerConcurrencyBenchmark {
                 executor.submit(Callable { postgres.jdbc.withTransaction { processor.processNext(BATCH_SIZE) } })
             }
             val processedThisRound = futures.sumOf { it.get() }
-            if (processedThisRound == 0) break
+            // A stalled round must fail loudly, not `break` silently -- @OperationsPerInvocation(TOTAL_ENTRIES)
+            // would otherwise have JMH divide elapsed time by a count of entries that were never actually
+            // processed, silently under-reporting the per-op cost.
+            check(processedThisRound > 0) {
+                "drainAll() stalled with $remaining/$TOTAL_ENTRIES entries left unprocessed " +
+                    "(concurrency=$concurrency, batchSize=$BATCH_SIZE, executorType=$executorType)"
+            }
             remaining -= processedThisRound
         }
+        check(remaining == 0) { "drainAll() finished with $remaining/$TOTAL_ENTRIES entries still unprocessed" }
     }
 
     @TearDown(Level.Trial)
