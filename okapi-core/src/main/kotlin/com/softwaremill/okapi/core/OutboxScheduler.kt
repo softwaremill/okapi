@@ -43,7 +43,6 @@ class OutboxScheduler @JvmOverloads constructor(
             Thread(r, "outbox-processor").apply { isDaemon = true }
         }
 
-
     // spin up threads only if needed by lazy
     private val workers: Lazy<ExecutorService?> =
         lazy(LazyThreadSafetyMode.NONE) {
