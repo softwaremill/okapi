@@ -1,6 +1,6 @@
 # HTTP deliverBatch parallel sendAsync — Results (KOJAK-74)
 
-Measured on MacBook M3 Max, JDK 21 LTS, Postgres 16 + WireMock (in-JVM) via Testcontainers,
+Measured on MacBook M3 Max, JDK 25 (25.0.2), Postgres 16 + WireMock (in-JVM) via Testcontainers,
 full JMH config: `fork=2, warmup=3 × 10s, iter=5 × 30s` — n=10 samples per benchmark.
 
 ## Headline numbers — HTTP throughput

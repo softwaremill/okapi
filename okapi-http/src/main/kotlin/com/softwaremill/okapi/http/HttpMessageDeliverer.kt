@@ -43,9 +43,6 @@ class HttpMessageDeliverer @JvmOverloads constructor(
         val request = buildRequest(entry)
         val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
         classifyResponse(response.statusCode(), response.body())
-    } catch (e: InterruptedException) {
-        Thread.currentThread().interrupt()
-        classifyThrowable(e)
     } catch (e: Exception) {
         classifyThrowable(e)
     }
@@ -77,9 +74,6 @@ class HttpMessageDeliverer @JvmOverloads constructor(
             .thenApply { response -> classifyResponse(response.statusCode(), response.body()) }
             .exceptionally { e -> classifyThrowable(e.cause ?: e) }
         SendAttempt.InFlight(future)
-    } catch (e: InterruptedException) {
-        Thread.currentThread().interrupt()
-        SendAttempt.ImmediateFailure(classifyThrowable(e))
     } catch (e: Exception) {
         SendAttempt.ImmediateFailure(classifyThrowable(e))
     }
@@ -114,7 +108,13 @@ class HttpMessageDeliverer @JvmOverloads constructor(
             is JsonProcessingException -> DeliveryResult.PermanentFailure(message)
             is SSLException -> DeliveryResult.PermanentFailure(message)
             is IOException -> DeliveryResult.RetriableFailure(message)
-            is InterruptedException -> DeliveryResult.RetriableFailure(message)
+            is InterruptedException -> {
+                // Restored here (not at the two call sites) so it also covers the async path:
+                // fireOne()'s .exceptionally callback runs on whichever thread completes the
+                // future, not the caller's thread, so this must be self-contained.
+                Thread.currentThread().interrupt()
+                DeliveryResult.RetriableFailure(message)
+            }
             else -> DeliveryResult.PermanentFailure(message)
         }
     }
