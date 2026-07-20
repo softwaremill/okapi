@@ -1,6 +1,7 @@
 package com.softwaremill.okapi.http
 
 import com.fasterxml.jackson.core.JsonProcessingException
+import com.softwaremill.okapi.core.DeliveryOutcome
 import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
@@ -10,6 +11,8 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import java.util.concurrent.CompletableFuture
+import javax.net.ssl.SSLException
 
 /**
  * [MessageDeliverer] that sends outbox entries as HTTP requests via JDK [HttpClient].
@@ -20,9 +23,14 @@ import java.time.Duration
  * - other → [DeliveryResult.PermanentFailure]
  *
  * Exception classification:
+ * - [SSLException] (bad cert, protocol mismatch — won't fix itself) → [DeliveryResult.PermanentFailure]
  * - [IOException] (connection/timeout) → [DeliveryResult.RetriableFailure]
  * - [InterruptedException] → [DeliveryResult.RetriableFailure] (interrupt flag restored)
- * - other (corrupt metadata, unknown service, malformed URI) → [DeliveryResult.PermanentFailure]
+ * - other (corrupt metadata, unknown service, malformed URI, illegal argument) → [DeliveryResult.PermanentFailure]
+ *
+ * [deliverBatch] fires all requests via [HttpClient.sendAsync] in parallel instead of blocking
+ * sequentially on [HttpClient.send] — the JDK connection pool multiplexes same-host requests
+ * (HTTP/2) automatically, so no explicit grouping is needed.
  */
 class HttpMessageDeliverer @JvmOverloads constructor(
     private val urlResolver: ServiceUrlResolver,
@@ -32,41 +40,88 @@ class HttpMessageDeliverer @JvmOverloads constructor(
     override val type: String = HttpDeliveryInfo.TYPE
 
     override fun deliver(entry: OutboxEntry): DeliveryResult = try {
+        val request = buildRequest(entry)
+        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+        classifyResponse(response.statusCode(), response.body())
+    } catch (e: InterruptedException) {
+        Thread.currentThread().interrupt()
+        classifyThrowable(e)
+    } catch (e: Exception) {
+        classifyThrowable(e)
+    }
+
+    /**
+     * Fires all requests via [HttpClient.sendAsync] before awaiting any of them, so N requests
+     * incur ~max(latency) instead of ~sum(latency). A synchronous failure building one entry's
+     * request (corrupt metadata, unknown service) is isolated to that entry and does not prevent
+     * the rest of the batch from firing.
+     */
+    override fun deliverBatch(entries: List<OutboxEntry>): List<DeliveryOutcome> {
+        if (entries.isEmpty()) return emptyList()
+
+        val attempts: List<Pair<OutboxEntry, SendAttempt>> = entries.map { entry -> entry to fireOne(entry) }
+
+        return attempts.map { (entry, attempt) ->
+            val result = when (attempt) {
+                is SendAttempt.ImmediateFailure -> attempt.result
+                is SendAttempt.InFlight -> attempt.future.join()
+            }
+            DeliveryOutcome(entry, result)
+        }
+    }
+
+    private fun fireOne(entry: OutboxEntry): SendAttempt = try {
+        val request = buildRequest(entry)
+        val future: CompletableFuture<DeliveryResult> = httpClient
+            .sendAsync(request, HttpResponse.BodyHandlers.ofString())
+            .thenApply { response -> classifyResponse(response.statusCode(), response.body()) }
+            .exceptionally { e -> classifyThrowable(e.cause ?: e) }
+        SendAttempt.InFlight(future)
+    } catch (e: InterruptedException) {
+        Thread.currentThread().interrupt()
+        SendAttempt.ImmediateFailure(classifyThrowable(e))
+    } catch (e: Exception) {
+        SendAttempt.ImmediateFailure(classifyThrowable(e))
+    }
+
+    private fun buildRequest(entry: OutboxEntry): HttpRequest {
         val info = HttpDeliveryInfo.deserialize(entry.deliveryMetadata)
         val url = urlResolver.resolve(info.serviceName) + info.endpointPath
 
-        val request =
-            HttpRequest
-                .newBuilder()
-                .uri(URI.create(url))
-                .timeout(REQUEST_TIMEOUT)
-                .header("Content-Type", "application/json")
-                .method(
-                    info.httpMethod.name,
-                    HttpRequest.BodyPublishers.ofString(entry.payload),
-                )
-                .apply { info.headers.forEach { (k, v) -> header(k, v) } }
-                .build()
+        return HttpRequest
+            .newBuilder()
+            .uri(URI.create(url))
+            .timeout(REQUEST_TIMEOUT)
+            .header("Content-Type", "application/json")
+            .method(
+                info.httpMethod.name,
+                HttpRequest.BodyPublishers.ofString(entry.payload),
+            )
+            .apply { info.headers.forEach { (k, v) -> header(k, v) } }
+            .build()
+    }
 
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-        val status = response.statusCode()
-        val body = response.body()
+    private fun classifyResponse(status: Int, body: String): DeliveryResult = when {
+        status in 200..299 -> DeliveryResult.Success
+        status in retriableStatusCodes -> DeliveryResult.RetriableFailure("HTTP $status: $body")
+        else -> DeliveryResult.PermanentFailure("HTTP $status: $body")
+    }
 
-        when {
-            status in 200..299 -> DeliveryResult.Success
-            status in retriableStatusCodes -> DeliveryResult.RetriableFailure("HTTP $status: $body")
-            else -> DeliveryResult.PermanentFailure("HTTP $status: $body")
+    private fun classifyThrowable(e: Throwable): DeliveryResult {
+        val message = e.message ?: e.javaClass.simpleName
+        return when (e) {
+            // Subtypes of IOException, but neither fixes itself on retry — classify before IOException.
+            is JsonProcessingException -> DeliveryResult.PermanentFailure(message)
+            is SSLException -> DeliveryResult.PermanentFailure(message)
+            is IOException -> DeliveryResult.RetriableFailure(message)
+            is InterruptedException -> DeliveryResult.RetriableFailure(message)
+            else -> DeliveryResult.PermanentFailure(message)
         }
-    } catch (e: JsonProcessingException) {
-        // Subtype of IOException, but corrupt metadata won't fix itself — classify before IOException.
-        DeliveryResult.PermanentFailure(e.message ?: e.javaClass.simpleName)
-    } catch (e: IOException) {
-        DeliveryResult.RetriableFailure(e.message ?: "Connection failed")
-    } catch (e: InterruptedException) {
-        Thread.currentThread().interrupt()
-        DeliveryResult.RetriableFailure(e.message ?: "Interrupted")
-    } catch (e: Exception) {
-        DeliveryResult.PermanentFailure(e.message ?: e.javaClass.simpleName)
+    }
+
+    private sealed interface SendAttempt {
+        data class InFlight(val future: CompletableFuture<DeliveryResult>) : SendAttempt
+        data class ImmediateFailure(val result: DeliveryResult) : SendAttempt
     }
 
     companion object {
