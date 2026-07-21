@@ -5,7 +5,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
         "jvmArgs" : [
             "-Xms8g",
             "-Xmx8g",
@@ -71,7 +71,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
         "jvmArgs" : [
             "-Xms8g",
             "-Xmx8g",
@@ -137,7 +137,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
         "jvmArgs" : [
             "-Xms8g",
             "-Xmx8g",
@@ -203,7 +203,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
         "jvmArgs" : [
             "-Xms8g",
             "-Xmx8g",
@@ -269,7 +269,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
         "jvmArgs" : [
             "-Xms8g",
             "-Xmx8g",
@@ -335,7 +335,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
         "jvmArgs" : [
             "-Xms8g",
             "-Xmx8g",
@@ -401,7 +401,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
         "jvmArgs" : [
             "-Xms8g",
             "-Xmx8g",
@@ -467,7 +467,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
         "jvmArgs" : [
             "-Xms8g",
             "-Xmx8g",
@@ -533,7 +533,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
         "jvmArgs" : [
             "-Xms8g",
             "-Xmx8g",
