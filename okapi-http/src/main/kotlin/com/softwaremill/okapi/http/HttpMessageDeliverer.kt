@@ -83,6 +83,11 @@ class HttpMessageDeliverer @JvmOverloads constructor(
     } catch (e: InterruptedException) {
         Thread.currentThread().interrupt()
         classifyThrowable(e)
+    } catch (e: Exception) {
+        // fireOne()'s .exceptionally already converts every failure into a normal completion, so
+        // get() should never throw ExecutionException/CancellationException in practice — but
+        // deliverBatch's contract is MUST NOT throw, so this stays defensive.
+        classifyThrowable(e.cause ?: e)
     }
 
     private fun fireOne(entry: OutboxEntry): SendAttempt = try {

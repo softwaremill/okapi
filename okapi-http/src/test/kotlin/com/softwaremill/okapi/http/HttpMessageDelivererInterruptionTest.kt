@@ -23,6 +23,19 @@ private fun entry(suffix: String): OutboxEntry {
 }
 
 /**
+ * Polls (rather than sleeping a fixed duration) until [thread] is parked waiting on the future/
+ * response it's blocked on, so the test isn't sensitive to CI scheduling jitter — interrupting
+ * before the thread actually blocks would make it miss the wait entirely.
+ */
+private fun awaitBlocked(thread: Thread, timeoutMs: Long = 5_000) {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (thread.state != Thread.State.WAITING && thread.state != Thread.State.TIMED_WAITING) {
+        check(System.currentTimeMillis() < deadline) { "Thread never blocked (state=${thread.state})" }
+        Thread.sleep(5)
+    }
+}
+
+/**
  * Proves that interrupting the calling thread while it is blocked inside [HttpMessageDeliverer]
  * is observed promptly and the interrupt flag ends up restored on that same thread — not on some
  * unrelated `HttpClient` completion thread — for both the synchronous and batched delivery paths.
@@ -47,7 +60,7 @@ class HttpMessageDelivererInterruptionTest : FunSpec({
             interruptedAfterReturn = Thread.currentThread().isInterrupted
         }
         thread.start()
-        Thread.sleep(200) // let it block inside httpClient.send()
+        awaitBlocked(thread)
         thread.interrupt()
         thread.join(5_000)
 
@@ -70,7 +83,7 @@ class HttpMessageDelivererInterruptionTest : FunSpec({
             interruptedAfterReturn = Thread.currentThread().isInterrupted
         }
         thread.start()
-        Thread.sleep(200) // let it block awaiting the first in-flight future
+        awaitBlocked(thread)
         thread.interrupt()
         thread.join(5_000)
 

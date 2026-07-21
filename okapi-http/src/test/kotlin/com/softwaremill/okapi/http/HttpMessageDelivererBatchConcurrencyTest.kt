@@ -13,6 +13,8 @@ import io.kotest.matchers.longs.shouldBeLessThan
 import io.kotest.matchers.shouldBe
 import java.time.Instant
 
+private const val SCHEDULING_JITTER_TOLERANCE_MS = 200L
+
 private fun entry(suffix: String): OutboxEntry {
     val info = httpDeliveryInfo {
         serviceName = "svc"
@@ -58,6 +60,9 @@ class HttpMessageDelivererBatchConcurrencyTest : FunSpec({
         val loggedTimestamps = wiremock.allServeEvents.map { it.request.loggedDate.time }
         loggedTimestamps.size shouldBe batchSize
         val spreadMs = loggedTimestamps.maxOrNull()!! - loggedTimestamps.minOrNull()!!
-        spreadMs.shouldBeLessThan(delayMs)
+        // A fully sequential implementation would spread these across ~(batchSize - 1) * delayMs
+        // (2700 ms here); a small tolerance above one delay window still clearly distinguishes
+        // "overlapped" from "sequential" while absorbing CI scheduling/connection-setup jitter.
+        spreadMs.shouldBeLessThan(delayMs + SCHEDULING_JITTER_TOLERANCE_MS)
     }
 })

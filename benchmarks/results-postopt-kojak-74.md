@@ -7,7 +7,7 @@ full JMH config: `fork=2, warmup=3 × 10s, iter=5 × 30s` — n=10 samples per b
 
 Baseline is sequential blocking `httpClient.send()` (from
 [`results-kafka-deliverbatch.md`](results-kafka-deliverbatch.md#http-throughput-companion-benchmark)).
-Optimized is parallel `httpClient.sendAsync()` fire-all + `thenApply`/`exceptionally` + `join`.
+Optimized is parallel `httpClient.sendAsync()` fire-all + `thenApply`/`exceptionally` + `get`.
 
 | batchSize | Baseline (ms/op) | Optimized (ms/op) | **Improvement** |
 |-----------|-------------------|---------------------|------------------|
@@ -46,10 +46,12 @@ Raw JSON: [`http-deliverbatch.json`](http-deliverbatch.json).
    `SendOutcome` pattern from `KafkaMessageDeliverer`).
 2. **Classify inline** — each future is chained with `.thenApply { classifyResponse(...) }.exceptionally { classifyThrowable(...) }`
    so every future always completes successfully with a `DeliveryResult`, never exceptionally.
-3. **Await** — `.join()` per entry, in input order; since step 2 guarantees no exceptional
-   completion, `join()` never throws. The JDK `HttpClient`'s own per-request 30s timeout
-   (`HttpRequest.timeout()`) bounds the wait — no separate await-timeout needed (unlike Kafka's
-   `flush()`, which has no equivalent per-record deadline).
+3. **Await** — `.get()` per entry, in input order; since step 2 guarantees no exceptional
+   completion, this only returns normally or throws `InterruptedException` if the caller is
+   interrupted while waiting (`get()`, unlike `join()`, observes interrupts — handled by
+   restoring the flag and classifying the entry as retriable). The JDK `HttpClient`'s own
+   per-request 30s timeout (`HttpRequest.timeout()`) bounds the wait — no separate await-timeout
+   needed (unlike Kafka's `flush()`, which has no equivalent per-record deadline).
 
 `deliver()` was refactored to share `buildRequest`/`classifyResponse`/`classifyThrowable` helpers
 with `deliverBatch`, with no single-entry behavior change (existing `HttpMessageDelivererTest`
