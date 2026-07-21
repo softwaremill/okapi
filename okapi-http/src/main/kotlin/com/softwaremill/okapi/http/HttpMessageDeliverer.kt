@@ -25,7 +25,8 @@ import javax.net.ssl.SSLException
  * Exception classification:
  * - [SSLException] (bad cert, protocol mismatch — won't fix itself) → [DeliveryResult.PermanentFailure]
  * - [IOException] (connection/timeout) → [DeliveryResult.RetriableFailure]
- * - [InterruptedException] → [DeliveryResult.RetriableFailure] (interrupt flag restored)
+ * - [InterruptedException] → [DeliveryResult.RetriableFailure] (interrupt flag restored at the
+ *   synchronous call site that observed it; classification itself has no side effects)
  * - other (corrupt metadata, unknown service, malformed URI, illegal argument) → [DeliveryResult.PermanentFailure]
  *
  * [deliverBatch] fires all requests via [HttpClient.sendAsync] in parallel instead of blocking
@@ -44,6 +45,9 @@ class HttpMessageDeliverer @JvmOverloads constructor(
         val request = buildRequest(entry)
         val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
         classifyResponse(response.statusCode(), response.body())
+    } catch (e: InterruptedException) {
+        Thread.currentThread().interrupt()
+        classifyThrowable(e)
     } catch (e: Exception) {
         classifyThrowable(e)
     }
@@ -62,10 +66,23 @@ class HttpMessageDeliverer @JvmOverloads constructor(
         return attempts.map { (entry, attempt) ->
             val result = when (attempt) {
                 is SendAttempt.ImmediateFailure -> attempt.result
-                is SendAttempt.InFlight -> attempt.future.join()
+                is SendAttempt.InFlight -> awaitResult(attempt.future)
             }
             DeliveryOutcome(entry, result)
         }
+    }
+
+    /**
+     * Awaits via [CompletableFuture.get] rather than [CompletableFuture.join] so that an
+     * interrupt on the caller (processor thread shutdown/backpressure) is observed instead of
+     * being ignored — the flag is restored here, on the interrupted thread itself, and the
+     * remaining not-yet-awaited futures in the batch will then also fail fast as retriable.
+     */
+    private fun awaitResult(future: CompletableFuture<DeliveryResult>): DeliveryResult = try {
+        future.get()
+    } catch (e: InterruptedException) {
+        Thread.currentThread().interrupt()
+        classifyThrowable(e)
     }
 
     private fun fireOne(entry: OutboxEntry): SendAttempt = try {
@@ -109,13 +126,11 @@ class HttpMessageDeliverer @JvmOverloads constructor(
             is JsonProcessingException -> DeliveryResult.PermanentFailure(message)
             is SSLException -> DeliveryResult.PermanentFailure(message)
             is IOException -> DeliveryResult.RetriableFailure(message)
-            is InterruptedException -> {
-                // Restored here (not at the two call sites) so it also covers the async path:
-                // fireOne()'s .exceptionally callback runs on whichever thread completes the
-                // future, not the caller's thread, so this must be self-contained.
-                Thread.currentThread().interrupt()
-                DeliveryResult.RetriableFailure(message)
-            }
+            // Deliberately side-effect free: this can run on an HttpClient completion thread
+            // (via fireOne()'s .exceptionally), not the caller's thread, so interrupting
+            // "current thread" here would interrupt an unrelated shared pool thread. Callers on
+            // a genuinely interrupted thread (deliver(), awaitResult()) restore the flag themselves.
+            is InterruptedException -> DeliveryResult.RetriableFailure(message)
             else -> DeliveryResult.PermanentFailure(message)
         }
     }
