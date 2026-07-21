@@ -327,7 +327,6 @@ via `FOR UPDATE SKIP LOCKED`, but every worker holds a DB connection for its bat
 Full methodology, raw JMH results, before/after per change: [`benchmarks/`](benchmarks/), including
 [`results-postopt-KOJAK-77.md`](benchmarks/results-postopt-KOJAK-77.md) for the full concurrency
 breakdown and the reasoning behind the virtual-thread finding.
-Kafka throughput jumped 16-45× over the original sync-sequential baseline thanks to the `deliverBatch` fire-flush-await pattern. HTTP parallel `sendAsync` is next; multi-threaded scheduler scaling is in the roadmap.
 
 ### MySQL: `rewriteBatchedStatements`
 

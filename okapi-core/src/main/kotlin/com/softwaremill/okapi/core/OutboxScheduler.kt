@@ -5,6 +5,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -43,9 +44,10 @@ class OutboxScheduler @JvmOverloads constructor(
             Thread(r, "outbox-processor").apply { isDaemon = true }
         }
 
-    // spin up threads only if needed by lazy
+    // Spun up lazily, only if needed -- accessed from both the scheduler thread (tick()) and
+    // the caller thread (stop()), so this must use the default thread-safe SYNCHRONIZED mode.
     private val workers: Lazy<ExecutorService?> =
-        lazy(LazyThreadSafetyMode.NONE) {
+        lazy {
             if (config.concurrency > 1) config.workerExecutorFactory(config.concurrency) else null
         }
 
@@ -63,29 +65,54 @@ class OutboxScheduler @JvmOverloads constructor(
 
     fun stop() {
         if (!running.compareAndSet(true, false)) return
-        scheduler.shutdown()
-        if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-            scheduler.shutdownNow()
-        }
+        shutdownAndAwait(scheduler)
         if (workers.isInitialized()) {
-            workers.value?.let {
-                it.shutdown()
-                if (!it.awaitTermination(5, TimeUnit.SECONDS)) it.shutdownNow()
-            }
+            workers.value?.let(::shutdownAndAwait)
         }
         logger.info("Outbox processor stopped")
     }
 
     fun isRunning(): Boolean = running.get()
 
+    /**
+     * Shuts down [executor] and waits up to [SHUTDOWN_TIMEOUT_SECONDS] for in-flight tasks to
+     * finish. If the caller is interrupted while waiting, the flag is restored and [executor] is
+     * force-shut-down via `shutdownNow()` so `stop()` still completes deterministically instead
+     * of leaking a partially-shut-down executor.
+     */
+    private fun shutdownAndAwait(executor: ExecutorService) {
+        executor.shutdown()
+        try {
+            if (!executor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                executor.shutdownNow()
+            }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            executor.shutdownNow()
+        }
+    }
+
     private fun tick() {
         val pool = workers.value
         if (pool == null) {
             processBatch()
         } else {
-            val futures = (1..config.concurrency).map { pool.submit(::processBatch) }
+            val futures = (1..config.concurrency).mapNotNull { submitWorker(pool) }
             futures.forEach(::awaitWorker)
         }
+    }
+
+    /**
+     * Submits one worker's [processBatch] without letting [RejectedExecutionException] escape
+     * [tick] -- a custom [OutboxSchedulerConfig.workerExecutorFactory] may return an executor that
+     * can reject submissions (bounded queue, shutdown executor), and an uncaught exception here
+     * would make `scheduleWithFixedDelay` suppress all future ticks.
+     */
+    private fun submitWorker(pool: ExecutorService): Future<*>? = try {
+        pool.submit(::processBatch)
+    } catch (e: RejectedExecutionException) {
+        logger.error("Outbox worker submission rejected, will retry at next scheduled interval", e)
+        null
     }
 
     /**
@@ -117,5 +144,6 @@ class OutboxScheduler @JvmOverloads constructor(
 
     companion object {
         private val logger = LoggerFactory.getLogger(OutboxScheduler::class.java)
+        private const val SHUTDOWN_TIMEOUT_SECONDS = 5L
     }
 }

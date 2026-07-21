@@ -2,13 +2,18 @@ package com.softwaremill.okapi.core
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.comparables.shouldBeGreaterThanOrEqualTo
 import io.kotest.matchers.shouldBe
 import java.time.Duration.ofMillis
 import java.time.Duration.ofMinutes
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Future
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 class OutboxSchedulerTest : FunSpec({
 
@@ -202,7 +207,120 @@ class OutboxSchedulerTest : FunSpec({
 
         callCount.get() shouldBe 4
     }
+
+    test("RejectedExecutionException submitting a worker does not kill the scheduler") {
+        val concurrency = 2
+        // workerExecutorFactory only runs on the scheduler's background thread on the first
+        // tick(), so a plain lateinit var raced with this test thread's polling -- an
+        // AtomicReference makes the handoff safe.
+        val rejectingExecutorRef = AtomicReference<AlwaysRejectingExecutor?>(null)
+        val processor = stubProcessor { _ -> }
+
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
+            config = OutboxSchedulerConfig(
+                interval = ofMillis(20),
+                concurrency = concurrency,
+                workerExecutorFactory = { n ->
+                    AlwaysRejectingExecutor(OutboxSchedulerConfig.defaultPlatformPool(n)).also { rejectingExecutorRef.set(it) }
+                },
+            ),
+        )
+
+        scheduler.start()
+        // Without the fix, the first rejection escapes tick() and scheduleWithFixedDelay
+        // suppresses all further ticks, so submitAttempts would get stuck at `concurrency` (one
+        // tick's worth). Observing it climb past that proves later ticks still ran.
+        awaitCondition { (rejectingExecutorRef.get()?.submitAttempts?.get() ?: 0) > concurrency }
+        scheduler.stop()
+
+        rejectingExecutorRef.get()!!.submitAttempts.get() shouldBeGreaterThanOrEqualTo concurrency
+    }
+
+    test("interrupting the caller during stop() restores the flag and still shuts down without throwing") {
+        val processingStarted = CountDownLatch(1)
+        val releaseProcessing = CountDownLatch(1)
+        val processor = stubProcessor { _ ->
+            processingStarted.countDown()
+            releaseProcessing.await()
+        }
+
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
+            config = OutboxSchedulerConfig(interval = ofMillis(50)),
+        )
+
+        scheduler.start()
+        processingStarted.await(2, TimeUnit.SECONDS) shouldBe true
+
+        var stopThrew = false
+        var interruptedAfterReturn = false
+        val stopper = Thread {
+            try {
+                scheduler.stop()
+            } catch (e: Throwable) {
+                stopThrew = true
+            }
+            interruptedAfterReturn = Thread.currentThread().isInterrupted
+        }
+        stopper.start()
+        awaitBlocked(stopper)
+        stopper.interrupt()
+        awaitTermination(stopper)
+
+        stopThrew shouldBe false
+        interruptedAfterReturn shouldBe true
+    }
 })
+
+/**
+ * Always rejects submissions, tracking how many attempts were made -- used to prove
+ * [OutboxScheduler] doesn't die when [OutboxSchedulerConfig.workerExecutorFactory] returns an
+ * executor that rejects.
+ */
+private class AlwaysRejectingExecutor(private val delegate: ExecutorService) : ExecutorService by delegate {
+    val submitAttempts = AtomicInteger(0)
+
+    override fun submit(task: Runnable): Future<*> {
+        submitAttempts.incrementAndGet()
+        throw RejectedExecutionException("worker pool full (test double)")
+    }
+}
+
+private fun awaitCondition(timeoutMs: Long = 2_000, condition: () -> Boolean) {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (!condition()) {
+        check(System.currentTimeMillis() < deadline) { "Condition not met within ${timeoutMs}ms" }
+        Thread.sleep(5)
+    }
+}
+
+/**
+ * Polls (rather than sleeping a fixed duration) until [thread] is parked waiting, so the test
+ * isn't sensitive to CI scheduling jitter -- interrupting before the thread actually blocks would
+ * make it miss the wait entirely.
+ */
+private fun awaitBlocked(thread: Thread, timeoutMs: Long = 5_000) {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (thread.state != Thread.State.WAITING && thread.state != Thread.State.TIMED_WAITING) {
+        check(System.currentTimeMillis() < deadline) { "Thread never blocked (state=${thread.state})" }
+        Thread.sleep(5)
+    }
+}
+
+/**
+ * A timed [Thread.join] only establishes a happens-before edge for the joined thread's writes if
+ * it returns because the thread actually terminated, not because the timeout elapsed. Confirming
+ * termination and then joining again unconditionally (returns immediately on an already-dead
+ * thread) closes that gap.
+ */
+private fun awaitTermination(thread: Thread, timeoutMs: Long = 5_000) {
+    thread.join(timeoutMs)
+    check(!thread.isAlive) { "Thread did not terminate within ${timeoutMs}ms" }
+    thread.join()
+}
 
 private fun stubProcessor(onProcessNext: (Int) -> Unit): OutboxProcessor {
     val store = object : OutboxStore {
