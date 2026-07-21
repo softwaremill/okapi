@@ -36,6 +36,19 @@ private fun awaitBlocked(thread: Thread, timeoutMs: Long = 5_000) {
 }
 
 /**
+ * A timed [Thread.join] only establishes a happens-before edge for the joined thread's writes if
+ * it returns because the thread actually terminated, not because the timeout elapsed — if it
+ * times out and the thread happens to die a moment later, `isAlive` can read `false` with no
+ * visibility guarantee for what the thread wrote. Confirming termination and then joining again
+ * unconditionally (returns immediately on an already-dead thread) closes that gap.
+ */
+private fun awaitTermination(thread: Thread, timeoutMs: Long = 5_000) {
+    thread.join(timeoutMs)
+    check(!thread.isAlive) { "Thread did not terminate within ${timeoutMs}ms" }
+    thread.join()
+}
+
+/**
  * Proves that interrupting the calling thread while it is blocked inside [HttpMessageDeliverer]
  * is observed promptly and the interrupt flag ends up restored on that same thread — not on some
  * unrelated `HttpClient` completion thread — for both the synchronous and batched delivery paths.
@@ -62,9 +75,8 @@ class HttpMessageDelivererInterruptionTest : FunSpec({
         thread.start()
         awaitBlocked(thread)
         thread.interrupt()
-        thread.join(5_000)
+        awaitTermination(thread)
 
-        thread.isAlive shouldBe false
         result.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
         interruptedAfterReturn shouldBe true
     }
@@ -85,9 +97,8 @@ class HttpMessageDelivererInterruptionTest : FunSpec({
         thread.start()
         awaitBlocked(thread)
         thread.interrupt()
-        thread.join(5_000)
+        awaitTermination(thread)
 
-        thread.isAlive shouldBe false
         results?.size shouldBe 3
         results?.forEach { it.result.shouldBeInstanceOf<DeliveryResult.RetriableFailure>() }
         interruptedAfterReturn shouldBe true
