@@ -87,12 +87,12 @@ class HttpMessageDeliverer @JvmOverloads constructor(
             .newBuilder()
             .uri(URI.create(url))
             .timeout(REQUEST_TIMEOUT)
-            .header("Content-Type", "application/json")
+            .setHeader("Content-Type", "application/json")
             .method(
                 info.httpMethod.name,
                 HttpRequest.BodyPublishers.ofString(entry.payload),
             )
-            .apply { info.headers.forEach { (k, v) -> header(k, v) } }
+            .apply { info.headers.forEach { (k, v) -> setHeader(k, v) } }
             .build()
     }
 
