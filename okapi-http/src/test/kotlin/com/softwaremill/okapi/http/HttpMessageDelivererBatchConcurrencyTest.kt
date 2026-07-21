@@ -57,7 +57,7 @@ class HttpMessageDelivererBatchConcurrencyTest : FunSpec({
         // could possibly have completed and freed up a sequential caller to send the next.
         val loggedTimestamps = wiremock.allServeEvents.map { it.request.loggedDate.time }
         loggedTimestamps.size shouldBe batchSize
-        val spreadMs = loggedTimestamps.max() - loggedTimestamps.min()
+        val spreadMs = loggedTimestamps.maxOrNull()!! - loggedTimestamps.minOrNull()!!
         spreadMs.shouldBeLessThan(delayMs)
     }
 })
