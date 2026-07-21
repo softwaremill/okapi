@@ -29,8 +29,9 @@ import javax.net.ssl.SSLException
  * - other (corrupt metadata, unknown service, malformed URI, illegal argument) → [DeliveryResult.PermanentFailure]
  *
  * [deliverBatch] fires all requests via [HttpClient.sendAsync] in parallel instead of blocking
- * sequentially on [HttpClient.send] — the JDK connection pool multiplexes same-host requests
- * (HTTP/2) automatically, so no explicit grouping is needed.
+ * sequentially on [HttpClient.send]. The JDK [HttpClient] will use HTTP/2 multiplexing when
+ * supported by the server; otherwise it will fall back to HTTP/1.1 (potentially with multiple
+ * connections) — either way, requests can be overlapped without explicit per-host grouping.
  */
 class HttpMessageDeliverer @JvmOverloads constructor(
     private val urlResolver: ServiceUrlResolver,
