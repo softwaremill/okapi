@@ -76,7 +76,7 @@ springOutboxPublisher.publish(
 )
 ```
 
-**Using MySQL instead of PostgreSQL?** Replace `okapi-postgres` with `okapi-mysql` in your dependencies — no code changes needed.
+**Using MySQL instead of PostgreSQL?** Replace `okapi-postgres` with `okapi-mysql` in your dependencies — no code changes needed. Add `rewriteBatchedStatements=true` to your JDBC URL — see [Performance](#performance) for why.
 
 > **Note:** Spring and Kafka versions are not forced by okapi — you control them.
 > Okapi uses plain JDBC internally — it works with any `PlatformTransactionManager` (JPA, JDBC, jOOQ, Exposed, etc.).
@@ -327,6 +327,30 @@ via `FOR UPDATE SKIP LOCKED`, but every worker holds a DB connection for its bat
 Full methodology, raw JMH results, before/after per change: [`benchmarks/`](benchmarks/), including
 [`results-postopt-KOJAK-77.md`](benchmarks/results-postopt-KOJAK-77.md) for the full concurrency
 breakdown and the reasoning behind the virtual-thread finding.
+Kafka throughput jumped 16-45× over the original sync-sequential baseline thanks to the `deliverBatch` fire-flush-await pattern. HTTP parallel `sendAsync` is next; multi-threaded scheduler scaling is in the roadmap.
+
+### MySQL: `rewriteBatchedStatements`
+
+`OutboxStore.updateAfterProcessingBatch()` writes back a whole processed batch via one JDBC
+`executeBatch()` call. On Postgres, PgJDBC pipelines batched statements over the wire natively, so
+this already collapses N roundtrips into ~1. **MySQL Connector/J does not** — by default it sends
+one roundtrip per statement in the batch regardless of `addBatch()`/`executeBatch()`, silently
+negating the optimization. Add `rewriteBatchedStatements=true` to the JDBC URL
+(`jdbc:mysql://host:3306/db?rewriteBatchedStatements=true`) so Connector/J rewrites the batch into
+a single multi-statement round trip. This is a driver/connection setting — okapi cannot set it for
+you since it doesn't own your `DataSource`.
+
+We verified the rewrite genuinely happens (Connector/J's own query profiler confirms a batch of
+1000 `UPDATE`s becomes one multi-statement round trip), but couldn't measure a net speedup from it
+in our benchmark — see
+[`results-mysql-rewrite-batched-statements.md`](benchmarks/results-mysql-rewrite-batched-statements.md)
+for why (a client-side response-decoding cost that scales with batch size). We still recommend
+enabling it — the round-trip savings are real and matter most against a network-hosted MySQL — but
+unlike Postgres's measured 10.2×, we don't have a MySQL multiplier to back it with.
+
+Full methodology, raw JMH results, before/after per change: [`benchmarks/`](benchmarks/), including
+[`results-postopt-KOJAK-75.md`](benchmarks/results-postopt-KOJAK-75.md) for the batch-UPDATE
+numbers above.
 
 ## Build
 

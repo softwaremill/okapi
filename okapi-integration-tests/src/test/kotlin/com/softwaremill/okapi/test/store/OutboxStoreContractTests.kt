@@ -251,4 +251,39 @@ fun FunSpec.outboxStoreContractTests(
 
         claimed shouldHaveSize 0
     }
+
+    test("[$dbName] updateAfterProcessingBatch persists mixed final statuses in a single call") {
+        val delivered = createTestEntry(now = Instant.parse("2024-01-01T00:00:00Z"), messageType = "type.delivered")
+        val retried = createTestEntry(now = Instant.parse("2024-01-01T00:00:01Z"), messageType = "type.retried")
+        val failed = createTestEntry(now = Instant.parse("2024-01-01T00:00:02Z"), messageType = "type.failed")
+
+        jdbc.withTransaction {
+            store.persist(delivered)
+            store.persist(retried)
+            store.persist(failed)
+        }
+
+        jdbc.withTransaction {
+            val claimed = store.claimPending(10)
+            val toDelivered = claimed.first { it.outboxId == delivered.outboxId }
+                .toDelivered(Instant.parse("2024-01-02T00:00:00Z"))
+            val toRetried = claimed.first { it.outboxId == retried.outboxId }
+                .retry(Instant.parse("2024-01-02T00:00:00Z"), "connection refused")
+            val toFailed = claimed.first { it.outboxId == failed.outboxId }
+                .toFailed(Instant.parse("2024-01-02T00:00:00Z"), "bad request")
+
+            store.updateAfterProcessingBatch(listOf(toDelivered, toRetried, toFailed))
+        }
+
+        val counts = jdbc.withTransaction { store.countByStatuses() }
+        counts shouldContain (OutboxStatus.DELIVERED to 1L)
+        counts shouldContain (OutboxStatus.PENDING to 1L)
+        counts shouldContain (OutboxStatus.FAILED to 1L)
+
+        val remaining = jdbc.withTransaction { store.claimPending(10) }
+        remaining shouldHaveSize 1
+        remaining.first().messageType shouldBe "type.retried"
+        remaining.first().retries shouldBe 1
+        remaining.first().lastError shouldBe "connection refused"
+    }
 }

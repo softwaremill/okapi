@@ -1,0 +1,248 @@
+[
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.MysqlOutboxStoreUpdateBatchBenchmark.batchUpdate",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvmArgs" : [
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "rewriteBatchedStatements" : "false"
+        },
+        "primaryMetric" : {
+            "score" : 0.3559014144161017,
+            "scoreError" : 0.039665334059952734,
+            "scoreConfidence" : [
+                0.3162360803561489,
+                0.39556674847605444
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.3271754299512195,
+                "50.0" : 0.3490440348943812,
+                "90.0" : 0.4041841761904356,
+                "95.0" : 0.40463652209375,
+                "99.0" : 0.40463652209375,
+                "99.9" : 0.40463652209375,
+                "99.99" : 0.40463652209375,
+                "99.999" : 0.40463652209375,
+                "99.9999" : 0.40463652209375,
+                "100.0" : 0.40463652209375
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.347101783,
+                    0.34787377697297295,
+                    0.35790461478378377,
+                    0.330397057325,
+                    0.3271754299512195
+                ],
+                [
+                    0.3502142928157895,
+                    0.35157600205263156,
+                    0.34202160210526317,
+                    0.40463652209375,
+                    0.40011306306060607
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.MysqlOutboxStoreUpdateBatchBenchmark.batchUpdate",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvmArgs" : [
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "rewriteBatchedStatements" : "true"
+        },
+        "primaryMetric" : {
+            "score" : 0.37166066075555915,
+            "scoreError" : 0.025002847932276924,
+            "scoreConfidence" : [
+                0.34665781282328223,
+                0.39666350868783606
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.3464775708918919,
+                "50.0" : 0.37626819665756306,
+                "90.0" : 0.3942688445459893,
+                "95.0" : 0.39463005684848484,
+                "99.0" : 0.39463005684848484,
+                "99.9" : 0.39463005684848484,
+                "99.99" : 0.39463005684848484,
+                "99.999" : 0.39463005684848484,
+                "99.9999" : 0.39463005684848484,
+                "100.0" : 0.39463005684848484
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.3798628504117647,
+                    0.3550040564054054,
+                    0.3530975202972973,
+                    0.3464775708918919,
+                    0.38176093861764704
+                ],
+                [
+                    0.36221928694444444,
+                    0.3772910452857143,
+                    0.39463005684848484,
+                    0.3910179338235294,
+                    0.3752453480294118
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.MysqlOutboxStoreUpdateBatchBenchmark.individualUpdates",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvmArgs" : [
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "rewriteBatchedStatements" : "false"
+        },
+        "primaryMetric" : {
+            "score" : 0.38256680561885564,
+            "scoreError" : 0.030280864536129378,
+            "scoreConfidence" : [
+                0.35228594108272626,
+                0.412847670154985
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.34546297335897436,
+                "50.0" : 0.3830508738666667,
+                "90.0" : 0.4125975176998106,
+                "95.0" : 0.4131799544375,
+                "99.0" : 0.4131799544375,
+                "99.9" : 0.4131799544375,
+                "99.99" : 0.4131799544375,
+                "99.999" : 0.4131799544375,
+                "99.9999" : 0.4131799544375,
+                "100.0" : 0.4131799544375
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.4131799544375,
+                    0.40735558706060604,
+                    0.3808168333333333,
+                    0.3900203615882353,
+                    0.37560300837142857
+                ],
+                [
+                    0.3769106880285714,
+                    0.3852849144,
+                    0.39028472679411763,
+                    0.3607490088157895,
+                    0.34546297335897436
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.MysqlOutboxStoreUpdateBatchBenchmark.individualUpdates",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/Users/rawo/.sdkman/candidates/java/25.0.2-open/bin/java",
+        "jvmArgs" : [
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "rewriteBatchedStatements" : "true"
+        },
+        "primaryMetric" : {
+            "score" : 0.40070849064122066,
+            "scoreError" : 0.048099097398679624,
+            "scoreConfidence" : [
+                0.35260939324254104,
+                0.4488075880399003
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.35037048239473684,
+                "50.0" : 0.3904555334571429,
+                "90.0" : 0.45089621283548387,
+                "95.0" : 0.4520804286774194,
+                "99.0" : 0.4520804286774194,
+                "99.9" : 0.4520804286774194,
+                "99.99" : 0.4520804286774194,
+                "99.999" : 0.4520804286774194,
+                "99.9999" : 0.4520804286774194,
+                "100.0" : 0.4520804286774194
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.35037048239473684,
+                    0.4520804286774194,
+                    0.38026717734285714,
+                    0.3931627822,
+                    0.4116281914375
+                ],
+                [
+                    0.37589613814285716,
+                    0.38774828471428574,
+                    0.42899321615625,
+                    0.4402382702580645,
+                    0.3866999350882353
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    }
+]
+
+
