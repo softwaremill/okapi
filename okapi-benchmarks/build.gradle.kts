@@ -7,15 +7,18 @@ dependencies {
     // Okapi modules under measurement
     jmh(project(":okapi-core"))
     jmh(project(":okapi-postgres"))
+    jmh(project(":okapi-mysql"))
     jmh(project(":okapi-kafka"))
     jmh(project(":okapi-http"))
 
-    // Testcontainers — real Postgres + real Kafka for end-to-end throughput
+    // Testcontainers — real Postgres + real MySQL + real Kafka for end-to-end throughput
     jmh(libs.testcontainersPostgresql)
+    jmh(libs.testcontainersMysql)
     jmh(libs.testcontainersKafka)
 
     // DB driver + schema
     jmh(libs.postgresql)
+    jmh(libs.mysql)
     jmh(libs.liquibaseCore)
 
     // Kafka clients (provides MockProducer for microbenchmarks)

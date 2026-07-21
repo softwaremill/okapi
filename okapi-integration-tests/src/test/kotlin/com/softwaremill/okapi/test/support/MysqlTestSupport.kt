@@ -17,7 +17,9 @@ class MysqlTestSupport {
     fun start() {
         container.start()
         dataSource = MysqlDataSource().apply {
-            setURL(container.jdbcUrl)
+            // Without this, Connector/J's executeBatch() sends one roundtrip per statement,
+            // silently negating updateAfterProcessingBatch() — see README "Performance" section.
+            setURL("${container.jdbcUrl}?rewriteBatchedStatements=true")
             user = container.username
             setPassword(container.password)
         }
