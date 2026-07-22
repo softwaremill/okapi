@@ -93,7 +93,17 @@ class OutboxScheduler @JvmOverloads constructor(
     }
 
     private fun tick() {
-        val pool = workers.value
+        val pool = try {
+            workers.value
+        } catch (e: Exception) {
+            // workers.value runs OutboxSchedulerConfig.workerExecutorFactory on first access; a
+            // custom factory can fail (e.g. resource exhaustion). Uncaught, that would escape tick()
+            // and make scheduleWithFixedDelay suppress all future ticks. Lazy retries its
+            // initializer on a failed attempt, so the next tick tries workerExecutorFactory again.
+            // Note: this does not prevent from OOM in case of OS thread pool exhausted.
+            logger.error("Failed to initialize outbox worker pool, will retry at next scheduled interval", e)
+            return
+        }
         if (pool == null) {
             processBatch()
         } else {

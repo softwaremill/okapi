@@ -243,6 +243,38 @@ class OutboxSchedulerTest : FunSpec({
         rejectingExecutorRef.get()!!.submitAttempts.get() shouldBeGreaterThanOrEqualTo concurrency
     }
 
+    test("workerExecutorFactory failure during lazy init does not kill the scheduler, and retries next tick") {
+        val factoryCallCount = AtomicInteger(0)
+        val latch = CountDownLatch(1)
+        val processor = stubProcessor { _ -> latch.countDown() }
+
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
+            config = OutboxSchedulerConfig(
+                interval = ofMillis(20),
+                concurrency = 2,
+                workerExecutorFactory = { n ->
+                    // Fails on the very first attempt (simulating e.g. resource exhaustion), then
+                    // succeeds -- Lazy retries its initializer after a failed attempt, so this
+                    // proves both that tick() survives the failure and that the next tick retries.
+                    if (factoryCallCount.incrementAndGet() == 1) {
+                        throw RuntimeException("simulated worker pool creation failure")
+                    }
+                    OutboxSchedulerConfig.defaultPlatformPool(n)
+                },
+            ),
+        )
+
+        scheduler.start()
+        // Without the fix, the first factory failure escapes tick() and scheduleWithFixedDelay
+        // suppresses all further ticks, so this would never reach processBatch and time out.
+        latch.await(2, TimeUnit.SECONDS) shouldBe true
+        scheduler.stop()
+
+        factoryCallCount.get() shouldBeGreaterThanOrEqualTo 2
+    }
+
     test("interrupting the caller during stop() restores the flag and still shuts down without throwing") {
         val processingStarted = CountDownLatch(1)
         val releaseProcessing = CountDownLatch(1)
