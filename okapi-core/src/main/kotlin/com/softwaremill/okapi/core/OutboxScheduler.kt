@@ -132,15 +132,29 @@ class OutboxScheduler @JvmOverloads constructor(
      * killing the scheduler. [processBatch] already catches [Exception] internally, so this
      * only guards against an [Error] surfacing via [ExecutionException], or an interrupt while
      * awaiting.
+     *
+     * An [InterruptedException] only aborts the wait when [running] is already `false` -- i.e.
+     * when [stop] itself triggered the interrupt via `scheduler.shutdownNow()`. Any other
+     * interrupt is swallowed and the wait resumes, because bailing out early here would let the
+     * next scheduled tick start while this worker is still running, violating the class-level
+     * guarantee that ticks never overlap.
      */
     private fun awaitWorker(future: Future<*>) {
-        try {
-            future.get()
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            logger.warn("Interrupted while awaiting outbox worker; will retry at next scheduled interval", e)
-        } catch (e: ExecutionException) {
-            logger.error("Outbox worker failed unexpectedly, will retry at next scheduled interval", e.cause ?: e)
+        while (true) {
+            try {
+                future.get()
+                return
+            } catch (e: InterruptedException) {
+                if (!running.get()) {
+                    Thread.currentThread().interrupt()
+                    logger.warn("Interrupted while awaiting outbox worker; will retry at next scheduled interval", e)
+                    return
+                }
+                // Not shutting down: keep waiting instead of letting the next tick overlap this worker.
+            } catch (e: ExecutionException) {
+                logger.error("Outbox worker failed unexpectedly, will retry at next scheduled interval", e.cause ?: e)
+                return
+            }
         }
     }
 

@@ -213,6 +213,54 @@ class OutboxSchedulerTest : FunSpec({
         callCount.get() shouldBe 4
     }
 
+    test("a spurious interrupt while running does not let ticks overlap (awaitWorker keeps waiting)") {
+        val workerStarted = CountDownLatch(2)
+        val releaseWorkers = CountDownLatch(1)
+        val processor = stubProcessor { _ ->
+            workerStarted.countDown()
+            releaseWorkers.await()
+        }
+        // Counts pool.submit() calls themselves, not worker executions: with a fixed 2-thread pool
+        // already saturated by the blocked first-round workers, an erroneous second tick's
+        // submissions would just sit queued behind them, never actually running -- so counting
+        // executions would miss the overlap entirely. Counting submissions catches it regardless.
+        val submitCount = AtomicInteger(0)
+
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
+            config = OutboxSchedulerConfig(
+                interval = ofMillis(20),
+                concurrency = 2,
+                workerExecutorFactory = { n -> SubmitCountingExecutor(OutboxSchedulerConfig.defaultPlatformPool(n), submitCount) },
+            ),
+        )
+
+        try {
+            scheduler.start()
+            workerStarted.await(2, TimeUnit.SECONDS) shouldBe true
+            submitCount.get() shouldBe 2
+
+            // Interrupt the scheduler's own internal thread directly -- NOT via stop() -- to
+            // simulate a spurious interrupt while the scheduler is still meant to be running
+            // normally (running is still true). Without the fix, awaitWorker() would abandon the
+            // wait, tick() would return, and scheduleWithFixedDelay would start a new tick while
+            // these two workers are still blocked -- exactly the overlap the class forbids.
+            val schedulerThread = Thread.getAllStackTraces().keys.first { it.name == "outbox-processor" }
+            schedulerThread.interrupt()
+
+            // Several intervals' worth of margin for a buggy early-return to manifest as extra
+            // submissions before the original two workers are ever released.
+            Thread.sleep(200)
+            submitCount.get() shouldBe 2
+
+            releaseWorkers.countDown()
+        } finally {
+            releaseWorkers.countDown()
+            scheduler.stop()
+        }
+    }
+
     test("RejectedExecutionException submitting a worker does not kill the scheduler") {
         val concurrency = 2
         // workerExecutorFactory only runs on the scheduler's background thread on the first
@@ -414,6 +462,17 @@ private class AlwaysRejectingExecutor(private val delegate: ExecutorService) : E
     override fun submit(task: Runnable): Future<*> {
         submitAttempts.incrementAndGet()
         throw RejectedExecutionException("worker pool full (test double)")
+    }
+}
+
+/** Counts [submit] calls (queued or not) without altering delegate behavior otherwise. */
+private class SubmitCountingExecutor(
+    private val delegate: ExecutorService,
+    private val submitCount: AtomicInteger,
+) : ExecutorService by delegate {
+    override fun submit(task: Runnable): Future<*> {
+        submitCount.incrementAndGet()
+        return delegate.submit(task)
     }
 }
 
