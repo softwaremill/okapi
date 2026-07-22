@@ -1,9 +1,14 @@
 package com.softwaremill.okapi.core
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.comparables.shouldBeGreaterThanOrEqualTo
 import io.kotest.matchers.shouldBe
+import org.slf4j.LoggerFactory
 import java.time.Duration.ofMillis
 import java.time.Duration.ofMinutes
 import java.util.concurrent.CountDownLatch
@@ -272,6 +277,97 @@ class OutboxSchedulerTest : FunSpec({
 
         stopThrew shouldBe false
         interruptedAfterReturn shouldBe true
+    }
+
+    test("stop() before start() is a no-op") {
+        val processor = stubProcessor { _ -> }
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
+            config = OutboxSchedulerConfig(interval = ofMinutes(1)),
+        )
+
+        scheduler.stop() // must return, not throw, despite never having started
+
+        scheduler.isRunning() shouldBe false
+    }
+
+    test("calling stop() a second time is a no-op") {
+        val latch = CountDownLatch(1)
+        val processor = stubProcessor { _ -> latch.countDown() }
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
+            config = OutboxSchedulerConfig(interval = ofMillis(50)),
+        )
+
+        scheduler.start()
+        latch.await(2, TimeUnit.SECONDS) shouldBe true
+        scheduler.stop()
+        scheduler.stop() // running is already false -- must short-circuit, not re-run shutdown logic
+
+        scheduler.isRunning() shouldBe false
+    }
+
+    test(
+        "interrupting the caller during stop() with an active worker pool logs a warning from " +
+            "awaitWorker and force-shuts-down the worker pool too, all without throwing",
+    ) {
+        // Both workers block (simulating a stuck delivery), so the scheduler's own thread is stuck
+        // inside awaitWorker()'s future.get() when stop() is called. A single interrupt on the
+        // stop()-caller cascades through both executors: it forces scheduler.shutdownNow(), which
+        // interrupts the scheduler thread -- awaitWorker() must catch that itself (not hang, not
+        // crash) and log a warning. That restores the caller's own interrupt flag, so when stop()
+        // moves on to the workers pool's shutdownAndAwait, its awaitTermination sees the flag still
+        // set and immediately treats it as interrupted too, force-shutting-down the worker pool
+        // without a second explicit interrupt.
+        val workerStarted = CountDownLatch(2)
+        val releaseWorkers = CountDownLatch(1)
+        val processor = stubProcessor { _ ->
+            workerStarted.countDown()
+            releaseWorkers.await()
+        }
+
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
+            config = OutboxSchedulerConfig(interval = ofMinutes(1), concurrency = 2),
+        )
+
+        val schedulerLogger = LoggerFactory.getLogger(OutboxScheduler::class.java) as Logger
+        val warnLogged = CountDownLatch(1)
+        val appender = object : ListAppender<ILoggingEvent>() {
+            override fun append(event: ILoggingEvent) {
+                super.append(event)
+                if (event.level == Level.WARN) warnLogged.countDown()
+            }
+        }.apply { start() }
+        schedulerLogger.addAppender(appender)
+
+        try {
+            scheduler.start()
+            workerStarted.await(2, TimeUnit.SECONDS) shouldBe true
+
+            var stopThrew = false
+            val stopper = Thread {
+                try {
+                    scheduler.stop()
+                } catch (e: Throwable) {
+                    stopThrew = true
+                }
+            }
+            stopper.start()
+
+            awaitBlocked(stopper)
+            stopper.interrupt()
+            releaseWorkers.countDown() // defensive: shutdownNow() already interrupts the workers too
+            awaitTermination(stopper)
+
+            warnLogged.await(2, TimeUnit.SECONDS) shouldBe true
+            stopThrew shouldBe false
+        } finally {
+            schedulerLogger.detachAppender(appender)
+        }
     }
 })
 
