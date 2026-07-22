@@ -13,7 +13,8 @@ updates:
         dependency-type: "production"
       testing:
         dependency-type: "development"
-
+    cooldown:
+      default-days: 3
   # Keep GitHub Actions up to date
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -22,3 +23,5 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 3
