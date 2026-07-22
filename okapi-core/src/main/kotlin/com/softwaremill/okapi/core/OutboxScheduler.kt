@@ -100,7 +100,8 @@ class OutboxScheduler @JvmOverloads constructor(
             // custom factory can fail (e.g. resource exhaustion). Uncaught, that would escape tick()
             // and make scheduleWithFixedDelay suppress all future ticks. Lazy retries its
             // initializer on a failed attempt, so the next tick tries workerExecutorFactory again.
-            // Note: this does not prevent from OOM in case of OS thread pool exhausted.
+            // Note: this does not prevent an OutOfMemoryError if OS thread creation is exhausted --
+            // that's an Error, not an Exception, and is intentionally left uncaught here.
             logger.error("Failed to initialize outbox worker pool, will retry at next scheduled interval", e)
             return
         }

@@ -115,6 +115,14 @@ open class OutboxSchedulerConcurrencyBenchmark {
     @TearDown(Level.Trial)
     fun teardown() {
         executor.shutdown()
+        try {
+            if (!executor.awaitTermination(EXECUTOR_TERMINATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                executor.shutdownNow()
+            }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            executor.shutdownNow()
+        }
         producer.close()
         kafka.stop()
         postgres.stop()
@@ -124,5 +132,6 @@ open class OutboxSchedulerConcurrencyBenchmark {
         const val TOTAL_ENTRIES = 6400
         const val BATCH_SIZE = 100
         private const val PAYLOAD = """{"orderId":"order-42","amount":100.50,"currency":"EUR"}"""
+        private const val EXECUTOR_TERMINATION_TIMEOUT_SECONDS = 5L
     }
 }
