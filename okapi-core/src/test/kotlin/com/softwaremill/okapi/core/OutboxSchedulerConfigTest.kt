@@ -90,6 +90,15 @@ class OutboxSchedulerConfigTest : FunSpec({
         }
     }
 
+    test("defaultPlatformPool rejects zero or negative n") {
+        shouldThrow<IllegalArgumentException> {
+            OutboxSchedulerConfig.defaultPlatformPool(0)
+        }
+        shouldThrow<IllegalArgumentException> {
+            OutboxSchedulerConfig.defaultPlatformPool(-1)
+        }
+    }
+
     test("virtualThreadPool runs submitted tasks on virtual threads") {
         val pool = OutboxSchedulerConfig.virtualThreadPool(4)
         try {

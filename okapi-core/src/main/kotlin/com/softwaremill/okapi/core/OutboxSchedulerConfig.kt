@@ -35,6 +35,7 @@ data class OutboxSchedulerConfig(
         /** Fixed pool of [n] daemon platform threads, named `outbox-worker-N`. */
         @JvmStatic
         fun defaultPlatformPool(n: Int): ExecutorService {
+            require(n > 0) { "n must be positive, got: $n" }
             val counter = AtomicInteger(0)
             return Executors.newFixedThreadPool(n) { r ->
                 Thread(r, "outbox-worker-${counter.incrementAndGet()}").apply { isDaemon = true }
