@@ -31,7 +31,7 @@ private fun entry(suffix: String): OutboxEntry {
 class HttpMessageDelivererBatchConcurrencyTest : FunSpec({
     val wiremock = WireMockServer(wireMockConfig().dynamicPort())
     val deliverer by lazy {
-        HttpMessageDeliverer(ServiceUrlResolver { "http://localhost:${wiremock.port()}" })
+        HttpMessageDeliverer({ "http://localhost:${wiremock.port()}" })
     }
 
     beforeSpec { wiremock.start() }
@@ -44,9 +44,9 @@ class HttpMessageDelivererBatchConcurrencyTest : FunSpec({
         wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(200).withFixedDelay(delayMs.toInt())))
         val entries = (1..batchSize).map { entry("e$it") }
 
-        val start = System.currentTimeMillis()
+        val start = System.nanoTime()
         val results = deliverer.deliverBatch(entries)
-        val elapsedMs = System.currentTimeMillis() - start
+        val elapsedMs = (System.nanoTime() - start) / 1_000_000
 
         results.forEach { (_, r) -> r shouldBe DeliveryResult.Success }
 

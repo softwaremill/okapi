@@ -23,14 +23,18 @@ private fun entry(suffix: String): OutboxEntry {
 }
 
 /**
- * Polls (rather than sleeping a fixed duration) until [thread] is parked waiting on the future/
- * response it's blocked on, so the test isn't sensitive to CI scheduling jitter — interrupting
- * before the thread actually blocks would make it miss the wait entirely.
+ * Polls WireMock's request journal until [count] requests have been received, rather than relying
+ * on [Thread.State] or a fixed sleep — a thread blocked inside the JDK HTTP client isn't guaranteed
+ * to report `WAITING`/`TIMED_WAITING` on every JVM/OS combination, but the request actually
+ * reaching the (deliberately delayed) stub is an unambiguous, environment-independent signal that
+ * the caller is now blocked awaiting the response.
  */
-private fun awaitBlocked(thread: Thread, timeoutMs: Long = 5_000) {
+private fun awaitRequestsReceived(wiremock: WireMockServer, count: Int, timeoutMs: Long = 5_000) {
     val deadline = System.currentTimeMillis() + timeoutMs
-    while (thread.state != Thread.State.WAITING && thread.state != Thread.State.TIMED_WAITING) {
-        check(System.currentTimeMillis() < deadline) { "Thread never blocked (state=${thread.state})" }
+    while (wiremock.allServeEvents.size < count) {
+        check(System.currentTimeMillis() < deadline) {
+            "Expected $count request(s), only ${wiremock.allServeEvents.size} received"
+        }
         Thread.sleep(5)
     }
 }
@@ -56,7 +60,7 @@ private fun awaitTermination(thread: Thread, timeoutMs: Long = 5_000) {
 class HttpMessageDelivererInterruptionTest : FunSpec({
     val wiremock = WireMockServer(wireMockConfig().dynamicPort())
     val deliverer by lazy {
-        HttpMessageDeliverer(ServiceUrlResolver { "http://localhost:${wiremock.port()}" })
+        HttpMessageDeliverer({ "http://localhost:${wiremock.port()}" })
     }
 
     beforeSpec { wiremock.start() }
@@ -73,7 +77,7 @@ class HttpMessageDelivererInterruptionTest : FunSpec({
             interruptedAfterReturn = Thread.currentThread().isInterrupted
         }
         thread.start()
-        awaitBlocked(thread)
+        awaitRequestsReceived(wiremock, count = 1)
         thread.interrupt()
         awaitTermination(thread)
 
@@ -95,7 +99,7 @@ class HttpMessageDelivererInterruptionTest : FunSpec({
             interruptedAfterReturn = Thread.currentThread().isInterrupted
         }
         thread.start()
-        awaitBlocked(thread)
+        awaitRequestsReceived(wiremock, count = entries.size)
         thread.interrupt()
         awaitTermination(thread)
 
