@@ -401,11 +401,29 @@ class OutboxSchedulerTest : FunSpec({
         // moves on to the workers pool's shutdownAndAwait, its awaitTermination sees the flag still
         // set and immediately treats it as interrupted too, force-shutting-down the worker pool
         // without a second explicit interrupt.
+        //
+        // The stub retries its own latch wait on interrupt rather than propagating it: if it let
+        // the worker pool's shutdownNow() interrupt complete its Future normally, that would race
+        // against the scheduler thread's own interrupt (from scheduler.shutdownNow()) -- and on a
+        // contended machine, the worker's Future can win, so awaitWorker()'s future.get() returns
+        // normally instead of throwing and no warning is logged (flaky failure at `warnLogged.await`
+        // below). Making the stub interrupt-proof forces the Future to stay incomplete until
+        // releaseWorkers.countDown() below, so the scheduler thread's own interrupt is the only way
+        // awaitWorker() can ever unblock.
         val workerStarted = CountDownLatch(2)
         val releaseWorkers = CountDownLatch(1)
         val processor = stubProcessor { _ ->
             workerStarted.countDown()
-            releaseWorkers.await()
+            var interrupted = false
+            while (true) {
+                try {
+                    releaseWorkers.await()
+                    break
+                } catch (_: InterruptedException) {
+                    interrupted = true
+                }
+            }
+            if (interrupted) Thread.currentThread().interrupt()
         }
 
         val scheduler = OutboxScheduler(
@@ -440,12 +458,12 @@ class OutboxSchedulerTest : FunSpec({
 
             awaitBlocked(stopper)
             stopper.interrupt()
-            releaseWorkers.countDown() // defensive: shutdownNow() already interrupts the workers too
             awaitTermination(stopper)
 
             warnLogged.await(2, TimeUnit.SECONDS) shouldBe true
             stopThrew shouldBe false
         } finally {
+            releaseWorkers.countDown() // let the still-blocked, interrupt-proof workers exit
             schedulerLogger.detachAppender(appender)
         }
     }
