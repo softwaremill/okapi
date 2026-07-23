@@ -18,11 +18,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * claim SELECT and concurrent processor instances deliver the same entry multiple times.
  *
  * With [OutboxSchedulerConfig.concurrency] `> 1`, each tick fans out to that many workers on
- * [OutboxSchedulerConfig.workerExecutorFactory]'s pool, each independently claiming and
- * processing its own batch -- `FOR UPDATE SKIP LOCKED` guarantees disjoint claims, so no
- * app-level coordination is needed. The tick waits for every worker before the next scheduled
- * interval, so ticks never overlap. `concurrency = 1` (default) skips the executor entirely
- * and calls the batch inline, preserving the original zero-overhead single-worker behavior.
+ * [OutboxSchedulerConfig.workerExecutorFactory]'s pool. `FOR UPDATE SKIP LOCKED` guarantees
+ * disjoint claims, but [outboxProcessor] (and its dependencies) must be safe for concurrent use.
+ * The tick waits for every worker before the next scheduled interval, so ticks never overlap.
+ * `concurrency = 1` (default) calls the batch inline, preserving single-worker semantics.
  *
  * At `concurrency > 1`, [outboxProcessor] -- and by extension its [OutboxStore], [MessageDeliverer],
  * and any [OutboxProcessorListener] -- is invoked concurrently from multiple worker threads, so all
