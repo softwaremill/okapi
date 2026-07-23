@@ -86,7 +86,7 @@ class OutboxScheduler @JvmOverloads constructor(
             if (!executor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 executor.shutdownNow()
             }
-        } catch (e: InterruptedException) {
+        } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             executor.shutdownNow()
         }

@@ -345,7 +345,7 @@ class OutboxSchedulerTest : FunSpec({
         val stopper = Thread {
             try {
                 scheduler.stop()
-            } catch (e: Throwable) {
+            } catch (_: Throwable) {
                 stopThrew = true
             }
             interruptedAfterReturn = Thread.currentThread().isInterrupted
@@ -432,7 +432,7 @@ class OutboxSchedulerTest : FunSpec({
             val stopper = Thread {
                 try {
                     scheduler.stop()
-                } catch (e: Throwable) {
+                } catch (_: Throwable) {
                     stopThrew = true
                 }
             }
