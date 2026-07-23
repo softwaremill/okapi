@@ -27,7 +27,7 @@ private fun entry(suffix: String, path: String = "/test", metadataOverride: Stri
 }
 
 class HttpMessageDelivererBatchTest : FunSpec({
-    val wiremock = WireMockServer(wireMockConfig().dynamicPort())
+    val wiremock = WireMockServer(wireMockConfig().dynamicPort().dynamicHttpsPort())
     val deliverer by lazy {
         HttpMessageDeliverer(ServiceUrlResolver { "http://localhost:${wiremock.port()}" })
     }
@@ -120,9 +120,14 @@ class HttpMessageDelivererBatchTest : FunSpec({
     }
 
     test("deliverBatch TLS handshake failure -> PermanentFailure (does not throw)") {
-        // Resolving to https:// against a plaintext WireMock server fails the TLS handshake —
-        // an SSLException, which is a config/cert problem that won't fix itself on retry.
-        val tlsDeliverer = HttpMessageDeliverer(ServiceUrlResolver { "https://localhost:${wiremock.port()}" })
+        // WireMock's HTTPS port serves its own self-signed cert, which the JDK's default trust
+        // store rejects -- a deterministic SSLHandshakeException (cert/config problem, won't fix
+        // itself on retry). Deliberately not testing this via https:// against the *plaintext*
+        // port: that failure mode depends on exactly how/when the peer aborts the connection, and
+        // the exception type it produces is a genuine JDK-level race -- usually SSLException, but
+        // occasionally java.net.http.HttpConnectTimeoutException (an IOException, misclassified
+        // as RetriableFailure), causing sporadic CI failures.
+        val tlsDeliverer = HttpMessageDeliverer(ServiceUrlResolver { "https://localhost:${wiremock.httpsPort()}" })
 
         val outcome: DeliveryOutcome = tlsDeliverer.deliverBatch(listOf(entry("a"))).single()
 
