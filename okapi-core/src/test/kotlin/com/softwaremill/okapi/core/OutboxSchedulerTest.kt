@@ -463,6 +463,10 @@ private class AlwaysRejectingExecutor(private val delegate: ExecutorService) : E
         submitAttempts.incrementAndGet()
         throw RejectedExecutionException("worker pool full (test double)")
     }
+
+    override fun close() {
+        delegate.close()
+    }
 }
 
 /** Counts [submit] calls (queued or not) without altering delegate behavior otherwise. */
@@ -473,6 +477,10 @@ private class SubmitCountingExecutor(
     override fun submit(task: Runnable): Future<*> {
         submitCount.incrementAndGet()
         return delegate.submit(task)
+    }
+
+    override fun close() {
+        delegate.close()
     }
 }
 
