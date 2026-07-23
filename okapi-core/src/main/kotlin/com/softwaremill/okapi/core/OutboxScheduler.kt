@@ -24,6 +24,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * interval, so ticks never overlap. `concurrency = 1` (default) skips the executor entirely
  * and calls the batch inline, preserving the original zero-overhead single-worker behavior.
  *
+ * At `concurrency > 1`, [outboxProcessor] -- and by extension its [OutboxStore], [MessageDeliverer],
+ * and any [OutboxProcessorListener] -- is invoked concurrently from multiple worker threads, so all
+ * of these must be safe for concurrent use. The store/deliverer implementations shipped in this
+ * project already are; a custom implementation must be too.
+ *
  * Runs on a single daemon thread with explicit [start]/[stop] lifecycle.
  * [start] and [stop] are single-use -- the internal executor cannot be restarted after shutdown.
  * [AtomicBoolean] guards against accidental double-start, not restart.
@@ -44,12 +49,10 @@ class OutboxScheduler @JvmOverloads constructor(
             Thread(r, "outbox-processor").apply { isDaemon = true }
         }
 
-    // Spun up lazily, only if needed -- accessed from both the scheduler thread (tick()) and
-    // the caller thread (stop()), so this must use the default thread-safe SYNCHRONIZED mode.
-    private val workers: Lazy<ExecutorService?> =
-        lazy {
-            if (config.concurrency > 1) config.workerExecutorFactory(config.concurrency) else null
-        }
+    // Spun up lazily, only if concurrency > 1 -- accessed from both the scheduler thread (tick())
+    // and the caller thread (stop()), so this must use the default thread-safe SYNCHRONIZED mode.
+    // concurrency == 1 never touches this at all (see tick()), so it's never initialized then.
+    private val workers: Lazy<ExecutorService> = lazy { config.workerExecutorFactory(config.concurrency) }
 
     fun start() {
         check(!scheduler.isShutdown) { "OutboxScheduler cannot be restarted after stop()" }
@@ -67,7 +70,7 @@ class OutboxScheduler @JvmOverloads constructor(
         if (!running.compareAndSet(true, false)) return
         shutdownAndAwait(scheduler)
         if (workers.isInitialized()) {
-            workers.value?.let(::shutdownAndAwait)
+            shutdownAndAwait(workers.value)
         }
         logger.info("Outbox processor stopped")
     }
@@ -93,6 +96,12 @@ class OutboxScheduler @JvmOverloads constructor(
     }
 
     private fun tick() {
+        if (config.concurrency == 1) {
+            // Skips workers/Lazy entirely -- not just an inline no-op path -- so this configuration
+            // truly pays no executor/synchronization overhead per tick, matching the class KDoc.
+            processBatch()
+            return
+        }
         val pool = try {
             workers.value
         } catch (e: Exception) {
@@ -105,12 +114,8 @@ class OutboxScheduler @JvmOverloads constructor(
             logger.error("Failed to initialize outbox worker pool, will retry at next scheduled interval", e)
             return
         }
-        if (pool == null) {
-            processBatch()
-        } else {
-            val futures = (1..config.concurrency).mapNotNull { submitWorker(pool) }
-            futures.forEach(::awaitWorker)
-        }
+        val futures = (1..config.concurrency).mapNotNull { submitWorker(pool) }
+        futures.forEach(::awaitWorker)
     }
 
     /**
@@ -147,7 +152,7 @@ class OutboxScheduler @JvmOverloads constructor(
             } catch (e: InterruptedException) {
                 if (!running.get()) {
                     Thread.currentThread().interrupt()
-                    logger.warn("Interrupted while awaiting outbox worker; will retry at next scheduled interval", e)
+                    logger.warn("Interrupted while awaiting outbox worker during shutdown", e)
                     return
                 }
                 // Not shutting down: keep waiting instead of letting the next tick overlap this worker.

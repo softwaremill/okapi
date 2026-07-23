@@ -44,10 +44,14 @@ data class OutboxSchedulerConfig(
 
         /**
          * One virtual thread per submitted task. [n] is accepted for signature parity with
-         * [defaultPlatformPool] but unused — virtual thread creation is unbounded.
+         * [defaultPlatformPool] but otherwise unused — virtual thread creation is unbounded --
+         * still validated so a bad `concurrency` value fails the same way for either factory.
          */
         @JvmStatic
         @Suppress("UNUSED_PARAMETER")
-        fun virtualThreadPool(n: Int): ExecutorService = Executors.newVirtualThreadPerTaskExecutor()
+        fun virtualThreadPool(n: Int): ExecutorService {
+            require(n > 0) { "n must be positive, got: $n" }
+            return Executors.newVirtualThreadPerTaskExecutor()
+        }
     }
 }

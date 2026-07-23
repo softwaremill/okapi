@@ -108,4 +108,13 @@ class OutboxSchedulerConfigTest : FunSpec({
             pool.shutdown()
         }
     }
+
+    test("virtualThreadPool rejects zero or negative n") {
+        shouldThrow<IllegalArgumentException> {
+            OutboxSchedulerConfig.virtualThreadPool(0)
+        }
+        shouldThrow<IllegalArgumentException> {
+            OutboxSchedulerConfig.virtualThreadPool(-1)
+        }
+    }
 })
