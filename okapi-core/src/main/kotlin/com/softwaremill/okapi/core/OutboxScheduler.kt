@@ -98,7 +98,7 @@ class OutboxScheduler @JvmOverloads constructor(
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
-            logger.warn("Executor terminated during shutdownAndAwait()", e)
+            logger.warn("Interrupted while awaiting executor termination; forcing shutdownNow()", e)
             executor.shutdownNow()
         }
     }
