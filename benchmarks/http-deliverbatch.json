@@ -1,0 +1,598 @@
+[
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "10",
+            "httpLatencyMs" : "0"
+        },
+        "primaryMetric" : {
+            "score" : 1.3326614469266165,
+            "scoreError" : 0.06602008494480224,
+            "scoreConfidence" : [
+                1.2666413619818142,
+                1.3986815318714187
+            ],
+            "scorePercentiles" : {
+                "0.0" : 1.2568559525714287,
+                "50.0" : 1.3349724140421053,
+                "90.0" : 1.3823694920473684,
+                "95.0" : 1.3830754144210526,
+                "99.0" : 1.3830754144210526,
+                "99.9" : 1.3830754144210526,
+                "99.99" : 1.3830754144210526,
+                "99.999" : 1.3830754144210526,
+                "99.9999" : 1.3830754144210526,
+                "100.0" : 1.3830754144210526
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    1.3046833416,
+                    1.2568559525714287,
+                    1.30207778535,
+                    1.3830754144210526,
+                    1.3760161906842105
+                ],
+                [
+                    1.3520587696842106,
+                    1.29142953545,
+                    1.3178860584,
+                    1.372032945105263,
+                    1.370498476
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "10",
+            "httpLatencyMs" : "20"
+        },
+        "primaryMetric" : {
+            "score" : 5.040692756166666,
+            "scoreError" : 0.37267453246678134,
+            "scoreConfidence" : [
+                4.668018223699884,
+                5.413367288633448
+            ],
+            "scorePercentiles" : {
+                "0.0" : 4.743718756833333,
+                "50.0" : 4.985558770833333,
+                "90.0" : 5.5493497707833335,
+                "95.0" : 5.591932076333333,
+                "99.0" : 5.591932076333333,
+                "99.9" : 5.591932076333333,
+                "99.99" : 5.591932076333333,
+                "99.999" : 5.591932076333333,
+                "99.9999" : 5.591932076333333,
+                "100.0" : 5.591932076333333
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    5.143818479,
+                    4.962072875,
+                    5.000442485833333,
+                    4.9706750558333335,
+                    4.922914437333334
+                ],
+                [
+                    5.166109020833333,
+                    4.744830791333333,
+                    4.743718756833333,
+                    5.160413583333334,
+                    5.591932076333333
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "10",
+            "httpLatencyMs" : "100"
+        },
+        "primaryMetric" : {
+            "score" : 14.118910350816668,
+            "scoreError" : 2.2777656483925592,
+            "scoreConfidence" : [
+                11.841144702424108,
+                16.396675999209226
+            ],
+            "scorePercentiles" : {
+                "0.0" : 13.179229250333334,
+                "50.0" : 13.416770770833335,
+                "90.0" : 17.673442560750004,
+                "95.0" : 17.9172068545,
+                "99.0" : 17.9172068545,
+                "99.9" : 17.9172068545,
+                "99.99" : 17.9172068545,
+                "99.999" : 17.9172068545,
+                "99.9999" : 17.9172068545,
+                "100.0" : 17.9172068545
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    14.111793861333334,
+                    13.892910791666667,
+                    13.468068041666667,
+                    13.3654735,
+                    13.266195222333334
+                ],
+                [
+                    17.9172068545,
+                    15.479563917,
+                    13.290906611,
+                    13.179229250333334,
+                    13.217755458333333
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "50",
+            "httpLatencyMs" : "0"
+        },
+        "primaryMetric" : {
+            "score" : 0.40358162615988774,
+            "scoreError" : 0.03151884569476366,
+            "scoreConfidence" : [
+                0.3720627804651241,
+                0.4351004718546514
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.3743532155576923,
+                "50.0" : 0.40496053347836736,
+                "90.0" : 0.42950256860333025,
+                "95.0" : 0.43018804717391307,
+                "99.0" : 0.43018804717391307,
+                "99.9" : 0.43018804717391307,
+                "99.99" : 0.43018804717391307,
+                "99.999" : 0.43018804717391307,
+                "99.9999" : 0.43018804717391307,
+                "100.0" : 0.43018804717391307
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.3743532155576923,
+                    0.38934304821568627,
+                    0.37919615871153844,
+                    0.3857983651960784,
+                    0.4233332614680851
+                ],
+                [
+                    0.4204744467234043,
+                    0.42320865159574467,
+                    0.4142155918367347,
+                    0.43018804717391307,
+                    0.39570547512
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "50",
+            "httpLatencyMs" : "20"
+        },
+        "primaryMetric" : {
+            "score" : 2.4637369849165154,
+            "scoreError" : 0.22172371793583026,
+            "scoreConfidence" : [
+                2.242013266980685,
+                2.6854607028523456
+            ],
+            "scorePercentiles" : {
+                "0.0" : 2.3148564686666666,
+                "50.0" : 2.3679583734166667,
+                "90.0" : 2.679749229028182,
+                "95.0" : 2.6842740499,
+                "99.0" : 2.6842740499,
+                "99.9" : 2.6842740499,
+                "99.99" : 2.6842740499,
+                "99.999" : 2.6842740499,
+                "99.9999" : 2.6842740499,
+                "100.0" : 2.6842740499
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    2.6842740499,
+                    2.639025841181818,
+                    2.6176993445454544,
+                    2.5823947764545454,
+                    2.3148564686666666
+                ],
+                [
+                    2.3707573195833334,
+                    2.3559355000833335,
+                    2.36515942725,
+                    2.3576010035,
+                    2.349666118
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "50",
+            "httpLatencyMs" : "100"
+        },
+        "primaryMetric" : {
+            "score" : 7.4837112907000005,
+            "scoreError" : 0.12976034179141005,
+            "scoreConfidence" : [
+                7.35395094890859,
+                7.613471632491411
+            ],
+            "scorePercentiles" : {
+                "0.0" : 7.34852254175,
+                "50.0" : 7.494728619875,
+                "90.0" : 7.58549876165,
+                "95.0" : 7.5875377085,
+                "99.0" : 7.5875377085,
+                "99.9" : 7.5875377085,
+                "99.99" : 7.5875377085,
+                "99.999" : 7.5875377085,
+                "99.9999" : 7.5875377085,
+                "100.0" : 7.5875377085
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    7.40089597925,
+                    7.56714824,
+                    7.5669819895,
+                    7.54069975,
+                    7.535344094
+                ],
+                [
+                    7.5875377085,
+                    7.440802302,
+                    7.39506715625,
+                    7.45411314575,
+                    7.34852254175
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100",
+            "httpLatencyMs" : "0"
+        },
+        "primaryMetric" : {
+            "score" : 0.3195939434455658,
+            "scoreError" : 0.03573571177856272,
+            "scoreConfidence" : [
+                0.2838582316670031,
+                0.3553296552241285
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.29674805806557375,
+                "50.0" : 0.3125038394628872,
+                "90.0" : 0.36809225234857945,
+                "95.0" : 0.3699338622653061,
+                "99.0" : 0.3699338622653061,
+                "99.9" : 0.3699338622653061,
+                "99.99" : 0.3699338622653061,
+                "99.999" : 0.3699338622653061,
+                "99.9999" : 0.3699338622653061,
+                "100.0" : 0.3699338622653061
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    0.31907520177192983,
+                    0.31043724430508474,
+                    0.3699338622653061,
+                    0.3515177630980392,
+                    0.3074357938474576
+                ],
+                [
+                    0.29983399381967213,
+                    0.30261940623333333,
+                    0.29674805806557375,
+                    0.3145704346206897,
+                    0.3237676764285714
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100",
+            "httpLatencyMs" : "20"
+        },
+        "primaryMetric" : {
+            "score" : 2.174603333653846,
+            "scoreError" : 0.032096370050147184,
+            "scoreConfidence" : [
+                2.142506963603699,
+                2.2066997037039933
+            ],
+            "scorePercentiles" : {
+                "0.0" : 2.150771185846154,
+                "50.0" : 2.1670441426153846,
+                "90.0" : 2.2067764270153845,
+                "95.0" : 2.2074136475384614,
+                "99.0" : 2.2074136475384614,
+                "99.9" : 2.2074136475384614,
+                "99.99" : 2.2074136475384614,
+                "99.999" : 2.2074136475384614,
+                "99.9999" : 2.2074136475384614,
+                "100.0" : 2.2074136475384614
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    2.1631431763076923,
+                    2.1862946826153844,
+                    2.150771185846154,
+                    2.157385826923077,
+                    2.152124092846154
+                ],
+                [
+                    2.1957775416153846,
+                    2.170945108923077,
+                    2.2074136475384614,
+                    2.2010414423076923,
+                    2.161136631615385
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "jmhVersion" : "1.37",
+        "benchmark" : "com.softwaremill.okapi.benchmarks.HttpThroughputBenchmark.drainAll",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 2,
+        "jvm" : "/usr/lib/jvm/25.0.2-open/bin/java",
+        "jvmArgs" : [
+            "-Xms8g",
+            "-Xmx8g",
+            "-XX:+UseG1GC",
+            "-Dliquibase.duplicateFileMode=WARN"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 3,
+        "warmupTime" : "10 s",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 5,
+        "measurementTime" : "30 s",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100",
+            "httpLatencyMs" : "100"
+        },
+        "primaryMetric" : {
+            "score" : 7.0586413417000005,
+            "scoreError" : 0.04465353994315141,
+            "scoreConfidence" : [
+                7.013987801756849,
+                7.103294881643152
+            ],
+            "scorePercentiles" : {
+                "0.0" : 7.0226183418,
+                "50.0" : 7.0565465044,
+                "90.0" : 7.10314267146,
+                "95.0" : 7.1043565664,
+                "99.0" : 7.1043565664,
+                "99.9" : 7.1043565664,
+                "99.99" : 7.1043565664,
+                "99.999" : 7.1043565664,
+                "99.9999" : 7.1043565664,
+                "100.0" : 7.1043565664
+            },
+            "scoreUnit" : "ms/op",
+            "rawData" : [
+                [
+                    7.1043565664,
+                    7.092217617,
+                    7.0778627,
+                    7.0226183418,
+                    7.0272288414
+                ],
+                [
+                    7.0312766,
+                    7.0537570168,
+                    7.0343162082,
+                    7.0834435334,
+                    7.059335992
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    }
+]
+
+
