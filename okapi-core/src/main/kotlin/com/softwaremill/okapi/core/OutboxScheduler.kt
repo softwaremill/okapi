@@ -94,7 +94,9 @@ class OutboxScheduler @JvmOverloads constructor(
             if (executor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) return
             executor.shutdownNow()
             if (!executor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                logger.warn("Executor (${executor.javaClass.name}) did not terminate after shutdownNow(); some worker threads may still be running")
+                logger.warn(
+                    "Executor (${executor.javaClass.name}) did not terminate after shutdownNow(); some worker threads may still be running",
+                )
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
