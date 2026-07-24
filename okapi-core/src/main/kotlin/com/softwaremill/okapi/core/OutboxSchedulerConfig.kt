@@ -5,7 +5,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
-data class OutboxSchedulerConfig(
+data class OutboxSchedulerConfig @JvmOverloads constructor(
     val interval: Duration = Duration.ofSeconds(1),
     val batchSize: Int = 10,
     /**
