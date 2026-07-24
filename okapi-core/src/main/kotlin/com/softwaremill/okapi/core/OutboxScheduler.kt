@@ -1,6 +1,7 @@
 package com.softwaremill.okapi.core
 
 import org.slf4j.LoggerFactory
+import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -78,18 +79,26 @@ class OutboxScheduler @JvmOverloads constructor(
 
     /**
      * Shuts down [executor] and waits up to [SHUTDOWN_TIMEOUT_SECONDS] for in-flight tasks to
-     * finish. If the caller is interrupted while waiting, the flag is restored and [executor] is
-     * force-shut-down via `shutdownNow()` so `stop()` still completes deterministically instead
-     * of leaking a partially-shut-down executor.
+     * finish. If that times out, `shutdownNow()` forces it, then waits once more (same budget) so
+     * `stop()` doesn't return while a custom [OutboxSchedulerConfig.workerExecutorFactory]'s
+     * (potentially non-daemon) threads are still winding down -- logging if they still haven't by
+     * then, since nothing more can be done short of abandoning the executor. If the caller is
+     * interrupted at any point in this sequence, the flag is restored and [executor] is
+     * force-shut-down via `shutdownNow()` without a further wait, so `stop()` still completes
+     * deterministically and promptly honors the interrupt instead of leaking a partially-shut-down
+     * executor.
      */
     private fun shutdownAndAwait(executor: ExecutorService) {
         executor.shutdown()
         try {
+            if (executor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) return
+            executor.shutdownNow()
             if (!executor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                executor.shutdownNow()
+                logger.warn("Executor did not terminate after shutdownNow(); some worker threads may still be running")
             }
-        } catch (_: InterruptedException) {
+        } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
+            logger.warn("Executor terminated during shutdownAndAwait()", e)
             executor.shutdownNow()
         }
     }
@@ -134,8 +143,9 @@ class OutboxScheduler @JvmOverloads constructor(
      * Awaits one worker's completion without letting anything escape [tick] -- an uncaught
      * exception here would make `scheduleWithFixedDelay` suppress all future ticks, silently
      * killing the scheduler. [processBatch] already catches [Exception] internally, so this
-     * only guards against an [Error] surfacing via [ExecutionException], or an interrupt while
-     * awaiting.
+     * only guards against an [Error] surfacing via [ExecutionException], a [CancellationException]
+     * if a custom [OutboxSchedulerConfig.workerExecutorFactory] cancels queued/running tasks (e.g.
+     * as a backpressure strategy), or an interrupt while awaiting.
      *
      * An [InterruptedException] only aborts the wait when [running] is already `false` -- i.e.
      * when [stop] itself triggered the interrupt via `scheduler.shutdownNow()`. Any other
@@ -157,6 +167,9 @@ class OutboxScheduler @JvmOverloads constructor(
                 // Not shutting down: keep waiting instead of letting the next tick overlap this worker.
             } catch (e: ExecutionException) {
                 logger.error("Outbox worker failed unexpectedly, will retry at next scheduled interval", e.cause ?: e)
+                return
+            } catch (e: CancellationException) {
+                logger.error("Outbox worker was cancelled, will retry at next scheduled interval", e)
                 return
             }
         }

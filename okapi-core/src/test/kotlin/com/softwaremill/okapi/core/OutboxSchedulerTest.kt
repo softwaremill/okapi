@@ -11,6 +11,7 @@ import io.kotest.matchers.shouldBe
 import org.slf4j.LoggerFactory
 import java.time.Duration.ofMillis
 import java.time.Duration.ofMinutes
+import java.util.concurrent.CancellationException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Future
@@ -291,6 +292,37 @@ class OutboxSchedulerTest : FunSpec({
         rejectingExecutorRef.get()!!.submitAttempts.get() shouldBeGreaterThanOrEqualTo concurrency
     }
 
+    test("CancellationException awaiting a worker does not kill the scheduler") {
+        val concurrency = 2
+        // workerExecutorFactory only runs on the scheduler's background thread on the first
+        // tick(), so a plain lateinit var raced with this test thread's polling -- an
+        // AtomicReference makes the handoff safe.
+        val cancellingExecutorRef = AtomicReference<AlwaysCancellingExecutor?>(null)
+        val processor = stubProcessor { _ -> }
+
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
+            config = OutboxSchedulerConfig(
+                interval = ofMillis(20),
+                concurrency = concurrency,
+                workerExecutorFactory = { n ->
+                    AlwaysCancellingExecutor(OutboxSchedulerConfig.defaultPlatformPool(n)).also { cancellingExecutorRef.set(it) }
+                },
+            ),
+        )
+
+        scheduler.start()
+        // Without the fix, the first CancellationException escapes tick() via awaitWorker()'s
+        // future.get() and scheduleWithFixedDelay suppresses all further ticks, so
+        // cancelledSubmissions would get stuck at `concurrency` (one tick's worth). Observing it
+        // climb past that proves later ticks still ran.
+        awaitCondition { (cancellingExecutorRef.get()?.cancelledSubmissions?.get() ?: 0) > concurrency }
+        scheduler.stop()
+
+        cancellingExecutorRef.get()!!.cancelledSubmissions.get() shouldBeGreaterThanOrEqualTo concurrency
+    }
+
     test("workerExecutorFactory failure during lazy init does not kill the scheduler, and retries next tick") {
         val factoryCallCount = AtomicInteger(0)
         val latch = CountDownLatch(1)
@@ -357,6 +389,73 @@ class OutboxSchedulerTest : FunSpec({
 
         stopThrew shouldBe false
         interruptedAfterReturn shouldBe true
+    }
+
+    test("stop() waits again after shutdownNow() forces a slow-to-terminate worker pool to finish") {
+        val processor = stubProcessor { _ -> }
+        val executorRef = AtomicReference<FakeSlowShutdownExecutor?>(null)
+
+        val scheduler = OutboxScheduler(
+            outboxProcessor = processor,
+            transactionRunner = noOpTransactionRunner(),
+            config = OutboxSchedulerConfig(
+                interval = ofMinutes(1),
+                concurrency = 2,
+                workerExecutorFactory = { n ->
+                    FakeSlowShutdownExecutor(OutboxSchedulerConfig.defaultPlatformPool(n), terminatesAfterShutdownNow = true)
+                        .also { executorRef.set(it) }
+                },
+            ),
+        )
+
+        scheduler.start()
+        awaitCondition { executorRef.get() != null }
+        scheduler.stop()
+
+        // Without the fix, stop() returns as soon as the first awaitTermination() reports false,
+        // never calling shutdownNow() -- awaitTerminationCallCount stuck at 1 -- and never
+        // confirming the forced shutdown actually finished. Observing a second call proves the
+        // follow-up wait happened.
+        executorRef.get()!!.awaitTerminationCallCount.get() shouldBe 2
+    }
+
+    test("stop() logs a warning but still returns if a worker pool never terminates even after shutdownNow()") {
+        val processor = stubProcessor { _ -> }
+        val executorRef = AtomicReference<FakeSlowShutdownExecutor?>(null)
+
+        val schedulerLogger = LoggerFactory.getLogger(OutboxScheduler::class.java) as Logger
+        val warnLogged = CountDownLatch(1)
+        val appender = object : ListAppender<ILoggingEvent>() {
+            override fun append(event: ILoggingEvent) {
+                super.append(event)
+                if (event.level == Level.WARN) warnLogged.countDown()
+            }
+        }.apply { start() }
+        schedulerLogger.addAppender(appender)
+
+        try {
+            val scheduler = OutboxScheduler(
+                outboxProcessor = processor,
+                transactionRunner = noOpTransactionRunner(),
+                config = OutboxSchedulerConfig(
+                    interval = ofMinutes(1),
+                    concurrency = 2,
+                    workerExecutorFactory = { n ->
+                        FakeSlowShutdownExecutor(OutboxSchedulerConfig.defaultPlatformPool(n), terminatesAfterShutdownNow = false)
+                            .also { executorRef.set(it) }
+                    },
+                ),
+            )
+
+            scheduler.start()
+            awaitCondition { executorRef.get() != null }
+            scheduler.stop()
+
+            executorRef.get()!!.awaitTerminationCallCount.get() shouldBe 2
+            warnLogged.await(2, TimeUnit.SECONDS) shouldBe true
+        } finally {
+            schedulerLogger.detachAppender(appender)
+        }
     }
 
     test("stop() before start() is a no-op") {
@@ -480,6 +579,57 @@ private class AlwaysRejectingExecutor(private val delegate: ExecutorService) : E
     override fun submit(task: Runnable): Future<*> {
         submitAttempts.incrementAndGet()
         throw RejectedExecutionException("worker pool full (test double)")
+    }
+
+    override fun close() {
+        delegate.close()
+    }
+}
+
+/**
+ * Cancels every submitted task's [Future] immediately, tracking how many were cancelled -- used to
+ * prove [OutboxScheduler] doesn't die when a worker's future surfaces a [CancellationException]
+ * (e.g. a custom [OutboxSchedulerConfig.workerExecutorFactory] cancelling stale tasks as a
+ * backpressure strategy).
+ */
+private class AlwaysCancellingExecutor(private val delegate: ExecutorService) : ExecutorService by delegate {
+    val cancelledSubmissions = AtomicInteger(0)
+
+    override fun submit(task: Runnable): Future<*> {
+        val future = delegate.submit(task)
+        future.cancel(true)
+        cancelledSubmissions.incrementAndGet()
+        return future
+    }
+
+    override fun close() {
+        delegate.close()
+    }
+}
+
+/**
+ * Fakes a slow-to-terminate executor: [awaitTermination] reports "didn't terminate" on its first
+ * call regardless of the real delegate's state (keeping the test fast, not tied to any real
+ * timeout), then [terminatesAfterShutdownNow] on subsequent calls -- simulating an executor whose
+ * tasks only actually stop once `shutdownNow()` forcibly interrupts them. Used to prove
+ * [OutboxScheduler.stop] waits again for termination after forcing `shutdownNow()`, instead of
+ * returning as soon as the first wait times out.
+ */
+private class FakeSlowShutdownExecutor(
+    private val delegate: ExecutorService,
+    private val terminatesAfterShutdownNow: Boolean,
+) : ExecutorService by delegate {
+    val awaitTerminationCallCount = AtomicInteger(0)
+    private val shutdownNowCalled = AtomicBoolean(false)
+
+    override fun awaitTermination(timeout: Long, unit: TimeUnit): Boolean {
+        if (awaitTerminationCallCount.incrementAndGet() == 1) return false
+        return shutdownNowCalled.get() && terminatesAfterShutdownNow
+    }
+
+    override fun shutdownNow(): MutableList<Runnable> {
+        shutdownNowCalled.set(true)
+        return delegate.shutdownNow()
     }
 
     override fun close() {
