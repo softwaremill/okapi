@@ -6,7 +6,12 @@ plugins {
 
 mavenPublishing {
     publishToMavenCentral()
-    signAllPublications()
+    // Only sign when a key is actually configured (CI's release job sets this via
+    // ORG_GRADLE_PROJECT_signingInMemoryKey). Signing unconditionally breaks `publishToMavenLocal`
+    // for local development/testing, since no GPG key is available outside the release job.
+    if (project.hasProperty("signingInMemoryKey")) {
+        signAllPublications()
+    }
 
     pom {
         name.set(project.name)
