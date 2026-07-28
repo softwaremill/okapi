@@ -5,6 +5,7 @@ import com.softwaremill.okapi.micrometer.MicrometerOutboxListener
 import com.softwaremill.okapi.micrometer.MicrometerOutboxMetrics
 import com.softwaremill.okapi.micrometer.OutboxMetricsRefresher
 import io.micrometer.core.instrument.MeterRegistry
+import org.springframework.beans.factory.BeanFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.AutoConfigureAfter
@@ -40,7 +41,7 @@ import java.time.Clock
 )
 @ConditionalOnClass(name = ["io.micrometer.core.instrument.MeterRegistry"])
 @ConditionalOnBean(MeterRegistry::class)
-@EnableConfigurationProperties(OkapiMetricsProperties::class)
+@EnableConfigurationProperties(OkapiMetricsProperties::class, OkapiProperties::class)
 class OkapiMicrometerAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
@@ -53,8 +54,20 @@ class OkapiMicrometerAutoConfiguration {
         registry: MeterRegistry,
         transactionManager: ObjectProvider<PlatformTransactionManager>,
         clock: ObjectProvider<Clock>,
+        beanFactory: BeanFactory,
+        okapiProperties: OkapiProperties,
     ): MicrometerOutboxMetrics {
-        val readOnlyRunner = transactionManager.getIfAvailable()?.let { tm ->
+        // The PTM is optional here (metrics work fine without a read-only runner), so we can't reuse
+        // OutboxAutoConfiguration.resolvePlatformTransactionManager() as-is — it throws when no PTM is
+        // found. When a qualifier is set it still must be honoured (explicit user config), via the
+        // shared resolvePlatformTransactionManagerByQualifier(); otherwise fall back to
+        // getIfUnique(), which returns null instead of throwing when multiple PTMs are present. This
+        // fixes issue #80: getIfAvailable() throws NoUniqueBeanDefinitionException with 2+ PTM beans,
+        // even when okapi.transaction-manager-qualifier disambiguates which one to use.
+        val ptm = okapiProperties.transactionManagerQualifier?.let { qualifier ->
+            OutboxAutoConfiguration.resolvePlatformTransactionManagerByQualifier(beanFactory, qualifier)
+        } ?: transactionManager.getIfUnique()
+        val readOnlyRunner = ptm?.let { tm ->
             SpringTransactionRunner(TransactionTemplate(tm).apply { isReadOnly = true })
         }
         return MicrometerOutboxMetrics(

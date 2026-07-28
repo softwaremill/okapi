@@ -18,6 +18,7 @@ import org.springframework.beans.factory.BeanFactory
 import org.springframework.beans.factory.BeanNotOfRequiredTypeException
 import org.springframework.beans.factory.NoSuchBeanDefinitionException
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.beans.factory.getBean
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
@@ -277,6 +278,44 @@ class OutboxAutoConfiguration(
                 )
         }
 
+        /**
+         * Resolves the [PlatformTransactionManager] bean named by `okapi.transaction-manager-qualifier`,
+         * rewrapping Spring's lookup exceptions with okapi-specific context. Shared by
+         * [resolvePlatformTransactionManager] (required PTM, e.g. the outbox scheduler) and
+         * [OkapiMicrometerAutoConfiguration.micrometerOutboxMetrics] (optional PTM) so both honour the
+         * qualifier identically instead of one silently ignoring it — see issue #80, where
+         * `micrometerOutboxMetrics` used a bare `ObjectProvider.getIfAvailable()` and threw
+         * `NoUniqueBeanDefinitionException` whenever multiple PTMs were present, regardless of the
+         * qualifier.
+         */
+        internal fun resolvePlatformTransactionManagerByQualifier(
+            beanFactory: BeanFactory,
+            qualifier: String,
+        ): PlatformTransactionManager {
+            return try {
+                beanFactory.getBean<PlatformTransactionManager>(qualifier)
+            } catch (e: NoSuchBeanDefinitionException) {
+                throw NoSuchBeanDefinitionException(
+                    qualifier,
+                    "okapi.transaction-manager-qualifier='$qualifier' — no PlatformTransactionManager bean named " +
+                        "'$qualifier' found. Check the bean name. If you remove the property, okapi will attempt " +
+                        "auto-resolution (may still require a single PTM or an @Primary bean).",
+                ).apply { initCause(e) }
+            } catch (e: BeanNotOfRequiredTypeException) {
+                // Common typo: qualifier points to e.g. a DataSource bean name instead of a PTM
+                // bean name. Spring's default message ("Bean named 'X' is expected to be of type ...
+                // but was actually of type ...") doesn't mention okapi, so users searching for
+                // "okapi" in startup logs find nothing. Rewrap with okapi-specific context.
+                throw IllegalStateException(
+                    "okapi.transaction-manager-qualifier='$qualifier' — bean named '$qualifier' exists " +
+                        "but is of type '${e.actualType.name}', not a PlatformTransactionManager. Check " +
+                        "the property value (likely a typo into a DataSource or other bean name) or " +
+                        "remove it to fall back to auto-resolution.",
+                    e,
+                )
+            }
+        }
+
         internal fun resolvePlatformTransactionManager(
             provider: ObjectProvider<PlatformTransactionManager>,
             beanFactory: BeanFactory,
@@ -284,28 +323,7 @@ class OutboxAutoConfiguration(
         ): PlatformTransactionManager {
             val qualifier = properties.transactionManagerQualifier
             if (qualifier != null) {
-                return try {
-                    beanFactory.getBean(qualifier, PlatformTransactionManager::class.java)
-                } catch (e: NoSuchBeanDefinitionException) {
-                    throw NoSuchBeanDefinitionException(
-                        qualifier,
-                        "okapi.transaction-manager-qualifier='$qualifier' — no PlatformTransactionManager bean named " +
-                            "'$qualifier' found. Check the bean name or remove the property to fall back to " +
-                            "auto-resolution.",
-                    ).apply { initCause(e) }
-                } catch (e: BeanNotOfRequiredTypeException) {
-                    // Common typo: qualifier points to e.g. a DataSource bean name instead of a PTM
-                    // bean name. Spring's default message ("Bean named 'X' is expected to be of type ...
-                    // but was actually of type ...") doesn't mention okapi, so users searching for
-                    // "okapi" in startup logs find nothing. Rewrap with okapi-specific context.
-                    throw IllegalStateException(
-                        "okapi.transaction-manager-qualifier='$qualifier' — bean named '$qualifier' exists " +
-                            "but is of type '${e.actualType.name}', not a PlatformTransactionManager. Check " +
-                            "the property value (likely a typo into a DataSource or other bean name) or " +
-                            "remove it to fall back to auto-resolution.",
-                        e,
-                    )
-                }
+                return resolvePlatformTransactionManagerByQualifier(beanFactory, qualifier)
             }
             val unique = provider.getIfUnique()
             if (unique != null) return unique
