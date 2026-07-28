@@ -8,6 +8,47 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-07-28
+
+First stable release. The public API now follows semantic versioning — breaking changes will
+only ship in a new major version.
+
+### Added
+
+- **`OutboxSchedulerConfig.concurrency`** — fans out each scheduler tick to N parallel workers via
+  a configurable `workerExecutorFactory` (fixed platform-thread pool by default; a virtual-thread
+  factory is also provided). Each worker claims its own disjoint batch via `FOR UPDATE SKIP
+  LOCKED`, so no app-level coordination is needed, and ticks never overlap. `concurrency = 1`
+  (default) preserves the original single-worker, zero-overhead behavior. Benchmarked at
+  3.6×–6.6× throughput scaling (concurrency 4→64); virtual threads showed no advantage over
+  platform threads in that range. Wired into `okapi-spring-boot` via `okapi.processor.concurrency`.
+  ([#73](https://github.com/softwaremill/okapi/pull/73))
+- **`HttpMessageDeliverer.deliverBatch`** now fires all requests concurrently via
+  `HttpClient.sendAsync()` instead of blocking sequentially on `HttpClient.send()` per entry —
+  5×–15× throughput improvement depending on batch size and webhook latency.
+  ([#77](https://github.com/softwaremill/okapi/pull/77))
+- **`KafkaMessageDeliverer.deliverBatch`** — fire-flush-await pattern replaces N sequential
+  blocking `producer.send().get()` round-trips with one batched `producer.flush()` — 13×–41×
+  throughput improvement. ([#40](https://github.com/softwaremill/okapi/pull/40))
+- **`OutboxStore.updateAfterProcessingBatch(entries)`** — batches a processed batch's DB write
+  into a single JDBC `executeBatch()` call instead of N individual `updateAfterProcessing()`
+  round-trips (~10× faster in isolation). Default implementation loops the existing per-entry
+  method, so custom `OutboxStore` implementations keep working unmodified; `PostgresOutboxStore`
+  / `MysqlOutboxStore` override it. ([#71](https://github.com/softwaremill/okapi/pull/71))
+
+### Fixed
+
+- **`okapi-spring-boot` startup crash with 2+ `PlatformTransactionManager` beans.**
+  `OkapiMicrometerAutoConfiguration` now honours `okapi.transaction-manager-qualifier` and falls
+  back gracefully (metrics run without a read-only snapshot transaction) instead of throwing
+  `NoUniqueBeanDefinitionException`, matching how `OutboxAutoConfiguration` already resolved the
+  PTM. ([#81](https://github.com/softwaremill/okapi/pull/81),
+  [#80](https://github.com/softwaremill/okapi/issues/80))
+- **`OutboxProcessor` constructor missing `@JvmOverloads`** — Java callers could no longer omit
+  the `listener`/`clock` parameters and had to pass all four explicitly; restored.
+  ([#75](https://github.com/softwaremill/okapi/pull/75),
+  [#74](https://github.com/softwaremill/okapi/issues/74))
+
 ## [0.3.0] — 2026-06-08
 
 ### Changed (BREAKING)
@@ -133,7 +174,8 @@ Initial public release.
 - `okapi-exposed` integration (transaction runner, connection provider, validator).
 - Concurrent processing via `FOR UPDATE SKIP LOCKED`.
 
-[Unreleased]: https://github.com/softwaremill/okapi/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/softwaremill/okapi/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/softwaremill/okapi/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/softwaremill/okapi/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/softwaremill/okapi/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/softwaremill/okapi/releases/tag/v0.1.0
