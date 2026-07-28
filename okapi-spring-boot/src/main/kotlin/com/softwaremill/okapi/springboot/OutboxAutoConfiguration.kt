@@ -298,8 +298,8 @@ class OutboxAutoConfiguration(
                 throw NoSuchBeanDefinitionException(
                     qualifier,
                     "okapi.transaction-manager-qualifier='$qualifier' — no PlatformTransactionManager bean named " +
-                        "'$qualifier' found. Check the bean name or remove the property to fall back to " +
-                        "auto-resolution.",
+                        "'$qualifier' found. Check the bean name. If you remove the property, okapi will attempt " +
+                        "auto-resolution (may still require a single PTM or an @Primary bean).",
                 ).apply { initCause(e) }
             } catch (e: BeanNotOfRequiredTypeException) {
                 // Common typo: qualifier points to e.g. a DataSource bean name instead of a PTM
