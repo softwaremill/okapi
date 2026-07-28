@@ -39,7 +39,18 @@ import java.time.Clock
         "org.springframework.boot.micrometer.metrics.autoconfigure.CompositeMeterRegistryAutoConfiguration",
     ],
 )
-@ConditionalOnClass(name = ["io.micrometer.core.instrument.MeterRegistry"])
+@ConditionalOnClass(
+    name = [
+        // A consuming app can easily have MeterRegistry on the classpath (e.g. via Spring Boot
+        // Actuator) without depending on okapi-micrometer at all -- MeterRegistry alone is not
+        // evidence okapi-micrometer is present. This class directly references
+        // MicrometerOutboxListener/MicrometerOutboxMetrics/OutboxMetricsRefresher below, so without
+        // this guard, Spring's condition/annotation evaluation would try to load this class on
+        // such a classpath and fail with NoClassDefFoundError instead of just skipping it.
+        "io.micrometer.core.instrument.MeterRegistry",
+        "com.softwaremill.okapi.micrometer.MicrometerOutboxListener",
+    ],
+)
 @ConditionalOnBean(MeterRegistry::class)
 @EnableConfigurationProperties(OkapiMetricsProperties::class, OkapiProperties::class)
 class OkapiMicrometerAutoConfiguration {

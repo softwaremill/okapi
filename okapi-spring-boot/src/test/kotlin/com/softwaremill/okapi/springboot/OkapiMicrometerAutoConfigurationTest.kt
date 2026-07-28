@@ -2,7 +2,9 @@ package com.softwaremill.okapi.springboot
 
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.micrometer.MicrometerOutboxListener
 import com.softwaremill.okapi.micrometer.MicrometerOutboxMetrics
+import com.softwaremill.okapi.micrometer.OutboxMetricsRefresher
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
@@ -12,6 +14,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.h2.jdbcx.JdbcDataSource
 import org.springframework.beans.factory.NoSuchBeanDefinitionException
 import org.springframework.boot.autoconfigure.AutoConfigurations
+import org.springframework.boot.test.context.FilteredClassLoader
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.support.GenericApplicationContext
 import org.springframework.jdbc.datasource.DataSourceTransactionManager
@@ -27,6 +30,13 @@ import javax.sql.DataSource
  * regardless of `okapi.transaction-manager-qualifier`. The fix reuses
  * [OutboxAutoConfiguration.resolvePlatformTransactionManagerByQualifier], the same qualifier
  * resolution [OutboxAutoConfiguration] uses for its (required) PTM lookup.
+ *
+ * Also covers the `okapi-micrometer`-missing-from-the-classpath bug: `MeterRegistry` alone
+ * (`@ConditionalOnClass`'s original guard) is not evidence `okapi-micrometer` is present — plenty
+ * of apps have `MeterRegistry` on the classpath via Spring Boot Actuator without ever adding
+ * `okapi-micrometer`. [OkapiMicrometerAutoConfiguration] directly references
+ * [MicrometerOutboxListener] et al., so on such a classpath the class must be skipped by the
+ * class-level `@ConditionalOnClass`, not merely have individual `@Bean` methods fail.
  */
 class OkapiMicrometerAutoConfigurationTest : FunSpec({
 
@@ -179,6 +189,43 @@ class OkapiMicrometerAutoConfigurationTest : FunSpec({
             metrics.refresh()
             ds1Bound shouldBe false
             ds2Bound shouldBe false
+        }
+    }
+
+    context("@ConditionalOnClass(MicrometerOutboxListener) class-level skip path (okapi-micrometer missing from classpath)") {
+        // MeterRegistry stays genuinely on the classpath and as a bean here (via SimpleMeterRegistry
+        // below and micrometer-core being a real test dependency) -- only MicrometerOutboxListener is
+        // hidden, isolating exactly the variable this guard is meant to catch: MeterRegistry present,
+        // okapi-micrometer absent. FilteredClassLoader only intercepts loadClass(), so (like the
+        // analogous SpringLiquibase guard test) this proves the conditional-skip mechanism, not the
+        // exact JVM-native NoClassDefFoundError timing a real missing-dependency classpath would hit --
+        // that mechanism is what the class-level @ConditionalOnClass guard exists to trigger before
+        // Spring (or the JVM) ever needs to resolve MicrometerOutboxListener as a method return type.
+        test("FilteredClassLoader hides MicrometerOutboxListener → context loads, no okapi-micrometer beans registered") {
+            ApplicationContextRunner()
+                .withClassLoader(FilteredClassLoader(MicrometerOutboxListener::class.java))
+                .withConfiguration(AutoConfigurations.of(OkapiMicrometerAutoConfiguration::class.java))
+                .withBean(OutboxStore::class.java, { stubStore() })
+                .withBean(MeterRegistry::class.java, { SimpleMeterRegistry() })
+                .run { ctx ->
+                    ctx.startupFailure.shouldBeNull()
+                    ctx.getBeansOfType(MicrometerOutboxListener::class.java).isEmpty() shouldBe true
+                    ctx.getBeansOfType(MicrometerOutboxMetrics::class.java).isEmpty() shouldBe true
+                    ctx.getBeansOfType(OutboxMetricsRefresher::class.java).isEmpty() shouldBe true
+                }
+        }
+
+        test("MicrometerOutboxListener present (normal classpath) → autoconfiguration still fires") {
+            // Sanity check the guard's positive path too, so a future typo in the class name
+            // string can't silently disable OkapiMicrometerAutoConfiguration on every classpath.
+            ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(OkapiMicrometerAutoConfiguration::class.java))
+                .withBean(OutboxStore::class.java, { stubStore() })
+                .withBean(MeterRegistry::class.java, { SimpleMeterRegistry() })
+                .run { ctx ->
+                    ctx.startupFailure.shouldBeNull()
+                    ctx.getBeansOfType(MicrometerOutboxListener::class.java).isEmpty() shouldBe false
+                }
         }
     }
 })
