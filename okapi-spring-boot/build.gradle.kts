@@ -45,6 +45,17 @@ val springBootMajorForTests = (
 dependencies {
     implementation(project(":okapi-core"))
 
+    // Required at runtime by every consumer, NOT optional. Spring binds the @ConfigurationProperties
+    // data classes in this module through their Kotlin PRIMARY constructor, which it can only
+    // identify via Kotlin reflection: all their parameters have defaults, so kotlinc also emits a
+    // synthetic no-arg constructor, and Spring's value-object binding only applies when there is a
+    // single parameterized constructor. Without kotlin-reflect it falls back to JavaBean binding and
+    // fails on the first okapi.* property with "No setter found" (the properties are all `val`).
+    // Do not drop this: today it also arrives transitively via jackson-module-kotlin, but only for
+    // consumers of okapi-http/okapi-kafka — okapi-postgres lost that transitive in the plain-JDBC
+    // rewrite. @ConstructorBinding is not a substitute (Kotlin copies it onto the no-arg ctor).
+    implementation(kotlin("reflect"))
+
     compileOnly(libs.springContext)
     compileOnly(libs.springTx)
     compileOnly(libs.springJdbc)
