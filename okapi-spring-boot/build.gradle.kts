@@ -45,6 +45,11 @@ val springBootMajorForTests = (
 dependencies {
     implementation(project(":okapi-core"))
 
+    // Runtime-required, not optional: Spring binds the @ConfigurationProperties data classes in this
+    // module via their Kotlin primary constructor, which it can only resolve through Kotlin
+    // reflection. Without it every okapi.* property fails to bind — see #88.
+    implementation(kotlin("reflect"))
+
     compileOnly(libs.springContext)
     compileOnly(libs.springTx)
     compileOnly(libs.springJdbc)
