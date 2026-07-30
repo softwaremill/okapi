@@ -27,7 +27,6 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary
 import org.springframework.context.support.GenericApplicationContext
 import org.springframework.jdbc.datasource.DataSourceTransactionManager
-import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy
 import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy
 import org.springframework.transaction.PlatformTransactionManager
@@ -37,7 +36,6 @@ import org.springframework.transaction.support.DefaultTransactionStatus
 import org.springframework.transaction.support.ResourceTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import javax.sql.DataSource
-import kotlin.time.Duration.Companion.seconds
 
 class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
 
@@ -611,63 +609,6 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
                 ctx.startupFailure.shouldBeNull()
                 ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
             }
-    }
-
-    // Unit tests for the unwrapDataSource helper: nested chains, null targets, and cycles.
-    context("unwrapDataSource") {
-        test("returns Resolved with the input itself when not a DelegatingDataSource") {
-            val raw: DataSource = SimpleDriverDataSource()
-            val result = OutboxAutoConfiguration.unwrapDataSource(raw)
-            result.shouldBeInstanceOf<OutboxAutoConfiguration.Companion.Unwrapped.Resolved>()
-            result.ds shouldBeSameInstanceAs raw
-        }
-
-        test("unwraps a single-level TransactionAwareDataSourceProxy to Resolved(raw)") {
-            val raw: DataSource = SimpleDriverDataSource()
-            val proxy: DataSource = TransactionAwareDataSourceProxy(raw)
-            val result = OutboxAutoConfiguration.unwrapDataSource(proxy)
-            result.shouldBeInstanceOf<OutboxAutoConfiguration.Companion.Unwrapped.Resolved>()
-            result.ds shouldBeSameInstanceAs raw
-        }
-
-        test("unwraps a nested chain TADP -> LCDP -> raw down to Resolved(raw)") {
-            val raw: DataSource = SimpleDriverDataSource()
-            val nested: DataSource = TransactionAwareDataSourceProxy(LazyConnectionDataSourceProxy(raw))
-            val result = OutboxAutoConfiguration.unwrapDataSource(nested)
-            result.shouldBeInstanceOf<OutboxAutoConfiguration.Companion.Unwrapped.Resolved>()
-            result.ds shouldBeSameInstanceAs raw
-        }
-
-        test("returns Unresolvable(NULL_TARGET) when a DelegatingDataSource has no targetDataSource") {
-            // LazyConnectionDataSourceProxy ships with a no-arg constructor that leaves targetDataSource null
-            // until setTargetDataSource is called. The helper must surface this as an explicit Unresolvable
-            // outcome so callers do not mistake a not-yet-wired proxy for a mismatched DataSource.
-            val proxy: DataSource = LazyConnectionDataSourceProxy()
-            val result = OutboxAutoConfiguration.unwrapDataSource(proxy)
-            result.shouldBeInstanceOf<OutboxAutoConfiguration.Companion.Unwrapped.Unresolvable>()
-            result.stoppedAt shouldBeSameInstanceAs proxy
-            result.reason shouldBe OutboxAutoConfiguration.Companion.Unwrapped.Reason.NULL_TARGET
-        }
-
-        test("returns Unresolvable(CYCLE) on a self-referencing DelegatingDataSource").config(timeout = 2.seconds) {
-            val cyclic = LazyConnectionDataSourceProxy()
-            cyclic.setTargetDataSource(cyclic)
-            val result = OutboxAutoConfiguration.unwrapDataSource(cyclic)
-            result.shouldBeInstanceOf<OutboxAutoConfiguration.Companion.Unwrapped.Unresolvable>()
-            result.stoppedAt shouldBeSameInstanceAs cyclic
-            result.reason shouldBe OutboxAutoConfiguration.Companion.Unwrapped.Reason.CYCLE
-        }
-
-        test("returns Unresolvable(CYCLE) on a longer cycle (A -> B -> A)").config(timeout = 2.seconds) {
-            val a = LazyConnectionDataSourceProxy()
-            val b = LazyConnectionDataSourceProxy()
-            a.setTargetDataSource(b)
-            b.setTargetDataSource(a)
-            val result = OutboxAutoConfiguration.unwrapDataSource(a)
-            result.shouldBeInstanceOf<OutboxAutoConfiguration.Companion.Unwrapped.Unresolvable>()
-            result.stoppedAt shouldBeSameInstanceAs a
-            result.reason shouldBe OutboxAutoConfiguration.Companion.Unwrapped.Reason.CYCLE
-        }
     }
 })
 

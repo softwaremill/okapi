@@ -28,13 +28,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
-import org.springframework.jdbc.datasource.DelegatingDataSource
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.ResourceTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import java.time.Clock
-import java.util.Collections
-import java.util.IdentityHashMap
 import javax.sql.DataSource
 
 /**
@@ -454,41 +451,6 @@ class OutboxAutoConfiguration(
                     resourceFactoryDescription,
                 )
             }
-        }
-
-        /** Result of walking a [DelegatingDataSource] chain to its concrete backing DataSource. */
-        sealed interface Unwrapped {
-            data class Resolved(val ds: DataSource) : Unwrapped
-
-            /**
-             * Unwrap stopped before reaching a concrete backing DataSource. Identity comparison would
-             * be inconclusive — callers must NOT treat this as a mismatch.
-             */
-            data class Unresolvable(val stoppedAt: DataSource, val reason: Reason) : Unwrapped
-
-            enum class Reason { CYCLE, NULL_TARGET }
-        }
-
-        // Iterative walk with an IdentityHashMap visited-set: guards against cyclic chains
-        // (Spring's setTargetDataSource has no cycle check). Identity, not equals(), because a
-        // custom DS overriding equals() to delegate to its target could trigger false early
-        // termination on a valid chain.
-        internal fun unwrapDataSource(ds: DataSource): Unwrapped {
-            val seen: MutableSet<DataSource> = Collections.newSetFromMap(IdentityHashMap())
-            var current: DataSource = ds
-            while (current is DelegatingDataSource) {
-                if (!seen.add(current)) return Unwrapped.Unresolvable(current, Unwrapped.Reason.CYCLE)
-                val target = current.targetDataSource
-                    ?: return Unwrapped.Unresolvable(current, Unwrapped.Reason.NULL_TARGET)
-                current = target
-            }
-            return Unwrapped.Resolved(current)
-        }
-
-        private fun describeUnwrap(side: String, original: DataSource, unwrapped: Unwrapped): String = when (unwrapped) {
-            is Unwrapped.Resolved -> "$side side: $original resolved to ${unwrapped.ds}"
-            is Unwrapped.Unresolvable ->
-                "$side side: $original stopped at ${unwrapped.stoppedAt} (${unwrapped.reason})"
         }
 
         // JPA/Hibernate PTMs that expose a `public DataSource getDataSource()` — reflection by name
