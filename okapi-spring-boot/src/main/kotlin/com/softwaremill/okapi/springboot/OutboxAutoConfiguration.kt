@@ -23,11 +23,11 @@ import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.annotation.Order
 import org.springframework.jdbc.datasource.DelegatingDataSource
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.ResourceTransactionManager
@@ -51,11 +51,11 @@ import javax.sql.DataSource
  *
  * Optional beans with defaults:
  * - [OutboxStore] — auto-configured to [PostgresOutboxStore] or [MysqlOutboxStore]
- *   depending on which module (`okapi-postgres` / `okapi-mysql`) is on the classpath.
- *   If *both* are present, startup fails fast (issue #90) rather than silently picking one —
- *   there is no safe default: the wrong engine's DDL/SQL would run against your database, and the
- *   app would look healthy while never actually delivering anything. Define an explicit
- *   `@Bean OutboxStore` to disambiguate, or remove the unused module.
+ *   depending on which module (`okapi-postgres` / `okapi-mysql`) is on the classpath. If *both*
+ *   are present, Postgres takes priority — enforced deterministically via `@Order` on
+ *   [PostgresStoreConfiguration] / [MysqlStoreConfiguration] (issue #90: this was previously only
+ *   documented, not enforced, and MySQL could silently win instead depending on undocumented
+ *   nested-`@Configuration` processing order). Override by defining your own `@Bean OutboxStore`.
  * - [Clock] — defaults to [Clock.systemUTC]
  * - [RetryPolicy] — defaults to `maxRetries = 5`
  *
@@ -237,19 +237,22 @@ class OutboxAutoConfiguration(
     }
 
     /**
-     * Auto-detects [PostgresOutboxStore] when `okapi-postgres` is on the classpath -- but only
-     * when `okapi-mysql` is NOT also present. Without the [ConditionalOnMissingClass] guard, this
-     * class and [MysqlStoreConfiguration] would both pass their own `@ConditionalOnClass` check
-     * whenever both modules are on the classpath, and *which* of the two nested `@Configuration`
-     * classes Spring happens to process first (undocumented, not declaration-order-guaranteed)
-     * would silently decide the winner -- see issue #90, where MySQL won in practice despite the
-     * KDoc's claim that "Postgres takes priority" and nothing in the code ever enforced that.
-     * [AmbiguousStoreConfiguration] is the only store-detecting config left active when both
-     * classes are present, and it fails fast instead of guessing.
+     * Auto-detects [PostgresOutboxStore] when `okapi-postgres` is on the classpath.
+     *
+     * **Precedence when both `okapi-postgres` and `okapi-mysql` are present:** `@Order(1)` here
+     * vs. `@Order(2)` on [MysqlStoreConfiguration] deterministically makes Postgres win. Spring's
+     * `ConfigurationClassParser.processMemberClasses` sorts sibling nested `@Configuration`
+     * candidates via `OrderComparator` *before* processing them, so `PostgresStoreConfiguration`'s
+     * `@Bean outboxStore()` is always registered first — by the time `MysqlStoreConfiguration`'s
+     * own `@ConditionalOnMissingBean(OutboxStore::class)` is evaluated, Postgres's bean already
+     * exists and MySQL's is skipped. Before this annotation existed (issue #90), nothing enforced
+     * an order at all: which of the two candidates Spring happened to process first was
+     * undocumented and not declaration-order-guaranteed, and in practice MySQL could silently win
+     * — applying its DDL/SQL against a Postgres database while the app looked healthy at startup.
      */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(PostgresOutboxStore::class)
-    @ConditionalOnMissingClass("com.softwaremill.okapi.mysql.MysqlOutboxStore")
+    @Order(1)
     class PostgresStoreConfiguration(
         private val dataSources: Map<String, DataSource>,
         private val primaryDataSource: DataSource,
@@ -262,10 +265,10 @@ class OutboxAutoConfiguration(
         )
     }
 
-    /** Symmetric to [PostgresStoreConfiguration] -- see its KDoc for the dual-classpath rationale. */
+    /** Loses precedence to [PostgresStoreConfiguration] when both are present -- see its KDoc. */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(MysqlOutboxStore::class)
-    @ConditionalOnMissingClass("com.softwaremill.okapi.postgres.PostgresOutboxStore")
+    @Order(2)
     class MysqlStoreConfiguration(
         private val dataSources: Map<String, DataSource>,
         private val primaryDataSource: DataSource,
@@ -275,28 +278,6 @@ class OutboxAutoConfiguration(
         @ConditionalOnMissingBean(OutboxStore::class)
         fun outboxStore(): MysqlOutboxStore = MysqlOutboxStore(
             connectionProvider = SpringConnectionProvider(resolveDataSource(dataSources, primaryDataSource, okapiProperties)),
-        )
-    }
-
-    /**
-     * Fails startup fast when both `okapi-postgres` and `okapi-mysql` are on the classpath and no
-     * explicit `@Bean OutboxStore` was supplied (issue #90). [PostgresStoreConfiguration] and
-     * [MysqlStoreConfiguration] both exclude themselves in this situation (see their KDoc), so this
-     * is the only store-detecting config left active -- there is no safe default to silently pick:
-     * the wrong engine's DDL/SQL would run against the database, and the app would look healthy at
-     * startup while never actually delivering anything.
-     */
-    @Configuration(proxyBeanMethods = false)
-    @ConditionalOnClass(PostgresOutboxStore::class, MysqlOutboxStore::class)
-    class AmbiguousStoreConfiguration {
-        @Bean
-        @ConditionalOnMissingBean(OutboxStore::class)
-        fun outboxStore(): OutboxStore = error(
-            "Both okapi-postgres and okapi-mysql are on the classpath -- okapi cannot determine which " +
-                "OutboxStore to use. There is no safe default: silently picking one risks applying the " +
-                "wrong engine's DDL/SQL against your database while the app looks healthy at startup " +
-                "(see issue #90). Fix: remove the unused module (okapi-postgres or okapi-mysql), or " +
-                "define an explicit @Bean OutboxStore to disambiguate.",
         )
     }
 
