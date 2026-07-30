@@ -66,14 +66,6 @@ class OkapiMicrometerAutoConfiguration {
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnProperty(prefix = "okapi.metrics", name = ["enabled"], havingValue = "true", matchIfMissing = true)
     class MetricsConfiguration {
-        init {
-            logger.info(
-                "okapi.metrics.enabled=true. Okapi registers MicrometerOutboxListener, " +
-                    "MicrometerOutboxMetrics, OutboxMetricsRefresher. okapi.* counters, timers, " +
-                    "will be published",
-            )
-        }
-
         @Bean
         @ConditionalOnMissingBean
         fun micrometerOutboxListener(registry: MeterRegistry): MicrometerOutboxListener = MicrometerOutboxListener(registry)
