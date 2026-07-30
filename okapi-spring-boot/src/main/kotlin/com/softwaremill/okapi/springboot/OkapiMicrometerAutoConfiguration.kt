@@ -94,7 +94,7 @@ class OkapiMicrometerAutoConfiguration {
             // shared resolvePlatformTransactionManagerByQualifier(); otherwise fall back to
             // getIfUnique(), which returns null instead of throwing when multiple PTMs are present. This
             // fixes issue #80: getIfAvailable() throws NoUniqueBeanDefinitionException with 2+ PTM beans,
-            // even when okapi.transaction-manager-qualifier disambiguate which one to use.
+            // even when okapi.transaction-manager-qualifier disambiguates which one to use.
             val ptm = okapiProperties.transactionManagerQualifier?.let { qualifier ->
                 OutboxAutoConfiguration.resolvePlatformTransactionManagerByQualifier(beanFactory, qualifier)
             } ?: transactionManager.getIfUnique()
