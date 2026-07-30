@@ -2,6 +2,7 @@ package com.softwaremill.okapi.springboot
 
 import com.mysql.cj.jdbc.MysqlDataSource
 import com.softwaremill.okapi.core.MessageDeliverer
+import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.mysql.MysqlOutboxStore
 import com.softwaremill.okapi.postgres.PostgresOutboxStore
 import io.kotest.core.spec.style.FunSpec
@@ -9,6 +10,7 @@ import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import liquibase.integration.spring.SpringLiquibase
 import org.postgresql.ds.PGSimpleDataSource
 import org.springframework.beans.factory.support.BeanDefinitionBuilder
@@ -72,11 +74,9 @@ class LiquibaseE2ETest : FunSpec({
         // Hide MysqlOutboxStore from the classpath so that PostgresStoreConfiguration is the only
         // store factory that activates and `okapiPostgresLiquibase` is the only Liquibase bean
         // that registers (its `@ConditionalOnBean(PostgresOutboxStore)` gate matches the winner).
-        // Without this filter the OutboxStore precedence in the test JVM is non-deterministic
-        // between Postgres and MySQL, and these tests need to deterministically exercise the
-        // Postgres path against a real Postgres DataSource. The dual-module coexistence (both
-        // modules visible, only the matching Liquibase activates) is covered by
-        // ["both okapi-postgres and okapi-mysql on classpath: exactly one okapi*Liquibase activates..."].
+        // Not strictly necessary since @Order(1) on PostgresStoreConfiguration already makes it
+        // win deterministically when both modules are visible (see the dual-module test below),
+        // but keeping the filter here isolates these tests from that mechanism entirely.
         fun runner(ds: DataSource) = ApplicationContextRunner()
             .withClassLoader(FilteredClassLoader(MysqlOutboxStore::class.java))
             .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
@@ -89,13 +89,22 @@ class LiquibaseE2ETest : FunSpec({
 
         beforeEach { resetSchema() }
 
-        test("both okapi-postgres and okapi-mysql on classpath: exactly one okapi*Liquibase activates against a real Postgres database") {
-            // Regression test for issue #38 / KOJAK-80. Before the per-engine
+        test("both okapi-postgres and okapi-mysql on classpath: Postgres wins and migrates the real Postgres database") {
+            // Originally a regression test for issue #38 / KOJAK-80: before the per-engine
             // @ConditionalOnBean(<X>OutboxStore) gate on each *LiquibaseConfiguration, both
             // `okapiPostgresLiquibase` and `okapiMysqlLiquibase` registered against the same
             // DataSource and the second-evaluated Liquibase failed at startup with a
-            // duplicate-object error from the wrong-engine changelog
-            // (e.g. ERROR: relation "idx_okapi_outbox_status_last_attempt" already exists).
+            // duplicate-object error from the wrong-engine changelog.
+            //
+            // That gate fixed the dual-registration crash, but left the underlying ambiguity
+            // (which OutboxStore wins) an undocumented nested-@Configuration processing-order
+            // race — which is exactly what issue #90 found going wrong in practice: MySQL won
+            // silently, its DDL/SQL got applied to the Postgres database, and the app looked
+            // healthy at startup while every processor tick failed afterward. The fix
+            // (@Order(1)/@Order(2) on PostgresStoreConfiguration/MysqlStoreConfiguration in
+            // OutboxAutoConfiguration) makes Postgres win deterministically instead. This test
+            // proves it end-to-end: PostgresOutboxStore wins, okapiPostgresLiquibase is the only
+            // Liquibase bean, and it successfully migrates this real Postgres database.
             //
             // No FilteredClassLoader here — both `okapi-postgres` and `okapi-mysql` are visible
             // on the runtime classpath, mirroring a real consumer that pulls in both modules
@@ -112,9 +121,13 @@ class LiquibaseE2ETest : FunSpec({
                 )
                 .run { ctx ->
                     ctx.startupFailure.shouldBeNull()
-                    val activeLiquibase = listOf("okapiPostgresLiquibase", "okapiMysqlLiquibase")
-                        .filter { ctx.containsBean(it) }
-                    activeLiquibase.size shouldBe 1
+                    ctx.getBean(OutboxStore::class.java).shouldBeInstanceOf<PostgresOutboxStore>()
+                    ctx.containsBean("okapiPostgresLiquibase") shouldBe true
+                    ctx.containsBean("okapiMysqlLiquibase") shouldBe false
+
+                    val tables = listTables(ds)
+                    tables shouldContain "okapi_databasechangelog"
+                    tables shouldContain "okapi_outbox"
                 }
         }
 

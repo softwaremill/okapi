@@ -27,6 +27,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.annotation.Order
 import org.springframework.jdbc.datasource.DelegatingDataSource
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.ResourceTransactionManager
@@ -50,8 +51,11 @@ import javax.sql.DataSource
  *
  * Optional beans with defaults:
  * - [OutboxStore] — auto-configured to [PostgresOutboxStore] or [MysqlOutboxStore]
- *   depending on which module (`okapi-postgres` / `okapi-mysql`) is on the classpath.
- *   If both are present, Postgres takes priority. Override by defining your own `@Bean OutboxStore`.
+ *   depending on which module (`okapi-postgres` / `okapi-mysql`) is on the classpath. If *both*
+ *   are present, Postgres takes priority — enforced deterministically via `@Order` on
+ *   [PostgresStoreConfiguration] / [MysqlStoreConfiguration] (issue #90: this was previously only
+ *   documented, not enforced, and MySQL could silently win instead depending on undocumented
+ *   nested-`@Configuration` processing order). Override by defining your own `@Bean OutboxStore`.
  * - [Clock] — defaults to [Clock.systemUTC]
  * - [RetryPolicy] — defaults to `maxRetries = 5`
  *
@@ -232,8 +236,23 @@ class OutboxAutoConfiguration(
         )
     }
 
+    /**
+     * Auto-detects [PostgresOutboxStore] when `okapi-postgres` is on the classpath.
+     *
+     * **Precedence when both `okapi-postgres` and `okapi-mysql` are present:** `@Order(1)` here
+     * vs. `@Order(2)` on [MysqlStoreConfiguration] deterministically makes Postgres win. Spring's
+     * `ConfigurationClassParser.processMemberClasses` sorts sibling nested `@Configuration`
+     * candidates via `OrderComparator` *before* processing them, so `PostgresStoreConfiguration`'s
+     * `@Bean outboxStore()` is always registered first — by the time `MysqlStoreConfiguration`'s
+     * own `@ConditionalOnMissingBean(OutboxStore::class)` is evaluated, Postgres's bean already
+     * exists and MySQL's is skipped. Before this annotation existed (issue #90), nothing enforced
+     * an order at all: which of the two candidates Spring happened to process first was
+     * undocumented and not declaration-order-guaranteed, and in practice MySQL could silently win
+     * — applying its DDL/SQL against a Postgres database while the app looked healthy at startup.
+     */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(PostgresOutboxStore::class)
+    @Order(1)
     class PostgresStoreConfiguration(
         private val dataSources: Map<String, DataSource>,
         private val primaryDataSource: DataSource,
@@ -246,9 +265,10 @@ class OutboxAutoConfiguration(
         )
     }
 
-    /** When both Postgres and MySQL modules are on the classpath, [PostgresStoreConfiguration] takes priority. */
+    /** Loses precedence to [PostgresStoreConfiguration] when both are present -- see its KDoc. */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(MysqlOutboxStore::class)
+    @Order(2)
     class MysqlStoreConfiguration(
         private val dataSources: Map<String, DataSource>,
         private val primaryDataSource: DataSource,
