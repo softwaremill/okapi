@@ -214,6 +214,7 @@ With Spring Boot Actuator and a Prometheus registry (`micrometer-registry-promet
 | Property | Default | Description |
 |----------|---------|-------------|
 | `okapi.metrics.refresh-interval` | `PT15S` (15s) | How often gauge metrics poll the outbox store. Each refresh runs one transaction with two queries. |
+| `okapi.metrics.enabled` | `true` | Set `false` to disable `okapi-micrometer` entirely — no counters, timers, gauges, or store polling. Logs a startup warning when disabled. |
 
 ### Multi-instance deployments
 
