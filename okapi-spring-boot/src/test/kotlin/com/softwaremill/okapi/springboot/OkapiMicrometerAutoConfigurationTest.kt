@@ -1,5 +1,9 @@
 package com.softwaremill.okapi.springboot
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.micrometer.MicrometerOutboxListener
@@ -12,6 +16,7 @@ import io.kotest.matchers.shouldBe
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.h2.jdbcx.JdbcDataSource
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.NoSuchBeanDefinitionException
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.FilteredClassLoader
@@ -22,6 +27,7 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.Clock
 import javax.sql.DataSource
+import io.kotest.matchers.string.shouldContain as stringShouldContain
 
 /**
  * Regression coverage for issue #80: `micrometerOutboxMetrics()` used a bare
@@ -118,7 +124,7 @@ class OkapiMicrometerAutoConfigurationTest : FunSpec({
                     return emptyMap()
                 }
             }
-            val metrics = OkapiMicrometerAutoConfiguration().micrometerOutboxMetrics(
+            val metrics = OkapiMicrometerAutoConfiguration.MetricsConfiguration().micrometerOutboxMetrics(
                 store = store,
                 registry = SimpleMeterRegistry(),
                 transactionManager = beanCtx.beanFactory.getBeanProvider(PlatformTransactionManager::class.java),
@@ -146,7 +152,7 @@ class OkapiMicrometerAutoConfigurationTest : FunSpec({
                     return emptyMap()
                 }
             }
-            val metrics = OkapiMicrometerAutoConfiguration().micrometerOutboxMetrics(
+            val metrics = OkapiMicrometerAutoConfiguration.MetricsConfiguration().micrometerOutboxMetrics(
                 store = store,
                 registry = SimpleMeterRegistry(),
                 transactionManager = beanCtx.beanFactory.getBeanProvider(PlatformTransactionManager::class.java),
@@ -178,7 +184,7 @@ class OkapiMicrometerAutoConfigurationTest : FunSpec({
                     return emptyMap()
                 }
             }
-            val metrics = OkapiMicrometerAutoConfiguration().micrometerOutboxMetrics(
+            val metrics = OkapiMicrometerAutoConfiguration.MetricsConfiguration().micrometerOutboxMetrics(
                 store = store,
                 registry = SimpleMeterRegistry(),
                 transactionManager = beanCtx.beanFactory.getBeanProvider(PlatformTransactionManager::class.java),
@@ -225,6 +231,95 @@ class OkapiMicrometerAutoConfigurationTest : FunSpec({
                 .run { ctx ->
                     ctx.startupFailure.shouldBeNull()
                     ctx.getBeansOfType(MicrometerOutboxListener::class.java).isEmpty() shouldBe false
+                }
+        }
+    }
+
+    context("okapi.metrics.enabled property") {
+        test("unset → defaults to enabled (matchIfMissing=true), no MetricsDisabledNotice") {
+            baseRunner.run { ctx ->
+                ctx.startupFailure.shouldBeNull()
+                ctx.getBeansOfType(MicrometerOutboxListener::class.java).isEmpty() shouldBe false
+                ctx.getBeansOfType(OkapiMicrometerAutoConfiguration.MetricsDisabledNotice::class.java)
+                    .isEmpty() shouldBe true
+            }
+        }
+
+        test("=true → explicit opt-in path registers the beans, no MetricsDisabledNotice") {
+            // Pins that the explicit string "true" is parsed and treated identically to the
+            // matchIfMissing=true default path exercised by the test above.
+            baseRunner
+                .withPropertyValues("okapi.metrics.enabled=true")
+                .run { ctx ->
+                    ctx.startupFailure.shouldBeNull()
+                    ctx.getBeansOfType(MicrometerOutboxListener::class.java).isEmpty() shouldBe false
+                    ctx.getBeansOfType(OkapiMicrometerAutoConfiguration.MetricsDisabledNotice::class.java)
+                        .isEmpty() shouldBe true
+                }
+        }
+
+        test("=false → no okapi-micrometer beans are registered (previously silently ignored)") {
+            // Pre-fix, this property didn't exist at all: OkapiMetricsProperties only had
+            // refreshInterval, and ignoreUnknownFields defaults to true, so setting
+            // okapi.metrics.enabled=false bound nothing and changed nothing.
+            baseRunner
+                .withPropertyValues("okapi.metrics.enabled=false")
+                .run { ctx ->
+                    ctx.startupFailure.shouldBeNull()
+                    ctx.getBeansOfType(MicrometerOutboxListener::class.java).isEmpty() shouldBe true
+                    ctx.getBeansOfType(MicrometerOutboxMetrics::class.java).isEmpty() shouldBe true
+                    ctx.getBeansOfType(OutboxMetricsRefresher::class.java).isEmpty() shouldBe true
+                    ctx.getBeansOfType(OkapiMicrometerAutoConfiguration.MetricsDisabledNotice::class.java)
+                        .isEmpty() shouldBe false
+                }
+        }
+
+        test("=false → MetricsDisabledNotice IS registered AND logs the actionable WARN") {
+            // Without this assertion a future cleanup pass that "removes the unused class" or
+            // replaces the init {} block with something that never runs would silently delete
+            // the operability promise the class exists to fulfil (mirrors the analogous
+            // LiquibaseDisabledNotice pin in LiquibaseAutoConfigurationTest).
+            val notice = LoggerFactory.getLogger(
+                "com.softwaremill.okapi.springboot.OkapiMicrometerAutoConfiguration",
+            ) as Logger
+            val appender = ListAppender<ILoggingEvent>().apply { start() }
+            notice.addAppender(appender)
+
+            try {
+                baseRunner
+                    .withPropertyValues("okapi.metrics.enabled=false")
+                    .run { ctx ->
+                        ctx.getBeansOfType(OkapiMicrometerAutoConfiguration.MetricsDisabledNotice::class.java)
+                            .size shouldBe 1
+                    }
+
+                val warnEvents = appender.list.filter { it.level == Level.WARN }
+                warnEvents.size shouldBe 1
+                val message = warnEvents.single().formattedMessage
+                message stringShouldContain "okapi.metrics.enabled=false"
+                message stringShouldContain "MicrometerOutboxListener"
+            } finally {
+                notice.detachAppender(appender)
+            }
+        }
+
+        test("=garbage → matches neither havingValue, so metrics are off but MetricsDisabledNotice does NOT fire") {
+            // Unlike okapi.liquibase.enabled, okapi.metrics.enabled is intentionally NOT also a
+            // typed field on a @ConfigurationProperties class (the issue explicitly asks for
+            // "a condition rather than a field", matching okapi.processor.enabled /
+            // okapi.purger.enabled) -- so there is no Spring binder to reject an invalid string,
+            // only two @ConditionalOnProperty(havingValue=...) string-equality checks. "garbage"
+            // matches neither "true" nor "false": context still starts, no okapi-micrometer beans
+            // register, but MetricsDisabledNotice's warning is also skipped since its own
+            // havingValue="false" doesn't match either. This is the same (pre-existing, accepted)
+            // behavior okapi.processor.enabled=garbage / okapi.purger.enabled=garbage already have.
+            baseRunner
+                .withPropertyValues("okapi.metrics.enabled=garbage")
+                .run { ctx ->
+                    ctx.startupFailure.shouldBeNull()
+                    ctx.getBeansOfType(MicrometerOutboxListener::class.java).isEmpty() shouldBe true
+                    ctx.getBeansOfType(OkapiMicrometerAutoConfiguration.MetricsDisabledNotice::class.java)
+                        .isEmpty() shouldBe true
                 }
         }
     }
