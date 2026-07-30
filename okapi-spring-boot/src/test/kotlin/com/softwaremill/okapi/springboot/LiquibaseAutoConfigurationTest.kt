@@ -17,6 +17,7 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.kotest.matchers.types.shouldBeSameInstanceAs
+import io.kotest.matchers.types.shouldNotBeInstanceOf
 import liquibase.integration.spring.SpringLiquibase
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.config.BeanPostProcessor
@@ -391,25 +392,26 @@ class LiquibaseAutoConfigurationTest : FunSpec({
             cond.value.toList().shouldBeEmpty()
         }
 
-        test("dual-module classpath: only ONE okapi*Liquibase bean activates — matching OutboxStore winner") {
-            // Pins the OutboxStore-precedence contract for Liquibase auto-config (issue #38
-            // / KOJAK-80). Both `okapi-postgres` and `okapi-mysql` are on the test classpath
-            // (see okapi-spring-boot/build.gradle.kts testImplementation declarations). The
-            // `*OutboxStore` factories share
-            // `@ConditionalOnMissingBean(OutboxStore::class)`, so exactly ONE store bean wins.
-            // The Liquibase configs MUST mirror that precedence: registering both
-            // `okapiPostgresLiquibase` and `okapiMysqlLiquibase` against the same DataSource
-            // would let the second-evaluated Liquibase apply wrong-engine DDL at startup and
-            // fail (duplicate index, wrong-engine syntax, or shared tracking-table collisions).
+        test("dual-module classpath: startup fails fast instead of silently picking a store (issue #90)") {
+            // Historically (issue #38 / KOJAK-80) this test pinned "exactly one Liquibase
+            // activates, matching whichever OutboxStore won the undocumented nested-
+            // @Configuration processing-order race." That race is exactly what issue #90
+            // reported going wrong in practice: MySQL silently won over the KDoc's claimed
+            // "Postgres takes priority", applying MySQL DDL/SQL (FORCE INDEX, etc.) against a
+            // Postgres database — the app started cleanly, looked healthy, and then failed every
+            // processor tick with a syntax error, never having delivered anything.
             //
-            // The production fix lives in [OkapiLiquibaseAutoConfiguration] — a separate
-            // `@AutoConfiguration(after = OutboxAutoConfiguration)` so that the per-engine
-            // `@ConditionalOnBean(<X>OutboxStore)` gates fire AFTER the store factories have
-            // registered their winning bean. Within a single auto-config those gates would
-            // evaluate before sibling beans are visible and would always skip.
+            // The fix (see OutboxAutoConfiguration KDoc) removes the race entirely instead of
+            // making it deterministic: AmbiguousStoreConfiguration is the only store-detecting
+            // config left active when both okapi-postgres and okapi-mysql are on the classpath,
+            // and it fails startup outright rather than guessing. With no OutboxStore bean ever
+            // created, neither *LiquibaseConfiguration's @ConditionalOnBean(<X>OutboxStore) gate
+            // can fire either — the original issue #38 dual-registration hazard is now
+            // structurally impossible here, not merely probabilistically avoided.
             //
-            // SuppressSpringLiquibaseRun prevents afterPropertiesSet() from trying to migrate
-            // a fake DataSource — we're asserting bean activation, not migration behaviour.
+            // Both `okapi-postgres` and `okapi-mysql` are on the test classpath (see
+            // okapi-spring-boot/build.gradle.kts testImplementation declarations) — no
+            // FilteredClassLoader needed to reach the ambiguous scenario.
             ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
                 .withBean(MessageDeliverer::class.java, { stubDeliverer() })
@@ -419,30 +421,43 @@ class LiquibaseAutoConfigurationTest : FunSpec({
                     ctx.beanFactory.addBeanPostProcessor(SuppressSpringLiquibaseRun())
                 }
                 .run { ctx ->
+                    // Once startupFailure is non-null, AssertableApplicationContext is an
+                    // "unstarted" proxy -- any other method (containsBean, getBean, ...) throws
+                    // IllegalStateException. The failed-to-create-OutboxStore assertion below is
+                    // the whole story: no OutboxStore means neither *LiquibaseConfiguration's
+                    // @ConditionalOnBean(<X>OutboxStore) gate could possibly have fired either.
+                    val failure = ctx.startupFailure
+                    failure.shouldNotBeNull()
+                    val chain = generateSequence(failure as Throwable?) { it.cause }.toList()
+                    val message = chain.mapNotNull { it.message }.joinToString(" | ")
+                    message stringShouldContain "okapi-postgres"
+                    message stringShouldContain "okapi-mysql"
+                    message stringShouldContain "OutboxStore"
+                }
+        }
+
+        test("dual-module classpath + explicit @Bean OutboxStore: escape hatch still works, no startup failure") {
+            // Symmetric to the test above: the documented override ("define an explicit
+            // @Bean OutboxStore to disambiguate") must still let the app start normally even
+            // with both modules on the classpath. AmbiguousStoreConfiguration's own
+            // @ConditionalOnMissingBean(OutboxStore::class) is what makes this work — a
+            // pre-existing user bean means it never even attempts to fire.
+            ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
+                .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+                .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+                .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
+                .withBean(OutboxStore::class.java, { stubStore() })
+                .run { ctx ->
                     ctx.startupFailure shouldBe null
-
-                    val storeBean = ctx.getBean(OutboxStore::class.java)
-                    val expected = when (storeBean) {
-                        is com.softwaremill.okapi.postgres.PostgresOutboxStore -> "okapiPostgresLiquibase"
-                        is com.softwaremill.okapi.mysql.MysqlOutboxStore -> "okapiMysqlLiquibase"
-                        else -> error("unexpected OutboxStore type ${storeBean::class}")
-                    }
-                    val active = listOf("okapiPostgresLiquibase", "okapiMysqlLiquibase")
-                        .filter { ctx.containsBean(it) }
-
-                    // Diagnostic: when the assertion fails, surface what each registered
-                    // SpringLiquibase bean would have done (changelog path + dataSource
-                    // identity) so the reader sees concretely why dual activation is broken.
-                    val diagnostic = active.joinToString("\n") { name ->
-                        val bean = ctx.getBean(name, SpringLiquibase::class.java)
-                        "  $name → changelog=${bean.changeLog}, dataSource=${System.identityHashCode(bean.dataSource)}"
-                    }
-                    withClue(
-                        "Active OutboxStore is ${storeBean::class.simpleName}; expected exactly the " +
-                            "matching Liquibase bean ($expected) to activate, but found: $active\n$diagnostic",
-                    ) {
-                        active shouldBe listOf(expected)
-                    }
+                    // Neither okapi-postgres's nor okapi-mysql's own factory won -- the escape
+                    // hatch bean is what's actually wired in, not a coincidental auto-detected one.
+                    ctx.getBean(OutboxStore::class.java)
+                        .shouldNotBeInstanceOf<com.softwaremill.okapi.postgres.PostgresOutboxStore>()
+                    ctx.getBean(OutboxStore::class.java)
+                        .shouldNotBeInstanceOf<com.softwaremill.okapi.mysql.MysqlOutboxStore>()
+                    ctx.containsBean("okapiPostgresLiquibase") shouldBe false
+                    ctx.containsBean("okapiMysqlLiquibase") shouldBe false
                 }
         }
 

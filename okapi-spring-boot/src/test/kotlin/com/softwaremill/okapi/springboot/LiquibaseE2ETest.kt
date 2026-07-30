@@ -8,7 +8,7 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.nulls.shouldBeNull
-import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldNotBeNull
 import liquibase.integration.spring.SpringLiquibase
 import org.postgresql.ds.PGSimpleDataSource
 import org.springframework.beans.factory.support.BeanDefinitionBuilder
@@ -72,11 +72,12 @@ class LiquibaseE2ETest : FunSpec({
         // Hide MysqlOutboxStore from the classpath so that PostgresStoreConfiguration is the only
         // store factory that activates and `okapiPostgresLiquibase` is the only Liquibase bean
         // that registers (its `@ConditionalOnBean(PostgresOutboxStore)` gate matches the winner).
-        // Without this filter the OutboxStore precedence in the test JVM is non-deterministic
-        // between Postgres and MySQL, and these tests need to deterministically exercise the
-        // Postgres path against a real Postgres DataSource. The dual-module coexistence (both
-        // modules visible, only the matching Liquibase activates) is covered by
-        // ["both okapi-postgres and okapi-mysql on classpath: exactly one okapi*Liquibase activates..."].
+        // Without this filter, both okapi-postgres and okapi-mysql being visible on the test
+        // classpath makes AmbiguousStoreConfiguration fail startup outright (issue #90) -- these
+        // tests need a real store to deterministically exercise the Postgres path against a real
+        // Postgres DataSource. The dual-module fail-fast behavior itself is covered by
+        // ["both okapi-postgres and okapi-mysql on classpath: startup fails fast, no Liquibase
+        // bean touches the real Postgres database"].
         fun runner(ds: DataSource) = ApplicationContextRunner()
             .withClassLoader(FilteredClassLoader(MysqlOutboxStore::class.java))
             .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java, OkapiLiquibaseAutoConfiguration::class.java))
@@ -89,13 +90,21 @@ class LiquibaseE2ETest : FunSpec({
 
         beforeEach { resetSchema() }
 
-        test("both okapi-postgres and okapi-mysql on classpath: exactly one okapi*Liquibase activates against a real Postgres database") {
-            // Regression test for issue #38 / KOJAK-80. Before the per-engine
+        test("both okapi-postgres and okapi-mysql on classpath: startup fails fast, no Liquibase bean touches the real Postgres database") {
+            // Originally a regression test for issue #38 / KOJAK-80: before the per-engine
             // @ConditionalOnBean(<X>OutboxStore) gate on each *LiquibaseConfiguration, both
             // `okapiPostgresLiquibase` and `okapiMysqlLiquibase` registered against the same
             // DataSource and the second-evaluated Liquibase failed at startup with a
-            // duplicate-object error from the wrong-engine changelog
-            // (e.g. ERROR: relation "idx_okapi_outbox_status_last_attempt" already exists).
+            // duplicate-object error from the wrong-engine changelog.
+            //
+            // That gate fixed the dual-registration crash, but left the underlying ambiguity
+            // (which OutboxStore wins) an undocumented nested-@Configuration processing-order
+            // race — which is exactly what issue #90 found going wrong in practice: MySQL won
+            // silently, its DDL/SQL got applied to the Postgres database, and the app looked
+            // healthy at startup while every processor tick failed afterward. The fix
+            // (AmbiguousStoreConfiguration in OutboxAutoConfiguration) now fails startup
+            // immediately instead of picking a winner — before any OutboxStore, and therefore
+            // before any *LiquibaseConfiguration, ever touches this real Postgres database.
             //
             // No FilteredClassLoader here — both `okapi-postgres` and `okapi-mysql` are visible
             // on the runtime classpath, mirroring a real consumer that pulls in both modules
@@ -111,10 +120,14 @@ class LiquibaseE2ETest : FunSpec({
                     "okapi.purger.enabled=false",
                 )
                 .run { ctx ->
-                    ctx.startupFailure.shouldBeNull()
-                    val activeLiquibase = listOf("okapiPostgresLiquibase", "okapiMysqlLiquibase")
-                        .filter { ctx.containsBean(it) }
-                    activeLiquibase.size shouldBe 1
+                    // Once startupFailure is non-null, AssertableApplicationContext is an
+                    // "unstarted" proxy -- containsBean()/getBean() would throw
+                    // IllegalStateException. No OutboxStore bean means neither
+                    // *LiquibaseConfiguration's @ConditionalOnBean(<X>OutboxStore) gate could
+                    // possibly have fired, so the real Postgres database was never touched either
+                    // -- verified directly below instead.
+                    ctx.startupFailure.shouldNotBeNull()
+                    listTables(ds) shouldNotContain "okapi_outbox"
                 }
         }
 
