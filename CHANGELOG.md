@@ -8,6 +8,8 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-07-31
+
 ### Changed (BREAKING)
 
 - **`ExposedConnectionProvider`** now requires a `database: Database` constructor argument and
@@ -17,7 +19,55 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   calling thread — regardless of which `Database` it belonged to — since every
   `OutboxStore`/`OutboxPublisher` operation routes through `withConnection`. Construct one
   instance per `Database`, matching `ExposedTransactionRunner` and
-  `ExposedTransactionContextValidator`. ([#96](https://github.com/softwaremill/okapi/issues/96))
+  `ExposedTransactionContextValidator`. ([#97](https://github.com/softwaremill/okapi/pull/97),
+  [#96](https://github.com/softwaremill/okapi/issues/96))
+
+### Fixed
+
+- **`okapi-spring-boot` nondeterministically picked between `PostgresOutboxStore` and
+  `MysqlOutboxStore`** when both `okapi-postgres` and `okapi-mysql` were on the classpath.
+  `@Order(1)` / `@Order(2)` on the two nested store `@Configuration` classes now deterministically
+  makes Postgres win, matching the documented behavior — previously nothing enforced an order and
+  MySQL could silently win, applying its DDL/SQL against a Postgres database while the app looked
+  healthy at startup. ([#94](https://github.com/softwaremill/okapi/pull/94),
+  [#90](https://github.com/softwaremill/okapi/issues/90))
+- **`publish()` failed on every call when the outbox `DataSource` bean was a
+  `TransactionAwareDataSourceProxy`.** `SpringTransactionContextValidator` compared the raw proxy
+  against `TransactionSynchronizationManager`'s bound resource, but Spring's
+  `PlatformTransactionManager` always binds that resource under the raw target, not the proxy —
+  despite `OutboxAutoConfiguration`'s startup check already verifying this exact wiring as
+  correct. The validator now unwraps `DelegatingDataSource` chains (shared with the startup check
+  via a new `DataSourceUnwrapping` utility) before comparing, and fails fast at construction time
+  with an actionable message if a chain is unresolvable (cycle / null target).
+  ([#95](https://github.com/softwaremill/okapi/pull/95),
+  [#91](https://github.com/softwaremill/okapi/issues/91))
+- **`okapi.metrics.enabled=false` was silently ignored.** `OkapiMicrometerAutoConfiguration` had
+  no property-level opt-out, so setting the flag changed nothing — the only working route was
+  excluding the whole auto-configuration via `spring.autoconfigure.exclude`. The flag now actually
+  gates metrics initialization, with a startup warning logged when explicitly disabled.
+  ([#93](https://github.com/softwaremill/okapi/pull/93),
+  [#92](https://github.com/softwaremill/okapi/issues/92))
+- **`NoClassDefFoundError` at startup when `okapi-micrometer` is absent from the classpath.**
+  `OkapiMicrometerAutoConfiguration` now guards the whole auto-configuration with
+  `MicrometerOutboxListener` in its class-level `@ConditionalOnClass`, so it is skipped entirely
+  (not attempted and failed) when the module isn't present. ([#85](https://github.com/softwaremill/okapi/pull/85),
+  [#84](https://github.com/softwaremill/okapi/issues/84))
+- **`okapi-spring-boot` failed to start (`No setter found for property: interval`) unless
+  `kotlin-reflect` happened to be dragged onto the classpath by an unrelated dependency.**
+  `@ConfigurationProperties` binding for `OkapiProperties`, `OkapiMetricsProperties`,
+  `OutboxProcessorProperties`, and `OutboxPurgerProperties` requires Kotlin reflection to resolve
+  their primary constructor; `okapi-spring-boot` now declares `kotlin-reflect` directly instead of
+  relying on it arriving transitively via `jackson-module-kotlin` (previously pulled in only by
+  `okapi-http`/`okapi-kafka`). Java consumers and any app with a custom `MessageDeliverer` were the
+  most exposed. ([#89](https://github.com/softwaremill/okapi/pull/89),
+  [#88](https://github.com/softwaremill/okapi/issues/88))
+- **`findOldestCreatedAt` threw a SQL syntax error (`WHERE status IN ()`) when called with an
+  empty `statuses` set.** `PostgresOutboxStore` / `MysqlOutboxStore` now short-circuit to
+  `emptyMap()` — the semantically correct result, consistent with the existing "statuses with no
+  entries are omitted" contract. Latent bug, not reachable via the only production caller
+  (`MicrometerOutboxMetrics`, which always passes a non-empty set).
+  ([#98](https://github.com/softwaremill/okapi/pull/98),
+  [#60](https://github.com/softwaremill/okapi/issues/60))
 
 ## [1.0.0] — 2026-07-28
 
@@ -185,7 +235,8 @@ Initial public release.
 - `okapi-exposed` integration (transaction runner, connection provider, validator).
 - Concurrent processing via `FOR UPDATE SKIP LOCKED`.
 
-[Unreleased]: https://github.com/softwaremill/okapi/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/softwaremill/okapi/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/softwaremill/okapi/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/softwaremill/okapi/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/softwaremill/okapi/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/softwaremill/okapi/compare/v0.1.0...v0.2.0
