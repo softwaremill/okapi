@@ -9,14 +9,10 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 
 class ExposedConnectionProviderTest : FunSpec({
 
-    val outboxDb = Database.connect(
-        "jdbc:h2:mem:exposed_provider_outbox_test_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-        driver = "org.h2.Driver",
-    )
-    val otherDb = Database.connect(
-        "jdbc:h2:mem:exposed_provider_other_test_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-        driver = "org.h2.Driver",
-    )
+    val outboxDbName = "exposed_provider_outbox_test_${System.nanoTime()}"
+    val otherDbName = "exposed_provider_other_test_${System.nanoTime()}"
+    val outboxDb = Database.connect("jdbc:h2:mem:$outboxDbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
+    val otherDb = Database.connect("jdbc:h2:mem:$otherDbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
     val provider = ExposedConnectionProvider(outboxDb)
 
     test("throws IllegalStateException with actionable message when called outside an Exposed transaction") {
@@ -46,13 +42,13 @@ class ExposedConnectionProviderTest : FunSpec({
         ex.message shouldContain "specific Database instance"
     }
 
-    test("resolves the outbox Database's transaction even when nested inside a transaction on another Database") {
-        val connectionWasOpen: Boolean = transaction(otherDb) {
-            transaction(outboxDb) {
-                provider.withConnection { conn -> !conn.isClosed }
+    test("resolves the outbox Database's connection even when a transaction on another Database is nested inside it") {
+        val connectionUrl: String = transaction(outboxDb) {
+            transaction(otherDb) {
+                provider.withConnection { conn -> conn.metaData.url }
             }
         }
 
-        connectionWasOpen shouldBe true
+        connectionUrl shouldContain outboxDbName
     }
 })
