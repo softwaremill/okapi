@@ -8,6 +8,17 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- **`ExposedConnectionProvider`** now requires a `database: Database` constructor argument and
+  reads the active transaction from `database.transactionManager.currentOrNull()` instead of the
+  global `TransactionManager.currentOrNull()`. Previously, in a multi-database Exposed app, the
+  provider would silently return whichever transaction happened to be innermost-active on the
+  calling thread — regardless of which `Database` it belonged to — since every
+  `OutboxStore`/`OutboxPublisher` operation routes through `withConnection`. Construct one
+  instance per `Database`, matching `ExposedTransactionRunner` and
+  `ExposedTransactionContextValidator`. ([#96](https://github.com/softwaremill/okapi/issues/96))
+
 ## [1.0.0] — 2026-07-28
 
 First stable release. The public API now follows semantic versioning — breaking changes will
