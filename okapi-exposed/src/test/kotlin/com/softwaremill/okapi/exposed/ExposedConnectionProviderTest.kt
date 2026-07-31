@@ -25,6 +25,7 @@ class ExposedConnectionProviderTest : FunSpec({
         }
         ex.message shouldContain "ExposedConnectionProvider.withConnection"
         ex.message shouldContain "transaction(database) { }"
+        ex.message shouldContain "specific Database instance"
     }
 
     test("supplies the active Exposed transaction's connection to the block") {
@@ -42,6 +43,7 @@ class ExposedConnectionProviderTest : FunSpec({
             }
         }
         ex.message shouldContain "ExposedConnectionProvider.withConnection"
+        ex.message shouldContain "specific Database instance"
     }
 
     test("resolves the outbox Database's transaction even when nested inside a transaction on another Database") {
