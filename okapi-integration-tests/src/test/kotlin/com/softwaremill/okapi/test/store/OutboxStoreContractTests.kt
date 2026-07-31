@@ -246,6 +246,16 @@ fun FunSpec.outboxStoreContractTests(
         oldest.keys shouldBe setOf(OutboxStatus.PENDING)
     }
 
+    test("[$dbName] findOldestCreatedAt returns an empty map for an empty statuses set") {
+        // Regression guard (issue #60): an empty `statuses` set used to build `WHERE status IN ()`,
+        // a syntax error on both Postgres and MySQL. Must short-circuit to emptyMap() instead.
+        jdbc.withTransaction { store.persist(createTestEntry()) }
+
+        val oldest = jdbc.withTransaction { store.findOldestCreatedAt(emptySet()) }
+
+        oldest shouldBe emptyMap()
+    }
+
     test("[$dbName] claimPending returns empty when no PENDING entries") {
         val claimed = jdbc.withTransaction { store.claimPending(10) }
 

@@ -24,7 +24,7 @@ interface OutboxStore {
      * [OutboxEntry.createdAt] of its oldest entry (the minimum `createdAt` among entries in
      * that status). Statuses with no entries are omitted from the result -- callers rely on
      * absence to mean "no backlog" (e.g. the lag gauge reports 0 for an omitted status).
-     * Useful for lag metrics.
+     * An empty [statuses] set returns an empty map.
      */
     fun findOldestCreatedAt(statuses: Set<OutboxStatus>): Map<OutboxStatus, Instant>
 

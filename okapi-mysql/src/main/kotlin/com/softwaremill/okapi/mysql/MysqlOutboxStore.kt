@@ -34,9 +34,9 @@ class MysqlOutboxStore(
                         Timestamp.from(entry.lastAttempt),
                     )
                 } else {
-                    stmt.setNull(9, java.sql.Types.TIMESTAMP)
+                    stmt.setNull(9, Types.TIMESTAMP)
                 }
-                if (entry.lastError != null) stmt.setString(10, entry.lastError) else stmt.setNull(10, java.sql.Types.VARCHAR)
+                if (entry.lastError != null) stmt.setString(10, entry.lastError) else stmt.setNull(10, Types.VARCHAR)
                 stmt.setString(11, entry.deliveryMetadata)
                 stmt.executeUpdate()
             }
@@ -102,6 +102,8 @@ class MysqlOutboxStore(
     }
 
     override fun findOldestCreatedAt(statuses: Set<OutboxStatus>): Map<OutboxStatus, Instant> {
+        if (statuses.isEmpty()) return emptyMap()
+
         val result = mutableMapOf<OutboxStatus, Instant>()
         val placeholders = statuses.joinToString(",") { "?" }
         val sql = "SELECT status, MIN(created_at) AS min_created_at FROM okapi_outbox WHERE status IN ($placeholders) GROUP BY status"
