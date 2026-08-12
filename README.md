@@ -1,4 +1,4 @@
-# okapi
+# Okapi
 
 [![Maven Central](https://img.shields.io/maven-central/v/com.softwaremill.okapi/okapi-core?label=maven%20central&color=blue)](https://central.sonatype.com/artifact/com.softwaremill.okapi/okapi-core)
 [![CI](https://github.com/softwaremill/okapi/workflows/CI/badge.svg)](https://github.com/softwaremill/okapi/actions?query=workflow%3A%22CI%22)
@@ -261,7 +261,15 @@ For custom reactions to delivery events, implement `OutboxProcessorListener`. `O
 
 The runtime modules build on `okapi-core`; `okapi-bom` only aligns their versions. Pick a storage module, one or more transports, and a framework adapter if you want one.
 
-[![Okapi module architecture](docs/images/okapi-modules.png)](https://softwaremill.com/transactional-outbox-with-okapi/)
+<p align="center">
+  <a href="https://softwaremill.com/transactional-outbox-with-okapi/">
+    <img src="docs/images/okapi-modules.png" alt="Okapi module architecture" width="700">
+  </a>
+</p>
+
+<p align="center">
+  From <a href="https://softwaremill.com/transactional-outbox-with-okapi/">Reliable Message Delivery: the Transactional Outbox Pattern With Okapi</a>.
+</p>
 
 | Module | Purpose |
 |---|---|
@@ -283,6 +291,8 @@ The runtime modules build on `okapi-core`; `okapi-bom` only aligns their version
 | Spring Boot | 3.5.x, 4.0.x | `okapi-spring-boot` |
 | Kafka Clients | 3.9.x, 4.x | Included transitively by `okapi-kafka`; you can override the version in your build. |
 | Exposed | 1.x | `okapi-exposed` |
+
+`okapi-spring-boot` does not bring Spring Boot transitively; your application controls the Spring Boot version.
 
 The storage modules use plain JDBC. With Spring Boot, they participate in the transaction selected through a `PlatformTransactionManager`; `okapi-exposed` provides adapters for Exposed-managed transactions.
 
