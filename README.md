@@ -9,9 +9,7 @@
 
 **Reliable message delivery for Kotlin and Java services, using the transactional outbox pattern.**
 
-When your service saves something to the database and then has to notify another service, publish an event, or call a webhook, those two steps don't share a transaction. If you commit first, a crash or a network blip loses the notification. If you call the downstream inside the transaction, its latency and its failures become yours.
-
-okapi closes that gap: the message is written to an outbox table **inside your business transaction**, and a background processor delivers it afterwards, retrying on failure.
+Okapi is a Kotlin/JVM library implementing the **transactional outbox pattern**. Messages are stored in the database within the same transaction as your business operation, then delivered asynchronously over HTTP or Kafka. This prevents messages from being lost between the database commit and the delivery attempt, without requiring distributed transactions.
 
 - **Storage**: PostgreSQL, MySQL 8+
 - **Transports**: HTTP webhooks, Kafka
