@@ -138,10 +138,8 @@ only ship in a new major version.
 
 ### Migration from 0.2.x
 
-Breaking — existing deployments must act before the first `0.3.0` startup. Full SQL is in
-the README: [Database migrations § Upgrading from 0.2.x](README.md#upgrading-from-02x).
-Rename the domain table in place (no opt-out), and either adopt the new Liquibase
-tracking-table names or override them back to the legacy ones.
+Existing deployments upgrading directly from 0.2.x to 1.0.0 must complete the steps in
+[UPGRADING.md](UPGRADING.md) before starting the new version.
 
 ## [0.2.0] — 2026-04-29
 

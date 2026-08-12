@@ -1,31 +1,46 @@
-# Okapi
+# okapi
 
-[![Ideas, suggestions, problems, questions](https://img.shields.io/badge/Discourse-ask%20question-blue)](https://softwaremill.community/c/open-source/11)
+[![Maven Central](https://img.shields.io/maven-central/v/com.softwaremill.okapi/okapi-core?label=maven%20central&color=blue)](https://central.sonatype.com/artifact/com.softwaremill.okapi/okapi-core)
 [![CI](https://github.com/softwaremill/okapi/workflows/CI/badge.svg)](https://github.com/softwaremill/okapi/actions?query=workflow%3A%22CI%22)
 [![Kotlin](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fsoftwaremill%2Fokapi%2Frefs%2Fheads%2Fmain%2Fgradle%2Flibs.versions.toml&query=%24.versions.kotlin&logo=kotlin&label=kotlin&color=blue)](https://kotlinlang.org)
 [![JVM](https://img.shields.io/badge/JVM-21-orange.svg?logo=openjdk)](https://www.java.com)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Ask a question](https://img.shields.io/badge/Discourse-ask%20question-blue)](https://softwaremill.community/c/open-source/11)
 
-Kotlin library implementing the **transactional outbox pattern** — reliable message delivery alongside local database operations.
+**Reliable message delivery for Kotlin and Java services, using the transactional outbox pattern.**
 
-Messages are stored in a database table within the same transaction as your business operation, then asynchronously delivered to external transports (HTTP webhooks, Kafka). This guarantees **at-least-once delivery** without distributed transactions.
+When your service saves something to the database and then has to notify another service, publish an event, or call a webhook, those two steps don't share a transaction. If you commit first, a crash or a network blip loses the notification. If you call the downstream inside the transaction, its latency and its failures become yours.
 
-## Quick Start (Spring Boot)
+okapi closes that gap: the message is written to an outbox table **inside your business transaction**, and a background processor delivers it afterwards, retrying on failure.
 
-Add dependencies using the BOM for version alignment:
+- **Storage**: PostgreSQL, MySQL 8+
+- **Transports**: HTTP webhooks, Kafka
+- **Frameworks**: Spring Boot autoconfiguration, or wire it by hand anywhere on the JVM
+- **Kotlin-first**, with a Java-friendly API
+- **Apache-2.0**, JDK 21+
+
+---
+
+## Quick start (Spring Boot)
+
+This example assumes an existing Spring Boot application connected to PostgreSQL, with a configured `DataSource` and `PlatformTransactionManager`.
+
+**1. Add the dependencies.** The BOM keeps module versions aligned:
 
 ```kotlin
 dependencies {
-    implementation(platform("com.softwaremill.okapi:okapi-bom:$okapiVersion"))
+    implementation(platform("com.softwaremill.okapi:okapi-bom:1.0.0"))
     implementation("com.softwaremill.okapi:okapi-core")
     implementation("com.softwaremill.okapi:okapi-postgres")
     implementation("com.softwaremill.okapi:okapi-http")
     implementation("com.softwaremill.okapi:okapi-spring-boot")
+    runtimeOnly("org.liquibase:liquibase-core")
 }
 ```
 
-Provide a `MessageDeliverer` bean — this tells okapi how to deliver messages.
-`ServiceUrlResolver` maps the logical service name (set per message) to a base URL:
+Liquibase creates the `okapi_outbox` table on startup — no changelog edits on your side. See [Database schema](#database-schema).
+
+**2. Provide a deliverer bean.** This example uses HTTP. `ServiceUrlResolver` maps a logical service name to a base URL, so deployment topology stays out of your publishing code:
 
 ```kotlin
 @Bean
@@ -38,354 +53,265 @@ fun httpDeliverer(): HttpMessageDeliverer =
     })
 ```
 
-Publish inside any `@Transactional` method — inject `SpringOutboxPublisher` via constructor:
+**3. Publish inside your transaction.** Inject `SpringOutboxPublisher` and call it right after your business write:
 
 ```kotlin
 @Service
 class OrderService(
     private val orderRepository: OrderRepository,
-    private val springOutboxPublisher: SpringOutboxPublisher
+    private val outboxPublisher: SpringOutboxPublisher,
 ) {
     @Transactional
     fun placeOrder(order: Order) {
         orderRepository.save(order)
-        springOutboxPublisher.publish(
+
+        outboxPublisher.publish(
             OutboxMessage("order.created", order.toJson()),
             httpDeliveryInfo {
                 serviceName = "notification-service"
                 endpointPath = "/webhooks/orders"
-            }
+            },
         )
     }
 }
 ```
 
-Autoconfiguration handles scheduling, retries, and delivery automatically. For Micrometer metrics, also add `okapi-micrometer` — see [Observability](#observability).
+The order row and the outbox row now commit together or not at all. Autoconfiguration takes care of scheduling, retries, delivery and cleanup.
 
-**Using Kafka instead of HTTP?** Swap the deliverer bean and delivery info:
+> `SpringOutboxPublisher` throws `IllegalStateException` if you call `publish()` outside an active read-write transaction. That is deliberate — an outbox write that can't commit atomically with your business data defeats the purpose of the pattern.
+
+## How it works
+
+1. `publish()` writes a `PENDING` row to `okapi_outbox` in your transaction.
+2. A background scheduler polls for pending rows (every second by default), claiming them with `FOR UPDATE SKIP LOCKED` so workers do not process the same row concurrently.
+3. Each row goes to the transport matching its delivery type. Success marks it `DELIVERED`; a retriable failure leaves it `PENDING` while retry attempts remain; an exhausted retry budget or permanent failure marks it `FAILED`.
+4. A purger deletes delivered rows after a retention period.
+
+### Guarantees and limits
+
+- **Duplicate delivery is possible.** A crash between a successful delivery and the status update means the message may be sent again after restart. If processing a message more than once would cause unwanted effects, make the consumer idempotent — for example, deduplicate on a business key in the payload or a header set in the `DeliveryInfo`. okapi sends your payload and configured headers, but not the `OutboxId` returned by `publish()`; that identifier stays on the publisher side for correlation and logging.
+- **Best-effort ordering.** Rows are claimed by `created_at`, oldest first. However, parallel delivery and retries mean messages may reach consumers in a different order. Strict delivery ordering is not guaranteed.
+- **Failure classification is the transport's job.** Each deliverer decides what is retriable. HTTP: 5xx, 429, 408 and connection errors are retriable; other responses and TLS errors are permanent. Kafka: broker-side retriable exceptions are retried; authorization and configuration errors are not.
+- **Retry budget.** `okapi.processor.max-retries` (default 5) counts retries *after* the first attempt — six attempts in total before a row becomes `FAILED`. `FAILED` is terminal. Retriable messages become eligible again on the next processor poll; there is no per-message backoff.
+
+## Configuration
+
+In a typical single-DataSource application, all properties are optional. Multi-DataSource setups may require explicit qualifiers, as described below.
+
+### Processor
+
+| Property | Default | Description |
+|---|---|---|
+| `okapi.processor.enabled` | `true` | Set `false` to disable delivery entirely (e.g. on instances that only publish). |
+| `okapi.processor.interval` | `1s` | How often the scheduler polls for pending entries. |
+| `okapi.processor.batch-size` | `10` | Maximum entries claimed per worker per tick. |
+| `okapi.processor.max-retries` | `5` | Retries after the initial attempt before an entry becomes `FAILED`. |
+| `okapi.processor.concurrency` | `1` | Parallel workers per tick, each claiming its own batch. Tune based on database capacity and delivery latency; see [Performance](#performance). |
+
+### Purger
+
+Delivered entries are deleted on a schedule so they do not accumulate. `FAILED` entries are never purged and must be managed separately.
+
+| Property | Default | Description |
+|---|---|---|
+| `okapi.purger.enabled` | `true` | Set `false` to manage retention yourself (partitioning, external cron). |
+| `okapi.purger.retention` | `7d` | How long delivered entries are kept. |
+| `okapi.purger.interval` | `1h` | How often the purger runs. |
+| `okapi.purger.batch-size` | `100` | Rows deleted per batch; each batch is its own transaction. |
+
+### Schema
+
+| Property | Default | Description |
+|---|---|---|
+| `okapi.liquibase.enabled` | `true` | Set `false` if your application manages the outbox schema itself. |
+| `okapi.liquibase.changelog-table` | `okapi_databasechangelog` | Liquibase tracking table for okapi's migrations. |
+| `okapi.liquibase.changelog-lock-table` | `okapi_databasechangeloglock` | Liquibase lock table for okapi's migrations. |
+
+### Data source and transactions
+
+| Property | Default | Description |
+|---|---|---|
+| `okapi.datasource-qualifier` | unset | Bean name of the outbox `DataSource`. When unset, the single or `@Primary` `DataSource` is used. |
+| `okapi.transaction-manager-qualifier` | unset | Bean name of the outbox `PlatformTransactionManager`. When unset, it is resolved automatically. Set explicitly in multi-PTM setups — see [Transactions](#transactions). |
+
+### Metrics
+
+| Property | Default | Description |
+|---|---|---|
+| `okapi.metrics.enabled` | `true` | Set `false` to disable okapi's Micrometer autoconfiguration. Logs a startup warning when disabled. |
+| `okapi.metrics.refresh-interval` | `15s` | How often gauges poll the store. Each refresh runs two queries, wrapped in a single read-only transaction when a transaction manager is available. |
+
+## Storage and transports
+
+### MySQL
+
+Replace `okapi-postgres` with `okapi-mysql`; the okapi publishing API stays the same. Add `rewriteBatchedStatements=true` to your JDBC URL (`jdbc:mysql://host:3306/db?rewriteBatchedStatements=true`) so Connector/J can send a JDBC batch as a single multi-statement request. okapi cannot set this for you, since it doesn't own your `DataSource`.
+
+### Kafka
+
+Provide a `KafkaMessageDeliverer` bean with your own producer, and publish with the matching builder:
 
 ```kotlin
 @Bean
 fun kafkaDeliverer(producer: KafkaProducer<String, String>): KafkaMessageDeliverer =
     KafkaMessageDeliverer(producer)
 ```
+
 ```kotlin
-springOutboxPublisher.publish(
+outboxPublisher.publish(
     OutboxMessage("order.created", order.toJson()),
-    kafkaDeliveryInfo { topic = "order-events" }
+    kafkaDeliveryInfo { topic = "order-events" },
 )
 ```
 
-**Using MySQL instead of PostgreSQL?** Replace `okapi-postgres` with `okapi-mysql` in your dependencies — no code changes needed. Add `rewriteBatchedStatements=true` to your JDBC URL — see [Performance](#performance) for why.
+You can register HTTP and Kafka deliverers together; okapi routes each entry by delivery type. You provide and configure the Kafka producer.
 
-> **Note:** Spring and Kafka versions are not forced by okapi — you control them.
-> Okapi uses plain JDBC internally — it works with any `PlatformTransactionManager` (JPA, JDBC, jOOQ, Exposed, etc.).
+## Without Spring Boot
 
-`okapi-spring-boot` requires a `TransactionRunner` bean to bracket each scheduler tick in a transaction. The autoconfiguration derives one from any `PlatformTransactionManager` on the classpath (`spring-boot-starter-jdbc` or `spring-boot-starter-data-jpa` provide one out of the box) — no extra wiring needed in typical setups. If your application has no `PlatformTransactionManager` (single-instance, no transaction infrastructure) you must opt in explicitly:
+`okapi-core` has no framework dependencies, so any JVM service can use it, from a Ktor app to a background worker. You assemble the pieces yourself — create the store, the deliverer, and the processor, start an `OutboxScheduler`, and hand it a `TransactionRunner` (a one-method interface wrapping a block in whatever transaction mechanism you already use). Copy the database-specific SQL linked in [Database schema](#database-schema) into your application's migrations.
+
+### Exposed
+
+`okapi-exposed` bridges okapi's transaction and connection abstractions to Exposed: `ExposedTransactionRunner`, `ExposedTransactionContextValidator`, and `ExposedConnectionProvider`. Useful for Ktor and standalone Kotlin services.
+
+## Database schema
+
+okapi ships Liquibase changelogs that create its table and indexes:
+
+- `classpath:com/softwaremill/okapi/db/postgres/changelog.xml` (from `okapi-postgres`)
+- `classpath:com/softwaremill/okapi/db/mysql/changelog.xml` (from `okapi-mysql`)
+
+With `okapi-spring-boot` and Liquibase on the classpath, these run automatically against the configured `DataSource` at startup, tracked in dedicated Liquibase tables by default to avoid conflicts with the application's migration history.
+
+If you use another migration tool, copy the SQL for your database into your application's migrations:
+
+- [PostgreSQL SQL](okapi-postgres/src/main/resources/com/softwaremill/okapi/db/postgres/001__create_okapi_outbox_table.sql)
+- [MySQL SQL](okapi-mysql/src/main/resources/com/softwaremill/okapi/db/mysql/001__create_okapi_outbox_table.sql)
+
+okapi stores messages in the fixed `okapi_outbox` table. When the built-in Liquibase integration is used, it also uses two dedicated migration tracking tables:
+
+| Table | Purpose |
+|---|---|
+| `okapi_outbox` | Outbox entries. Name is fixed. |
+| `okapi_databasechangelog` | Liquibase history for okapi's migrations (configurable; Liquibase integration only). |
+| `okapi_databasechangeloglock` | Liquibase lock for okapi's migrations (configurable; Liquibase integration only). |
+
+## Transactions
+
+Each processor worker runs its claim, delivery and state update inside one transaction, which keeps `FOR UPDATE SKIP LOCKED` active until delivery state is saved. Each purge batch also runs in its own transaction. With a single `DataSource` and `PlatformTransactionManager`, no additional transaction configuration is needed.
+
+**Multiple data sources or transaction managers?** Set both `okapi.datasource-qualifier` and `okapi.transaction-manager-qualifier` to the beans used for the outbox. okapi fails fast when it detects a mismatch. If the selected transaction manager does not expose its `DataSource`, okapi cannot verify the pairing and logs a warning instead.
+
+**Wiring schedulers by hand?** `TransactionRunner` is a required constructor parameter, with no default:
 
 ```kotlin
-@Bean
-fun outboxTransactionRunner(): TransactionRunner = object : TransactionRunner {
-    override fun <T> runInTransaction(block: () -> T): T = block()
-}
-```
-
-Without a `TransactionRunner` each scheduler tick runs in auto-commit, which can cause duplicate delivery across instances — see Advanced below.
-
-Advanced setups — multiple DataSources, JTA/Exposed PTMs, qualifier precedence — see [Advanced: transactions & multi-DataSource](#advanced-transactions--multi-datasource) below.
-
-## Advanced: transactions & multi-DataSource
-
-Without bracketing, `FOR UPDATE SKIP LOCKED` collapses to the single SELECT statement under JDBC auto-commit, which silently allows duplicate delivery across processor instances. This opt-in is intentionally manual to keep accidental misconfiguration out of multi-instance deployments.
-
-**Multi-DataSource contexts.** If your application has multiple `DataSource` beans and uses a `PlatformTransactionManager` from which okapi cannot extract a `DataSource` (JTA, Exposed's `SpringTransactionManager`, JPA without a JDBC `DataSource`), the autoconfiguration refuses to start until you set `okapi.transaction-manager-qualifier` to the bean name of the PTM that brackets the outbox `DataSource`. `okapi.datasource-qualifier` alone is not sufficient: it picks the outbox `DataSource` but does not constrain which PTM brackets it. Alternative escape hatch: supply your own `@Bean TransactionRunner`. Single-DataSource setups and PTMs whose `DataSource` can be introspected (`DataSourceTransactionManager`, `JpaTransactionManager`, `HibernateTransactionManager`) are unaffected.
-
-When `okapi.transaction-manager-qualifier` is set, it takes precedence over any auto-wired `TransactionTemplate` — including the one Spring Boot's `TransactionAutoConfiguration` registers around the `@Primary` `PlatformTransactionManager`. If the qualifier names a different PTM than that auto-TT wraps, okapi builds a fresh `TransactionTemplate` around the qualified PTM (so the qualifier's intent is honoured) and any custom timeout/isolation/propagation on the auto-wired TT is not inherited — a WARN is logged in that case.
-
-**Constructing schedulers directly (non-autoconfig usage).** When wiring `OutboxProcessorScheduler` / `OutboxPurgerScheduler` manually (Ktor, custom Spring contexts without autoconfig, etc.), supply a `TransactionRunner` explicitly — the parameter is required, with no default:
-
-```kotlin
-OutboxProcessorScheduler(
+OutboxScheduler(
     outboxProcessor = processor,
-    transactionRunner = SpringTransactionRunner(template), // or your framework's equivalent
+    transactionRunner = transactionRunner,
     config = OutboxSchedulerConfig(...),
 )
 ```
 
-## How It Works
-
-Okapi implements the [transactional outbox pattern](https://softwaremill.com/microservices-101/) (see also: [microservices.io description](https://microservices.io/patterns/data/transactional-outbox.html)):
-
-1. Your application writes an `OutboxMessage` to the outbox table **in the same database transaction** as your business operation
-2. A background `OutboxScheduler` polls for pending messages and delivers them to the configured transport (HTTP, Kafka)
-3. Failed deliveries are retried according to a configurable `RetryPolicy` (max attempts, backoff)
-
-**Delivery guarantees:**
-
-- **At-least-once delivery** — okapi guarantees every message will be delivered, but duplicates are possible (e.g., after a crash between delivery and status update). Consumers should handle idempotency, for example by checking the `OutboxId` returned by `publish()`.
-- **Concurrent processing** — multiple processors can run in parallel using `FOR UPDATE SKIP LOCKED`, so messages are never processed twice simultaneously.
-- **Delivery result classification** — each transport classifies errors as `Success`, `RetriableFailure`, or `PermanentFailure`. For example, HTTP 429 is retriable while HTTP 400 is permanent.
-
-## Database migrations
-
-Okapi ships Liquibase changelogs that create the outbox table and its indexes:
-
-- `classpath:com/softwaremill/okapi/db/postgres/changelog.xml` — PostgreSQL (from `okapi-postgres`)
-- `classpath:com/softwaremill/okapi/db/mysql/changelog.xml` — MySQL (from `okapi-mysql`)
-
-When `okapi-spring-boot` is on the classpath, these run automatically against the configured `DataSource` on application startup. Without Spring Boot, point your own Liquibase setup at the paths above and pass an `outboxTable` change-log parameter (see below).
-
-### Configuration
-
-Okapi's table names are fixed under the `okapi_` prefix so its schema stays out of the way of any pre-existing tables in the host application (`outbox`, `databasechangelog`, etc.):
-
-| Table | Purpose |
-|-------|---------|
-| `okapi_outbox` | Domain table holding outbox entries (created by the bundled Liquibase changesets, queried by `PostgresOutboxStore` / `MysqlOutboxStore`). |
-| `okapi_databasechangelog` | Liquibase changeset history for okapi (configurable). |
-| `okapi_databasechangeloglock` | Liquibase concurrency lock for okapi (configurable). |
-
-The Liquibase tracking-table names are configurable in case the host application wants to share them with its own Liquibase setup:
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `okapi.liquibase.changelog-table` | `okapi_databasechangelog` | Liquibase changeset history for okapi |
-| `okapi.liquibase.changelog-lock-table` | `okapi_databasechangeloglock` | Liquibase concurrency lock for okapi |
-
-These properties affect the autoconfigured `okapiPostgresLiquibase` / `okapiMysqlLiquibase` beans only. If you run Liquibase yourself, configure the table names there directly. The domain table name (`okapi_outbox`) is fixed.
-
-### Upgrading from 0.2.x
-
-Releases up to 0.2.x wrote to shared tables `databasechangelog` / `databasechangeloglock` and the domain table `outbox`. From 0.3.0 these are renamed to `okapi_*`. Two upgrade paths:
-
-**Stay on the existing changelog tables** (simplest for the Liquibase tracking pair, zero-downtime) — opt out of the new defaults:
-
-```yaml
-okapi:
-  liquibase:
-    changelog-table: databasechangelog
-    changelog-lock-table: databasechangeloglock
-```
-
-The domain table `outbox` cannot be opted out via configuration — see the migration steps below.
-
-**Migrate to dedicated tables** — run before the first 0.3.0 startup (PostgreSQL syntax shown):
-
-```sql
--- Outbox domain table: rename in place. Indexes follow the table.
-ALTER TABLE outbox RENAME TO okapi_outbox;
-ALTER INDEX idx_outbox_status_last_attempt RENAME TO idx_okapi_outbox_status_last_attempt;
-ALTER INDEX idx_outbox_status_created_at  RENAME TO idx_okapi_outbox_status_created_at;
-
--- Liquibase tracking: split okapi rows into the new tables.
-CREATE TABLE okapi_databasechangelog (LIKE databasechangelog INCLUDING ALL);
-CREATE TABLE okapi_databasechangeloglock (LIKE databasechangeloglock INCLUDING ALL);
-INSERT INTO okapi_databasechangelog
-    SELECT * FROM databasechangelog WHERE filename LIKE '%com/softwaremill/okapi/%';
-INSERT INTO okapi_databasechangeloglock SELECT * FROM databasechangeloglock;
-DELETE FROM databasechangelog WHERE filename LIKE '%com/softwaremill/okapi/%';
-```
-
-Without one of these steps, Liquibase will see an empty changelog table on the first 0.3.0 startup and try to re-run okapi's migrations — which fails if rows already exist under the legacy `outbox` table while okapi now writes to `okapi_outbox`.
-
-Full release history: [CHANGELOG.md](CHANGELOG.md).
-
 ## Observability
 
-Add `okapi-micrometer` alongside `okapi-spring-boot` (from the Quick Start above) to get Micrometer metrics:
+For Spring Boot metrics with Prometheus, add:
 
 ```kotlin
 implementation("com.softwaremill.okapi:okapi-micrometer")
+implementation("org.springframework.boot:spring-boot-starter-actuator")
+runtimeOnly("io.micrometer:micrometer-registry-prometheus")
 ```
 
-With Spring Boot Actuator and a Prometheus registry (`micrometer-registry-prometheus`) on the classpath, metrics are automatically exposed on `/actuator/prometheus`. They are also visible via `/actuator/metrics`.
+Expose the Prometheus endpoint:
+
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+```
+
+Metrics are then available at `/actuator/prometheus`.
 
 | Metric | Type | Description |
-|--------|------|-------------|
+|---|---|---|
 | `okapi.entries.delivered` | Counter | Successfully delivered entries |
 | `okapi.entries.retry.scheduled` | Counter | Failed attempts rescheduled for retry |
 | `okapi.entries.failed` | Counter | Permanently failed entries |
 | `okapi.batch.duration` | Timer | Processing time per batch |
-| `okapi.entries.count` | Gauge | Current entry count (tag: `status=pending\|delivered\|failed`) |
-| `okapi.entries.lag.seconds` | Gauge | Age of oldest entry in seconds (tag: `status`) |
+| `okapi.entries.count` | Gauge | Current entry count (tag: `status`) |
+| `okapi.entries.lag.seconds` | Gauge | Age of the oldest entry (tag: `status`) |
 
-### Configuration
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `okapi.metrics.refresh-interval` | `PT15S` (15s) | How often gauge metrics poll the outbox store. Each refresh runs one transaction with two queries. |
-| `okapi.metrics.enabled` | `true` | Set `false` to disable `okapi-micrometer` entirely — no counters, timers, gauges, or store polling. Logs a startup warning when disabled. |
-
-### Multi-instance deployments
-
-Counters and timers (`okapi.entries.delivered`, `okapi.entries.retry.scheduled`, `okapi.entries.failed`, `okapi.batch.duration`) report work performed by **each instance** — aggregate with `sum`:
+**Aggregating across instances.** Counters and timers are per-instance, so sum them:
 
 ```promql
-sum(rate(okapi_entries_delivered_total[5m]))
+sum by (job) (rate(okapi_entries_delivered_total[5m]))
 ```
 
-Gauges (`okapi.entries.count`, `okapi.entries.lag.seconds`) reflect the **shared outbox state** and are reported identically by every instance. Aggregate with `max by (status)`, not `sum`:
+Gauges represent shared database state and are emitted by every instance. Do not sum them across instances; aggregate by Prometheus job and status:
 
 ```promql
-max by (status) (okapi_entries_count)
+max by (job, status) (okapi_entries_count)
 ```
 
-Polling cost per instance is `2 queries / okapi.metrics.refresh-interval` (default `2 queries / 15s`).
+Without Spring Boot, construct `MicrometerOutboxListener` and `MicrometerOutboxMetrics` with your `MeterRegistry`. Refresh gauges with `OutboxMetricsRefresher` or your own scheduler.
 
-### Without Spring Boot
-
-`okapi-micrometer` has no Spring dependency. Construct the beans manually and pass a `MeterRegistry`. `MicrometerOutboxMetrics` requires a `TransactionRunner` for Exposed-backed stores — see the class KDoc.
-
-For periodic gauge refresh, use the framework-agnostic `OutboxMetricsRefresher` (single daemon thread):
-
-```kotlin
-val listener = MicrometerOutboxListener(meterRegistry)
-val metrics = MicrometerOutboxMetrics(store, meterRegistry, transactionRunner)
-
-val refresher = OutboxMetricsRefresher(metrics, Duration.ofSeconds(15))
-refresher.start()
-// on application shutdown:
-refresher.close()
-```
-
-Or call `metrics.refresh()` from your own scheduler (Ktor coroutine, `ScheduledExecutorService`, etc.) — `refresh()` is thread-safe.
-
-### Custom listener
-
-Implement `OutboxProcessorListener` to react to delivery events (logging, alerting, custom metrics). `OutboxProcessor` accepts a single listener; to combine multiple, implement a composite that delegates to each.
+For custom reactions to delivery events, implement `OutboxProcessorListener`. `OutboxProcessor` takes a single listener; combine several with a composite of your own.
 
 ## Modules
 
-```mermaid
-graph BT
-    PG[okapi-postgres] --> CORE[okapi-core]
-    MY[okapi-mysql] --> CORE
-    HTTP[okapi-http] --> CORE
-    KAFKA[okapi-kafka] --> CORE
-    MICRO[okapi-micrometer] --> CORE
-    EXP[okapi-exposed] --> CORE
-    SPRING[okapi-spring-boot] --> CORE
-    SPRING -.->|compileOnly| PG
-    SPRING -.->|compileOnly| MY
-    SPRING -.->|compileOnly| MICRO
-    BOM[okapi-bom]
+The runtime modules build on `okapi-core`; `okapi-bom` only aligns their versions. Pick a storage module, one or more transports, and a framework adapter if you want one.
 
-    style CORE fill:#4a9eff,color:#fff
-    style BOM fill:#888,color:#fff
-```
+[![Okapi module architecture](docs/images/okapi-modules.png)](https://softwaremill.com/transactional-outbox-with-okapi/)
 
 | Module | Purpose |
-|--------|---------|
-| `okapi-core` | Transport/storage-agnostic orchestration, scheduling, retry policy, `ConnectionProvider` interface |
-| `okapi-exposed` | Exposed ORM integration — `ExposedConnectionProvider`, `ExposedTransactionRunner`, `ExposedTransactionContextValidator` |
+|---|---|
+| `okapi-core` | Abstractions, processing loop, scheduling, retry policy. No framework dependencies. |
 | `okapi-postgres` | PostgreSQL storage via plain JDBC (`FOR UPDATE SKIP LOCKED`) |
 | `okapi-mysql` | MySQL 8+ storage via plain JDBC |
-| `okapi-http` | HTTP webhook delivery (JDK HttpClient) |
+| `okapi-http` | HTTP webhook delivery (JDK `HttpClient`) |
 | `okapi-kafka` | Kafka topic publishing |
-| `okapi-micrometer` | Micrometer metrics (counters, timers, gauges) |
-| `okapi-spring-boot` | Spring Boot autoconfiguration (auto-detects store, transports, and metrics) |
-| `okapi-bom` | Bill of Materials for version alignment |
+| `okapi-spring-boot` | Spring Boot autoconfiguration — selects a store module and wires registered deliverers and metrics |
+| `okapi-exposed` | Exposed ORM integration for transactions and connections |
+| `okapi-micrometer` | Micrometer counters, timers and gauges |
+| `okapi-bom` | Version alignment for all of the above |
 
 ## Compatibility
 
-| Dependency | Supported Versions | Notes |
+| Dependency | Supported | Notes |
 |---|---|---|
 | Java | 21+ | Required |
-| Spring Boot | 3.5.x, 4.0.x | `okapi-spring-boot` module |
-| Kafka Clients | 3.9.x, 4.x | `okapi-kafka` — you provide `kafka-clients` |
-| Exposed | 1.x | `okapi-exposed` module — for Ktor/standalone apps |
+| Spring Boot | 3.5.x, 4.0.x | `okapi-spring-boot` |
+| Kafka Clients | 3.9.x, 4.x | Included transitively by `okapi-kafka`; you can override the version in your build. |
+| Exposed | 1.x | `okapi-exposed` |
+
+The storage modules use plain JDBC. With Spring Boot, they participate in the transaction selected through a `PlatformTransactionManager`; `okapi-exposed` provides adapters for Exposed-managed transactions.
 
 ## Performance
 
-Throughput on a single instance (MacBook M3 Max, JDK 21 LTS, May 2026):
+Performance depends on the selected transport, database, batch size, concurrency and downstream latency. See [`benchmarks/`](benchmarks/) for methodology and measured results.
 
-| Transport | batchSize=10 | batchSize=100 |
-|-----------|--------------|----------------|
-| Kafka (`acks=all`, localhost broker, async batch via `deliverBatch`) | **~1,790 msg/s** | **~5,180 msg/s** |
-| HTTP @ webhook latency 20 ms (sync sequential — parallel `sendAsync` planned) | ~38 msg/s | ~38 msg/s |
-| HTTP @ webhook latency 100 ms (sync sequential — parallel `sendAsync` planned) | ~9 msg/s | ~9 msg/s |
-
-Kafka throughput jumped 16-45× over the original sync-sequential baseline thanks to the `deliverBatch` fire-flush-await pattern. HTTP parallel `sendAsync` is next.
-
-**Multi-threaded scheduler** (`OutboxSchedulerConfig.concurrency`, JDK 25, single Postgres+Kafka backend):
-
-| concurrency | speedup vs. concurrency=1 |
-|---|---|
-| 4  | **3.6×** |
-| 16 | **6.2×** |
-| 64 | **6.6×** (diminishing — see caveats below) |
-
-`concurrency=4` to `16` is the practical sweet spot — most of the available speedup is already
-captured there, with marginal gains beyond it on a single-instance backend. Default to platform
-threads (`workerExecutorFactory` default): in this benchmark's tested range (1-64 workers),
-switching to `virtualThreadPool` showed **no measurable advantage** over platform threads, even
-on a JEP 491 JDK (25) — contrary to the original hypothesis that virtual threads would win at
-concurrency=16+. Virtual threads only pay off when worker count vastly exceeds the platform pool
-size; at ≤64 workers there's no oversubscription for them to fix. Tuning rule of thumb:
-`concurrency × instances ≤ max_connections / 2` (row locks make cross-instance coordination free
-via `FOR UPDATE SKIP LOCKED`, but every worker holds a DB connection for its batch's duration).
-
-Full methodology, raw JMH results, before/after per change: [`benchmarks/`](benchmarks/), including
-[`results-postopt-KOJAK-77.md`](benchmarks/results-postopt-KOJAK-77.md) for the full concurrency
-breakdown and the reasoning behind the virtual-thread finding.
-
-### MySQL: `rewriteBatchedStatements`
-
-`OutboxStore.updateAfterProcessingBatch()` writes back a whole processed batch via one JDBC
-`executeBatch()` call. On Postgres, PgJDBC pipelines batched statements over the wire natively, so
-this already collapses N roundtrips into ~1. **MySQL Connector/J does not** — by default it sends
-one roundtrip per statement in the batch regardless of `addBatch()`/`executeBatch()`, silently
-negating the optimization. Add `rewriteBatchedStatements=true` to the JDBC URL
-(`jdbc:mysql://host:3306/db?rewriteBatchedStatements=true`) so Connector/J rewrites the batch into
-a single multi-statement round trip. This is a driver/connection setting — okapi cannot set it for
-you since it doesn't own your `DataSource`.
-
-We verified the rewrite genuinely happens (Connector/J's own query profiler confirms a batch of
-1000 `UPDATE`s becomes one multi-statement round trip), but couldn't measure a net speedup from it
-in our benchmark — see
-[`results-mysql-rewrite-batched-statements.md`](benchmarks/results-mysql-rewrite-batched-statements.md)
-for why (a client-side response-decoding cost that scales with batch size). We still recommend
-enabling it — the round-trip savings are real and matter most against a network-hosted MySQL — but
-unlike Postgres's measured 10.2×, we don't have a MySQL multiplier to back it with.
-
-Full methodology, raw JMH results, before/after per change: [`benchmarks/`](benchmarks/), including
-[`results-postopt-KOJAK-75.md`](benchmarks/results-postopt-KOJAK-75.md) for the batch-UPDATE
-numbers above.
-
-## Build
+## Building
 
 ```sh
-./gradlew build                  # Build all modules
-./gradlew test                   # Run tests (Docker required — Testcontainers)
-./gradlew ktlintFormat           # Format code
+./gradlew build                  # Build and test all modules (Docker required — Testcontainers)
+./gradlew ktlintFormat           # Format code — mandatory before committing
 ./gradlew :okapi-benchmarks:jmh  # Run JMH benchmarks (~30 min, see benchmarks/README.md)
 ```
 
-Requires JDK 21.
-
 ## Contributing
 
-All suggestions welcome :)
+All suggestions are welcome. Take a look at the [open issues](https://github.com/softwaremill/okapi/issues) and pick one, or report your own.
 
-To compile and test, run:
+If you are unsure *why* or *how* something works, ask on [Discourse](https://softwaremill.community/c/open-source/11) or open an issue. That usually means the documentation or the code is unclear, and fixing it helps everyone.
 
-```sh
-./gradlew build
-./gradlew ktlintFormat   # Mandatory before committing
-```
+When your PR is ready, see our [guide to preparing a good PR](https://softwaremill.community/t/how-to-prepare-a-good-pr-to-a-library/448).
 
-See the list of [issues](https://github.com/softwaremill/okapi/issues) and pick one! Or report your own.
+## Commercial support
 
-If you are having doubts on the _why_ or _how_ something works, don't hesitate to ask a question on [Discourse](https://softwaremill.community/c/open-source/11) or via GitHub. This probably means that the documentation or code is unclear and can be improved for the benefit of all.
+okapi is built and maintained by [SoftwareMill](https://softwaremill.com). We offer commercial development services — [get in touch](https://softwaremill.com) to learn more.
 
-Tests use [Testcontainers](https://www.testcontainers.org/) — Docker must be running.
+## License
 
-When you have a PR ready, take a look at our ["How to prepare a good PR" guide](https://softwaremill.community/t/how-to-prepare-a-good-pr-to-a-library/448). Thanks! :)
-
-## Project sponsor
-
-We offer commercial development services. [Contact us](https://softwaremill.com) to learn more about us!
-
-## Copyright
-
-Copyright (C) 2026 SoftwareMill [https://softwaremill.com](https://softwaremill.com).
+Copyright (C) 2026 SoftwareMill. Licensed under the [Apache License 2.0](LICENSE).
