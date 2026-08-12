@@ -78,6 +78,10 @@ The order row and the outbox row now commit together or not at all. Autoconfigur
 
 > `SpringOutboxPublisher` throws `IllegalStateException` if you call `publish()` outside an active read-write transaction. That is deliberate — an outbox write that can't commit atomically with your business data defeats the purpose of the pattern.
 
+## Examples
+
+Runnable, self-contained applications live in [okapi-examples](https://github.com/softwaremill/okapi-examples). Each one is an independent Gradle project that consumes okapi as a published dependency, with its own `docker-compose.yml` for the databases and brokers it needs.
+
 ## How it works
 
 1. `publish()` writes a `PENDING` row to `okapi_outbox` in your transaction.
