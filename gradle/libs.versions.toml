@@ -2,7 +2,7 @@
 kotlin = "2.4.10"
 kotest = "6.2.4"
 ktlint = "12.1.2"
-exposed = "1.4.0"
+exposed = "1.5.0"
 jackson = "2.22.2"
 liquibase = "5.0.4"
 testcontainers = "1.21.4"
@@ -25,7 +25,7 @@ pitestTool = "1.17.0"
 pitestJunit5Plugin = "1.2.1"
 # Hibernate ORM 7.x (the line Spring Framework 7.x targets); integration-tests only, to exercise
 # JpaTransactionManager fail-fast extraction.
-hibernate = "7.4.6.Final"
+hibernate = "7.4.7.Final"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
