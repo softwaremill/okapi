@@ -32,7 +32,7 @@ dependencies {
     testImplementation(libs.kafkaClients)
 
     // SLF4J for Testcontainers logging
-    testRuntimeOnly("org.slf4j:slf4j-simple:2.0.18")
+    testRuntimeOnly("org.slf4j:slf4j-simple:2.0.19")
 
     // WireMock (HTTP E2E tests)
     testImplementation(libs.wiremock)
