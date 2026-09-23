@@ -8,6 +8,25 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ## [Unreleased]
 
+### Changed
+
+- **`CompositeMessageDeliverer.deliverBatch`** now dispatches transport groups concurrently — one
+  virtual thread per group, with the last group run on the calling thread — instead of blocking on
+  each group in turn. A batch spanning N transports costs ~`max(Tᵢ)` rather than `sum(Tᵢ)`; a batch
+  with a single delivery type takes a fast path that starts no thread and allocates no executor, so
+  homogeneous workloads are unchanged. `MessageDeliverer` implementations must therefore be
+  thread-safe and must not depend on caller thread-locals (MDC, `TransactionSynchronizationManager`,
+  security context) — the outbox transaction itself is unaffected, as it wraps the store round-trips
+  in `OutboxProcessor`, not the transport I/O. Deliverers that cannot satisfy that can restore the
+  previous behaviour with the new `TransportDispatch.SEQUENTIAL` constructor argument, exposed in
+  `okapi-spring-boot` as `okapi.processor.transport-dispatch=sequential`. (KOJAK-81)
+- **`CompositeMessageDeliverer` now upholds `deliverBatch`'s "must not throw" contract even when a
+  transport does not.** A deliverer that throws, or that returns no result for some of its entries,
+  previously propagated the exception (or an `IllegalStateException` from the result-assembly step)
+  and aborted the whole batch; it now fails only its own entries, as `RetriableFailure`, leaving the
+  other transports' results intact. Such entries are retried under the configured `RetryPolicy`
+  rather than rolled back and re-claimed indefinitely. (KOJAK-81)
+
 ### Changed (BREAKING)
 
 - **`ExposedConnectionProvider`** now requires a `database: Database` constructor argument and

@@ -5,6 +5,11 @@ package com.softwaremill.okapi.core
  *
  * [type] must match the [DeliveryInfo.type] of the entries this deliverer handles.
  * [CompositeMessageDeliverer] uses this to route entries to the correct implementation.
+ *
+ * Implementations must be thread-safe and must not depend on caller thread-locals: a single
+ * instance is shared by every scheduler worker (see `OutboxSchedulerConfig.concurrency`), and
+ * [CompositeMessageDeliverer] may invoke [deliverBatch] on a thread other than the calling one
+ * when a batch spans several transports.
  */
 interface MessageDeliverer {
     val type: String

@@ -109,6 +109,7 @@ In a typical single-DataSource application, all properties are optional. Multi-D
 | `okapi.processor.batch-size` | `10` | Maximum entries claimed per worker per tick. |
 | `okapi.processor.max-retries` | `5` | Retries after the initial attempt before an entry becomes `FAILED`. |
 | `okapi.processor.concurrency` | `1` | Parallel workers per tick, each claiming its own batch. Tune based on database capacity and delivery latency; see [Performance](#performance). |
+| `okapi.processor.transport-dispatch` | `parallel` | How a batch spanning several `MessageDeliverer` beans is dispatched: `parallel` (one virtual thread per transport group, so the batch costs ~`max(Tᵢ)`) or `sequential` (one group after another on the calling thread). Use `sequential` only if a custom deliverer depends on caller thread context (MDC, `TransactionSynchronizationManager`, security context). Batches with a single delivery type always run inline, regardless of this setting. |
 
 ### Purger
 

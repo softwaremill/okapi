@@ -98,6 +98,7 @@ dependencies {
     // LiquibaseDisabledNotice breadcrumb + our PTM↔DS validation cannot-verify WARN) — slf4j-simple
     // does not provide an introspectable appender.
     testImplementation(libs.logbackClassic)
+    testImplementation(kotlin("test"))
 }
 
 // CI version override: ./gradlew :okapi-spring-boot:test -PspringBootVersion=4.0.4 -PspringVersion=7.0.6
@@ -115,4 +116,7 @@ if (springBootVersion != null || springVersion != null) {
             }
         }
     }
+}
+repositories {
+    mavenCentral()
 }

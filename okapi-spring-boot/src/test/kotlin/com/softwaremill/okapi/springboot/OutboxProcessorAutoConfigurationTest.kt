@@ -1,17 +1,24 @@
 package com.softwaremill.okapi.springboot
 
+import com.softwaremill.okapi.core.DeliveryInfo
+import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
+import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxEntryProcessor
+import com.softwaremill.okapi.core.OutboxMessage
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.TransactionRunner
+import com.softwaremill.okapi.core.TransportDispatch
 import com.softwaremill.okapi.micrometer.MicrometerOutboxListener
 import com.softwaremill.okapi.micrometer.MicrometerOutboxMetrics
 import com.softwaremill.okapi.micrometer.OutboxMetricsRefresher
 import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import org.springframework.beans.factory.getBean
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.autoconfigure.AutoConfigureAfter
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
@@ -19,6 +26,8 @@ import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import java.time.Duration.ofMillis
 import java.time.Duration.ofMinutes
 import java.time.Duration.ofSeconds
+import java.time.Instant
+import java.util.concurrent.ConcurrentLinkedQueue
 import javax.sql.DataSource
 
 class OutboxProcessorAutoConfigurationTest : FunSpec({
@@ -51,29 +60,66 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
                 "okapi.processor.batch-size=20",
                 "okapi.processor.max-retries=3",
                 "okapi.processor.concurrency=4",
+                "okapi.processor.transport-dispatch=sequential",
             )
             .run { ctx ->
-                val props = ctx.getBean(OutboxProcessorProperties::class.java)
+                val props = ctx.getBean<OutboxProcessorProperties>()
                 props.interval shouldBe ofMillis(500)
                 props.batchSize shouldBe 20
                 props.maxRetries shouldBe 3
                 props.concurrency shouldBe 4
+                props.transportDispatch shouldBe TransportDispatch.SEQUENTIAL
             }
     }
 
     test("default properties when nothing is configured") {
         contextRunner.run { ctx ->
-            val props = ctx.getBean(OutboxProcessorProperties::class.java)
+            val props = ctx.getBean<OutboxProcessorProperties>()
             props.interval shouldBe ofSeconds(1)
             props.batchSize shouldBe 10
             props.maxRetries shouldBe 5
             props.concurrency shouldBe 1
+            props.transportDispatch shouldBe TransportDispatch.PARALLEL
         }
+    }
+
+    test("multi-transport batches are dispatched in parallel by default") {
+        val deliveryThreads = ConcurrentLinkedQueue<Thread>()
+        dispatchContextRunner(deliveryThreads).run { ctx ->
+            ctx.getBean<OutboxEntryProcessor>()
+                .processBatch(listOf(entryOfType("kafka-like"), entryOfType("http-like")))
+
+            withClue("one group should run on a virtual thread while the other runs inline: $deliveryThreads") {
+                deliveryThreads.toSet().size shouldBe 2
+            }
+            deliveryThreads shouldContain Thread.currentThread()
+        }
+    }
+
+    test("okapi.processor.transport-dispatch=sequential keeps every transport group on the calling thread") {
+        val deliveryThreads = ConcurrentLinkedQueue<Thread>()
+        dispatchContextRunner(deliveryThreads)
+            .withPropertyValues("okapi.processor.transport-dispatch=sequential")
+            .run { ctx ->
+                ctx.getBean<OutboxEntryProcessor>()
+                    .processBatch(listOf(entryOfType("kafka-like"), entryOfType("http-like")))
+
+                deliveryThreads.size shouldBe 2
+                deliveryThreads.toSet() shouldBe setOf(Thread.currentThread())
+            }
+    }
+
+    test("invalid transport-dispatch triggers startup failure") {
+        contextRunner
+            .withPropertyValues("okapi.processor.transport-dispatch=concurrent")
+            .run { ctx ->
+                ctx.startupFailure.shouldNotBeNull()
+            }
     }
 
     test("SmartLifecycle is running after context start, and stop() actually halts it") {
         contextRunner.run { ctx ->
-            val scheduler = ctx.getBean(OutboxProcessorScheduler::class.java)
+            val scheduler = ctx.getBean<OutboxProcessorScheduler>()
             scheduler.isRunning shouldBe true
             scheduler.stop()
             scheduler.isRunning shouldBe false
@@ -82,7 +128,7 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
 
     test("getPhase returns PROCESSOR_PHASE constant (orders before purger)") {
         contextRunner.run { ctx ->
-            val scheduler = ctx.getBean(OutboxProcessorScheduler::class.java)
+            val scheduler = ctx.getBean<OutboxProcessorScheduler>()
             scheduler.phase shouldBe OutboxProcessorScheduler.PROCESSOR_PHASE
         }
     }
@@ -105,7 +151,7 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
 
     test("stop(callback) invokes callback AND actually halts the scheduler") {
         contextRunner.run { ctx ->
-            val scheduler = ctx.getBean(OutboxProcessorScheduler::class.java)
+            val scheduler = ctx.getBean<OutboxProcessorScheduler>()
             var callbackInvoked = false
             scheduler.stop { callbackInvoked = true }
             callbackInvoked shouldBe true
@@ -117,7 +163,7 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
         contextRunner
             .withBean("secondDeliverer", MessageDeliverer::class.java, { stubDelivererWithType("second") })
             .run { ctx ->
-                val processor = ctx.getBean(OutboxEntryProcessor::class.java)
+                val processor = ctx.getBean<OutboxEntryProcessor>()
                 processor.shouldNotBeNull()
                 ctx.getBeansOfType(MessageDeliverer::class.java).size shouldBe 2
             }
@@ -142,7 +188,7 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             })
             .withPropertyValues("okapi.metrics.refresh-interval=1m")
             .run { ctx ->
-                val props = ctx.getBean(OkapiMetricsProperties::class.java)
+                val props = ctx.getBean<OkapiMetricsProperties>()
                 props.refreshInterval shouldBe ofMinutes(1)
             }
     }
@@ -153,7 +199,7 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
                 io.micrometer.core.instrument.simple.SimpleMeterRegistry()
             })
             .run { ctx ->
-                val props = ctx.getBean(OkapiMetricsProperties::class.java)
+                val props = ctx.getBean<OkapiMetricsProperties>()
                 props.refreshInterval shouldBe ofSeconds(15)
             }
     }
@@ -191,10 +237,10 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             .withBean(DataSource::class.java, { SimpleDriverDataSource() })
             .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
             .run { ctx ->
-                ctx.getBean(io.micrometer.core.instrument.MeterRegistry::class.java).shouldNotBeNull()
-                ctx.getBean(MicrometerOutboxListener::class.java).shouldNotBeNull()
-                ctx.getBean(MicrometerOutboxMetrics::class.java).shouldNotBeNull()
-                ctx.getBean(OutboxMetricsRefresher::class.java).shouldNotBeNull()
+                ctx.getBean<io.micrometer.core.instrument.MeterRegistry>().shouldNotBeNull()
+                ctx.getBean<MicrometerOutboxListener>().shouldNotBeNull()
+                ctx.getBean<MicrometerOutboxMetrics>().shouldNotBeNull()
+                ctx.getBean<OutboxMetricsRefresher>().shouldNotBeNull()
             }
     }
 
@@ -227,6 +273,37 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
 })
 
 // Loads a Spring Boot auto-config class by trying version-specific FQCNs in order.
+/**
+ * Context with two thread-recording deliverers, so a batch spanning both transports proves where
+ * `okapi.processor.transport-dispatch` actually lands: the recorded threads are the observable
+ * difference between parallel and sequential dispatch.
+ */
+private fun dispatchContextRunner(deliveryThreads: ConcurrentLinkedQueue<Thread>) = ApplicationContextRunner()
+    .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+    .withBean(OutboxStore::class.java, { stubStore() })
+    .withBean("kafkaLikeDeliverer", MessageDeliverer::class.java, { threadRecordingDeliverer("kafka-like", deliveryThreads) })
+    .withBean("httpLikeDeliverer", MessageDeliverer::class.java, { threadRecordingDeliverer("http-like", deliveryThreads) })
+    .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+    .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
+
+private fun threadRecordingDeliverer(t: String, into: ConcurrentLinkedQueue<Thread>) = object : MessageDeliverer {
+    override val type = t
+
+    override fun deliver(entry: OutboxEntry): DeliveryResult {
+        into += Thread.currentThread()
+        return DeliveryResult.Success
+    }
+}
+
+private fun entryOfType(t: String): OutboxEntry {
+    val deliveryInfo = object : DeliveryInfo {
+        override val type = t
+
+        override fun serialize(): String = "{}"
+    }
+    return OutboxEntry.createPending(OutboxMessage("evt", "{}"), deliveryInfo, Instant.EPOCH)
+}
+
 // Lets a single test exercise both the 3.5.x (`...actuate.autoconfigure.metrics...`) and 4.0.x (`...micrometer.metrics.autoconfigure...`) layouts.
 private fun resolveSpringBootClass(vararg candidateFqcns: String): Class<*> {
     val classLoader = OkapiMicrometerAutoConfiguration::class.java.classLoader
