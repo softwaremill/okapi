@@ -42,9 +42,18 @@ class CompositeMessageDeliverer @JvmOverloads constructor(
      * Because a group may then run on a thread other than the caller's, [MessageDeliverer]
      * implementations must be thread-safe and must not depend on caller thread-locals (SLF4J MDC,
      * Spring's `TransactionSynchronizationManager`, security context); deliverers that cannot
-     * satisfy that opt out via [TransportDispatch.SEQUENTIAL]. The outbox transaction itself is
-     * unaffected either way: it wraps the claim/update round-trips in [OutboxProcessor], not the
-     * transport I/O.
+     * satisfy that opt out via [TransportDispatch.SEQUENTIAL].
+     *
+     * The outbox transaction is open across delivery, and stays that way: the scheduler wraps the
+     * whole [OutboxProcessor.processNext] cycle — claim, deliver, update — in one transaction, so
+     * that `FOR UPDATE SKIP LOCKED` holds its row locks until the results are written. What this
+     * dispatch changes is which thread the transport runs on, not that scope. The store round-trips
+     * still run on the calling thread inside the transaction, but a group handed to a virtual
+     * thread does **not** inherit the caller's transaction-bound resources: a deliverer that
+     * implicitly joins the outbox transaction (Spring's `DataSourceUtils`, Exposed's thread-bound
+     * transaction) gets a fresh connection instead — precisely what [TransportDispatch.SEQUENTIAL]
+     * is for. For a heterogeneous batch, parallel dispatch also shortens how long that transaction
+     * stays open, from `sum(Tᵢ)` to ~`max(Tᵢ)`.
      *
      * Upholds [MessageDeliverer.deliverBatch]'s "must not throw" contract even when a transport
      * does not: a deliverer that throws, or that returns no result for some of its entries, fails
