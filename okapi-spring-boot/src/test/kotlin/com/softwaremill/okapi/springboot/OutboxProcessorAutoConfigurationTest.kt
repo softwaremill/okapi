@@ -23,6 +23,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.autoconfigure.AutoConfigureAfter
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.jdbc.datasource.SimpleDriverDataSource
+import java.time.Duration
 import java.time.Duration.ofMillis
 import java.time.Duration.ofMinutes
 import java.time.Duration.ofSeconds
@@ -107,6 +108,20 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
                 deliveryThreads.size shouldBe 2
                 deliveryThreads.toSet() shouldBe setOf(Thread.currentThread())
             }
+    }
+
+    // transportDispatch was appended to the primary constructor; without @JvmOverloads that would
+    // delete the 4-arg JVM constructor Java callers had before, breaking them at compile and link
+    // time. @JvmOverloads regenerates it — and this asserts Spring's Kotlin-aware constructor
+    // binding still picks the primary constructor now that the class has several.
+    test("OutboxProcessorProperties keeps the pre-transportDispatch JVM constructor for Java callers") {
+        val signatures = OutboxProcessorProperties::class.java.constructors.map { it.parameterTypes.toList() }
+
+        withClue("available constructors: $signatures") {
+            signatures shouldContain listOf(Duration::class.java, Int::class.java, Int::class.java, Int::class.java)
+            signatures shouldContain
+                listOf(Duration::class.java, Int::class.java, Int::class.java, Int::class.java, TransportDispatch::class.java)
+        }
     }
 
     test("invalid transport-dispatch triggers startup failure") {

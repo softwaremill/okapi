@@ -86,18 +86,31 @@ class CompositeMessageDeliverer @JvmOverloads constructor(
      * calling thread before awaiting the rest. Returned outcomes are unordered — [deliverBatch]
      * re-assembles input order from its `Map<OutboxEntry, DeliveryResult>` lookup.
      */
-    private fun deliverGroupsInParallel(groups: List<TransportGroup>): List<DeliveryOutcome> =
-        Executors.newVirtualThreadPerTaskExecutor().use { executor ->
+    private fun deliverGroupsInParallel(groups: List<TransportGroup>): List<DeliveryOutcome> {
+        val executor = Executors.newVirtualThreadPerTaskExecutor()
+        return try {
             val inFlight = groups.dropLast(1).map { group -> group to executor.submit(Callable { deliverGroup(group) }) }
             val onCallerThread = deliverGroup(groups.last())
             inFlight.flatMap { (group, future) -> await(group, future) } + onCallerThread
+        } finally {
+            // shutdownNow() without awaiting termination, deliberately not `use`/close(): close()
+            // loops on awaitTermination(1, DAYS) until every task ends, so one transport that
+            // ignores interruption would pin the caller here — and with it the scheduler's
+            // shutdown — long after we have results for the whole batch. Nothing is lost by not
+            // waiting: every group that still matters was awaited above, so on the normal path
+            // there is nothing running, and anything still in flight is a group the interrupt path
+            // already gave up on and recorded a result for. The tasks hold no shared state, and
+            // virtual threads are daemon threads, so an abandoned one cannot hold up JVM exit.
+            executor.shutdownNow()
         }
+    }
 
     /**
      * Awaits via [Future.get] rather than [java.util.concurrent.CompletableFuture.join] so an
      * interrupt on the caller (scheduler shutdown) is observed instead of ignored. The flag is
-     * restored on the interrupted thread itself, which makes the remaining `get()` calls fail fast
-     * and makes the enclosing `use` escalate to `shutdownNow()` for the still-running groups.
+     * restored on the interrupted thread itself, so the remaining `get()` calls fail fast and the
+     * `finally` in [deliverGroupsInParallel] interrupts the still-running groups — without waiting
+     * for them, so a transport that ignores interruption cannot hold up the caller.
      */
     private fun await(group: TransportGroup, future: Future<List<DeliveryOutcome>>): List<DeliveryOutcome> = try {
         future.get()

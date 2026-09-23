@@ -1,14 +1,17 @@
 package com.softwaremill.okapi.core
 
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 private const val AWAIT_TIMEOUT_SECONDS = 10L
 
@@ -241,6 +244,47 @@ class CompositeMessageDelivererTest : FunSpec({
         results.map { it.entry } shouldBe entries
         results[0].result shouldBe DeliveryResult.Success
         results[1].result.shouldBeInstanceOf<DeliveryResult.RetriableFailure>().error shouldContain "no result"
+    }
+
+    test("a transport that ignores interruption cannot hold up the batch once the caller is interrupted") {
+        val delivererStarted = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        // Models a transport that swallows interruption — exactly the task ExecutorService.close()
+        // would wait on (awaitTermination(1, DAYS) in a loop) before letting deliverBatch return.
+        val uninterruptible = batchDeliverer("kafka") { entries ->
+            delivererStarted.countDown()
+            var released = false
+            while (!released) {
+                released = try {
+                    release.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                } catch (_: InterruptedException) {
+                    false
+                }
+            }
+            entries.map { DeliveryOutcome(it, DeliveryResult.Success) }
+        }
+        val composite = CompositeMessageDeliverer(listOf(uninterruptible, fixedDeliverer("http", DeliveryResult.Success)))
+        val results = AtomicReference<List<DeliveryOutcome>>()
+        val caller = Thread.ofVirtual().unstarted {
+            results.set(composite.deliverBatch(listOf(entryOfType("kafka", 1), entryOfType("http", 2))))
+        }
+
+        try {
+            caller.start()
+            delivererStarted.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS) shouldBe true
+            caller.interrupt()
+
+            withClue("deliverBatch must not wait for a transport group it has already given up on") {
+                caller.join(Duration.ofSeconds(AWAIT_TIMEOUT_SECONDS)) shouldBe true
+            }
+            // Still latched: deliverBatch returned while that transport was demonstrably still running.
+            release.count shouldBe 1L
+            results.get()[0].result.shouldBeInstanceOf<DeliveryResult.RetriableFailure>()
+            results.get()[1].result shouldBe DeliveryResult.Success
+        } finally {
+            release.countDown()
+            caller.join()
+        }
     }
 
     test("interrupting the caller while a transport group is in flight yields retriable results and restores the flag") {
