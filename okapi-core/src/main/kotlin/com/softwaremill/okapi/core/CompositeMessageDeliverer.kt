@@ -96,11 +96,21 @@ class CompositeMessageDeliverer @JvmOverloads constructor(
             // shutdownNow() without awaiting termination, deliberately not `use`/close(): close()
             // loops on awaitTermination(1, DAYS) until every task ends, so one transport that
             // ignores interruption would pin the caller here — and with it the scheduler's
-            // shutdown — long after we have results for the whole batch. Nothing is lost by not
-            // waiting: every group that still matters was awaited above, so on the normal path
-            // there is nothing running, and anything still in flight is a group the interrupt path
-            // already gave up on and recorded a result for. The tasks hold no shared state, and
-            // virtual threads are daemon threads, so an abandoned one cannot hold up JVM exit.
+            // shutdown — long after we have results for the whole batch.
+            //
+            // On the normal path this is a no-op: every group was awaited above, so nothing is
+            // running. It only bites on the interrupt path, and there it is a deliberate trade:
+            // interruption is the only lever available (an HTTP request already on the wire or a
+            // `producer.send()` in flight cannot be cancelled), so a deliverer that ignores it may
+            // complete its send after this method has reported that group as retriable — the entry
+            // is then delivered again on a later claim. That is the at-least-once contract okapi
+            // already documents, and the same window exists in HttpMessageDeliverer.deliverBatch,
+            // which likewise abandons in-flight `sendAsync` futures when the caller is interrupted.
+            // Waiting would narrow it — the real result could then be persisted instead of a
+            // retriable one — but only by reintroducing the unbounded block this `finally` exists
+            // to avoid. Duplicate delivery is the documented contract; an indefinite hang is not.
+            // The tasks hold no shared state, and virtual threads are daemon threads, so an
+            // abandoned one cannot hold up JVM exit.
             executor.shutdownNow()
         }
     }
@@ -111,6 +121,11 @@ class CompositeMessageDeliverer @JvmOverloads constructor(
      * restored on the interrupted thread itself, so the remaining `get()` calls fail fast and the
      * `finally` in [deliverGroupsInParallel] interrupts the still-running groups — without waiting
      * for them, so a transport that ignores interruption cannot hold up the caller.
+     *
+     * Reporting an interrupted group as [DeliveryResult.RetriableFailure] while its send may still
+     * be in flight is what makes okapi at-least-once rather than exactly-once: that entry can be
+     * delivered twice. See the trade-off spelled out in [deliverGroupsInParallel], and the
+     * "Duplicate delivery is possible" guidance in the README — consumers must be idempotent.
      */
     private fun await(group: TransportGroup, future: Future<List<DeliveryOutcome>>): List<DeliveryOutcome> = try {
         future.get()
