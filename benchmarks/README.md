@@ -121,3 +121,6 @@ investigate variability sources (background processes, thermal throttling, GC).
 - [`results-mysql-rewrite-batched-statements.md`](results-mysql-rewrite-batched-statements.md) —
   same optimization on MySQL: mechanism verified correct, but no net speedup measured at this
   batch size/hardware — read before assuming the Postgres multiplier transfers
+- [`results-postopt-KOJAK-76.md`](results-postopt-KOJAK-76.md) — Postgres partial index for PENDING
+  entries: measured and **rejected**, saves ~1 buffer hit out of 23 and the gap does not widen with
+  table size. `psql`/`EXPLAIN` rather than JMH; scripts in [`kojak-76/`](kojak-76/)
