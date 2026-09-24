@@ -34,6 +34,16 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ### Changed (BREAKING)
 
+- **`OutboxProcessorProperties` gained a `transportDispatch` constructor parameter** (see the
+  `CompositeMessageDeliverer` entry above). `@JvmOverloads` preserves the previous four-argument
+  JVM constructor, so Java callers are unaffected, but adding a property to a Kotlin `data class`
+  necessarily changes the generated `copy`/`copy$default` and default-argument constructor
+  signatures. Kotlin code compiled against an earlier release and not recompiled will fail with
+  `NoSuchMethodError` if it calls `copy(...)` on this class or constructs it using default
+  arguments — recompile consumers against this release. Binding from `application.yml` /
+  `application.properties` is unaffected, as is `CompositeMessageDeliverer`, whose new parameter
+  is covered by `@JvmOverloads` for previously compiled Kotlin and Java callers alike.
+  ([#113](https://github.com/softwaremill/okapi/pull/113))
 - **`ExposedConnectionProvider`** now requires a `database: Database` constructor argument and
   reads the active transaction from `database.transactionManager.currentOrNull()` instead of the
   global `TransactionManager.currentOrNull()`. Previously, in a multi-database Exposed app, the

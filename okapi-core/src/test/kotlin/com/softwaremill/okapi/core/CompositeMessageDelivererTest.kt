@@ -274,8 +274,9 @@ class CompositeMessageDelivererTest : FunSpec({
             delivererStarted.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS) shouldBe true
             caller.interrupt()
 
+            caller.join(Duration.ofSeconds(AWAIT_TIMEOUT_SECONDS))
             withClue("deliverBatch must not wait for a transport group it has already given up on") {
-                caller.join(Duration.ofSeconds(AWAIT_TIMEOUT_SECONDS)) shouldBe true
+                caller.isAlive shouldBe false
             }
             // Still latched: deliverBatch returned while that transport was demonstrably still running.
             release.count shouldBe 1L
