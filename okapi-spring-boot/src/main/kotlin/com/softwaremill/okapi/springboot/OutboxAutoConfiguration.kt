@@ -171,7 +171,7 @@ class OutboxAutoConfiguration(
         clock: ObjectProvider<Clock>,
     ): OutboxEntryProcessor {
         return OutboxEntryProcessor(
-            deliverer = if (deliverers.size == 1) deliverers.single() else CompositeMessageDeliverer(deliverers),
+            deliverer = if (deliverers.size == 1) deliverers.single() else CompositeMessageDeliverer(deliverers, props.transportDispatch),
             retryPolicy = retryPolicy.getIfAvailable { RetryPolicy(maxRetries = props.maxRetries) },
             clock = clock.getIfAvailable { Clock.systemUTC() },
         )

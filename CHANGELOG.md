@@ -8,8 +8,42 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ## [Unreleased]
 
+### Changed
+
+- **`CompositeMessageDeliverer.deliverBatch`** now dispatches transport groups concurrently — one
+  virtual thread per group, with the last group run on the calling thread — instead of blocking on
+  each group in turn. A batch spanning N transports costs ~`max(Tᵢ)` rather than `sum(Tᵢ)`; a batch
+  with a single delivery type takes a fast path that starts no thread and allocates no executor, so
+  homogeneous workloads are unchanged. `MessageDeliverer` implementations must therefore be
+  thread-safe and must not depend on caller thread-locals (MDC, `TransactionSynchronizationManager`,
+  security context). The transaction scope is unchanged — the scheduler still wraps the whole
+  `OutboxProcessor.processNext` cycle (claim, deliver, update) in one transaction, so it remains
+  open across delivery — but a transport group dispatched to a virtual thread no longer inherits
+  the caller's transaction-bound resources, so a deliverer that implicitly joined the outbox
+  transaction (e.g. via Spring's `DataSourceUtils`) now gets a fresh connection. Deliverers that
+  cannot satisfy that can restore the previous behaviour with the new
+  `TransportDispatch.SEQUENTIAL` constructor argument, exposed in `okapi-spring-boot` as
+  `okapi.processor.transport-dispatch=sequential`. For a heterogeneous batch, parallel dispatch
+  also shortens how long the transaction stays open, from `sum(Tᵢ)` to ~`max(Tᵢ)`. (KOJAK-81)
+- **`CompositeMessageDeliverer` now upholds `deliverBatch`'s "must not throw" contract even when a
+  transport does not.** A deliverer that throws, or that returns no result for some of its entries,
+  previously propagated the exception (or an `IllegalStateException` from the result-assembly step)
+  and aborted the whole batch; it now fails only its own entries, as `RetriableFailure`, leaving the
+  other transports' results intact. Such entries are retried under the configured `RetryPolicy`
+  rather than rolled back and re-claimed indefinitely. (KOJAK-81)
+
 ### Changed (BREAKING)
 
+- **`OutboxProcessorProperties` gained a `transportDispatch` constructor parameter** (see the
+  `CompositeMessageDeliverer` entry above). `@JvmOverloads` preserves the previous four-argument
+  JVM constructor, so Java callers are unaffected, but adding a property to a Kotlin `data class`
+  necessarily changes the generated `copy`/`copy$default` and default-argument constructor
+  signatures. Kotlin code compiled against an earlier release and not recompiled will fail with
+  `NoSuchMethodError` if it calls `copy(...)` on this class or constructs it using default
+  arguments — recompile consumers against this release. Binding from `application.yml` /
+  `application.properties` is unaffected, as is `CompositeMessageDeliverer`, whose new parameter
+  is covered by `@JvmOverloads` for previously compiled Kotlin and Java callers alike.
+  ([#113](https://github.com/softwaremill/okapi/pull/113))
 - **`ExposedConnectionProvider`** now requires a `database: Database` constructor argument and
   reads the active transaction from `database.transactionManager.currentOrNull()` instead of the
   global `TransactionManager.currentOrNull()`. Previously, in a multi-database Exposed app, the
