@@ -91,10 +91,34 @@ Runnable, self-contained applications live in [okapi-examples](https://github.co
 
 ### Guarantees and limits
 
-- **Duplicate delivery is possible.** A crash between a successful delivery and the status update means the message may be sent again after restart. If processing a message more than once would cause unwanted effects, make the consumer idempotent — for example, deduplicate on a business key in the payload or a header set in the `DeliveryInfo`. okapi sends your payload and configured headers, but not the `OutboxId` returned by `publish()`; that identifier stays on the publisher side for correlation and logging.
+- **Duplicate delivery is possible.** A crash between a successful delivery and the status update means the message may be sent again after restart. If processing a message more than once would cause unwanted effects, make the consumer idempotent. okapi sends your payload, your configured headers, and an `x-outbox-id` header to deduplicate on — see [Deduplicating on `x-outbox-id`](#deduplicating-on-x-outbox-id).
 - **Best-effort ordering.** Rows are claimed by `created_at`, oldest first. However, parallel delivery and retries mean messages may reach consumers in a different order. Strict delivery ordering is not guaranteed.
 - **Failure classification is the transport's job.** Each deliverer decides what is retriable. HTTP: 5xx, 429, 408 and connection errors are retriable; other responses and TLS errors are permanent. Kafka: broker-side retriable exceptions are retried; authorization and configuration errors are not.
 - **Retry budget.** `okapi.processor.max-retries` (default 5) counts retries *after* the first attempt — six attempts in total before a row becomes `FAILED`. `FAILED` is terminal. Retriable messages become eligible again on the next processor poll; there is no per-message backoff.
+
+### Deduplicating on `x-outbox-id`
+
+Every delivery carries an `x-outbox-id` header holding the outbox entry's UUID — the same value `publish()` returns. It is set by all transports (the name is the constant `OutboxHeaders.OUTBOX_ID` in `okapi-core`, so consumers can reference it without depending on a transport module), and the value is stable across retries: if okapi delivers the same entry twice, both copies carry the same id. A consumer that records ids it has already processed can therefore drop the repeat.
+
+```kotlin
+// Kafka consumer
+val outboxId = record.headers().lastHeader(OutboxHeaders.OUTBOX_ID)?.let { String(it.value()) }
+if (outboxId != null && !seenIds.add(outboxId)) return  // already processed, skip
+```
+
+```kotlin
+// HTTP receiver (Spring MVC)
+@PostMapping("/webhook")
+fun receive(@RequestHeader("x-outbox-id") outboxId: String, @RequestBody payload: String) {
+    if (!seenIds.add(outboxId)) return  // already processed, skip
+    // ...
+}
+```
+
+Notice that:
+
+- **okapi sets the header last, so it overrides any `x-outbox-id` you set yourself** in `DeliveryInfo`. Over HTTP your value is replaced outright. Kafka headers are multi-valued, so your value is still present in the record, but okapi's is the one appended last — which is why consumers must read it with `lastHeader(...)` (or take the last of `headers(...)`) rather than the first match. Pick a different header name if you need to pass an identifier of your own.
+- **It does not deduplicate at the `publish()` level.** The id identifies an *outbox entry*, not a business event. Calling `publish()` twice for the same event creates two entries with two different ids, and a consumer deduplicating on `x-outbox-id` will process both. Guarding against that is the publisher's job — deduplicate on a business key in the payload, or make the publish itself idempotent.
 
 ## Configuration
 

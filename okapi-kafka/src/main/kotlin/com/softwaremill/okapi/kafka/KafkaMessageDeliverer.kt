@@ -4,6 +4,7 @@ import com.softwaremill.okapi.core.DeliveryOutcome
 import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
+import com.softwaremill.okapi.core.OutboxHeaders
 import org.apache.kafka.clients.producer.Producer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.RecordMetadata
@@ -17,6 +18,9 @@ import java.util.concurrent.TimeoutException
 
 /**
  * [MessageDeliverer] that publishes outbox entries to Kafka topics.
+ *
+ * Every record carries [OutboxHeaders.OUTBOX_ID] for consumer-side deduplication; see [buildRecord]
+ * for how it interacts with headers supplied through [KafkaDeliveryInfo].
  *
  * Exception classification:
  * - Kafka [RetriableException] → [DeliveryResult.RetriableFailure]
@@ -93,10 +97,18 @@ class KafkaMessageDeliverer(
         }
     }
 
+    /**
+     * [OutboxHeaders.OUTBOX_ID] is added after the caller's own headers. Kafka headers are
+     * multi-valued — `add()` appends rather than replaces — so ordering is what makes
+     * `headers().lastHeader(OutboxHeaders.OUTBOX_ID)` resolve to the outbox id even when a
+     * [KafkaDeliveryInfo] header of the same name is present. Such a header is not dropped; it
+     * stays visible via `headers().headers(...)`, just no longer last.
+     */
     private fun buildRecord(entry: OutboxEntry): ProducerRecord<String?, String> {
         val info = KafkaDeliveryInfo.deserialize(entry.deliveryMetadata)
         return ProducerRecord<String?, String>(info.topic, info.partitionKey, entry.payload).apply {
             info.headers.forEach { (k, v) -> headers().add(k, v.toByteArray()) }
+            headers().add(OutboxHeaders.OUTBOX_ID, entry.outboxId.raw.toString().toByteArray())
         }
     }
 

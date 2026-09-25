@@ -8,6 +8,19 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ## [Unreleased]
 
+### Added
+
+- **`x-outbox-id` header on every delivery.** Both `KafkaMessageDeliverer` and `HttpMessageDeliverer`
+  now attach the entry's UUID under `OutboxHeaders.OUTBOX_ID` (`okapi-core`, so consumers can
+  reference the name without depending on a transport module). The value is stable across retries of
+  an entry, giving consumers something to deduplicate redeliveries on. okapi sets it **last**, so it
+  overrides a header of the same name supplied via `DeliveryInfo` — replaced outright over HTTP;
+  appended after yours in Kafka, whose headers are multi-valued, which is why consumers must read it
+  with `lastHeader(...)`. It does not deduplicate at the `publish()` level: two `publish()` calls for
+  the same business event are two entries with two ids. Previously the README stated that okapi did
+  not send the `OutboxId`; that is no longer the case, and the "Deduplicating on `x-outbox-id`"
+  section documents the recipe and both caveats. (KOJAK-78)
+
 ### Changed
 
 - **`CompositeMessageDeliverer.deliverBatch`** now dispatches transport groups concurrently — one
