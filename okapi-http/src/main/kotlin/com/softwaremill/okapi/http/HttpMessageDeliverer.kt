@@ -5,6 +5,7 @@ import com.softwaremill.okapi.core.DeliveryOutcome
 import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
+import com.softwaremill.okapi.core.OutboxHeaders
 import java.io.IOException
 import java.net.URI
 import java.net.http.HttpClient
@@ -16,6 +17,9 @@ import javax.net.ssl.SSLException
 
 /**
  * [MessageDeliverer] that sends outbox entries as HTTP requests via JDK [HttpClient].
+ *
+ * Every request carries [OutboxHeaders.OUTBOX_ID] for consumer-side deduplication; see
+ * [buildRequest] for how it interacts with headers supplied through [HttpDeliveryInfo].
  *
  * Status code classification:
  * - 2xx → [DeliveryResult.Success]
@@ -101,6 +105,12 @@ class HttpMessageDeliverer @JvmOverloads constructor(
         SendAttempt.ImmediateFailure(classifyThrowable(e))
     }
 
+    /**
+     * [OutboxHeaders.OUTBOX_ID] is set after the caller's own headers, so it wins over an
+     * [HttpDeliveryInfo] header of the same name — `setHeader` replaces, so the caller's value is
+     * discarded rather than merely shadowed (Kafka, whose headers are multi-valued, keeps both and
+     * resolves by `lastHeader`).
+     */
     private fun buildRequest(entry: OutboxEntry): HttpRequest {
         val info = HttpDeliveryInfo.deserialize(entry.deliveryMetadata)
         val url = urlResolver.resolve(info.serviceName) + info.endpointPath
@@ -115,6 +125,7 @@ class HttpMessageDeliverer @JvmOverloads constructor(
                 HttpRequest.BodyPublishers.ofString(entry.payload),
             )
             .apply { info.headers.forEach { (k, v) -> setHeader(k, v) } }
+            .setHeader(OutboxHeaders.OUTBOX_ID, entry.outboxId.raw.toString())
             .build()
     }
 

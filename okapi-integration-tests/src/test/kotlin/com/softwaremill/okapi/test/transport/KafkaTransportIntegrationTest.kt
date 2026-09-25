@@ -2,6 +2,7 @@ package com.softwaremill.okapi.test.transport
 
 import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.OutboxEntry
+import com.softwaremill.okapi.core.OutboxHeaders
 import com.softwaremill.okapi.core.OutboxMessage
 import com.softwaremill.okapi.kafka.KafkaDeliveryInfo
 import com.softwaremill.okapi.kafka.KafkaMessageDeliverer
@@ -81,6 +82,41 @@ class KafkaTransportIntegrationTest : FunSpec({
         val headerMap = record.headers().associate { it.key() to String(it.value()) }
         headerMap["traceId"] shouldBe "trace-abc"
         headerMap["source"] shouldBe "okapi"
+    }
+
+    test("consumer reads x-outbox-id from the broker and it matches the entry UUID") {
+        val entry = entryWithInfo(
+            topic = "outbox-id-topic-${UUID.randomUUID()}",
+            headers = mapOf("traceId" to "trace-abc"),
+        )
+        deliverer.deliver(entry) shouldBe DeliveryResult.Success
+
+        val consumer = kafka.createConsumer(groupId = "test-outbox-id-${UUID.randomUUID()}")
+        consumer.subscribe(listOf(KafkaDeliveryInfo.deserialize(entry.deliveryMetadata).topic))
+        val records = consumer.poll(Duration.ofSeconds(10))
+        consumer.close()
+
+        records.count() shouldBe 1
+        val record = records.first()
+        // lastHeader is the documented way for consumers to read it.
+        String(record.headers().lastHeader(OutboxHeaders.OUTBOX_ID).value()) shouldBe entry.outboxId.raw.toString()
+        // Caller headers still survive alongside it.
+        record.headers().associate { it.key() to String(it.value()) }["traceId"] shouldBe "trace-abc"
+    }
+
+    test("redelivering the same entry carries the same x-outbox-id, which is what makes dedup work") {
+        val entry = entryWithInfo(topic = "outbox-id-retry-topic-${UUID.randomUUID()}")
+        deliverer.deliver(entry) shouldBe DeliveryResult.Success
+        deliverer.deliver(entry) shouldBe DeliveryResult.Success
+
+        val consumer = kafka.createConsumer(groupId = "test-outbox-id-retry-${UUID.randomUUID()}")
+        consumer.subscribe(listOf(KafkaDeliveryInfo.deserialize(entry.deliveryMetadata).topic))
+        val records = consumer.poll(Duration.ofSeconds(10))
+        consumer.close()
+
+        records.count() shouldBe 2
+        records.map { String(it.headers().lastHeader(OutboxHeaders.OUTBOX_ID).value()) }.toSet() shouldBe
+            setOf(entry.outboxId.raw.toString())
     }
 
     test("deliver uses partition key") {
