@@ -4,7 +4,7 @@ import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxStatus
-import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.core.RouteAwareOutboxStore
 import com.softwaremill.okapi.core.TransactionRunner
 import org.springframework.beans.factory.support.BeanDefinitionBuilder
 import org.springframework.context.support.GenericApplicationContext
@@ -16,9 +16,10 @@ import java.time.Instant
  * `OutboxStore` interface change is a one-line edit, not a 7-file sweep.
  */
 
-internal fun stubStore() = object : OutboxStore {
+internal fun stubStore() = object : RouteAwareOutboxStore {
     override fun persist(entry: OutboxEntry) = entry
     override fun claimPending(limit: Int) = emptyList<OutboxEntry>()
+    override fun claimPending(deliveryType: String, limit: Int) = emptyList<OutboxEntry>()
     override fun updateAfterProcessing(entry: OutboxEntry) = entry
     override fun removeDeliveredBefore(time: Instant, limit: Int) = 0
     override fun findOldestCreatedAt(statuses: Set<OutboxStatus>) = emptyMap<OutboxStatus, Instant>()

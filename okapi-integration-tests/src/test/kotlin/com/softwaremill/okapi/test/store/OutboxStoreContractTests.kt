@@ -5,6 +5,7 @@ import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxMessage
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.core.RouteAwareOutboxStore
 import com.softwaremill.okapi.test.support.JdbcConnectionProvider
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
@@ -71,6 +72,27 @@ fun FunSpec.outboxStoreContractTests(
         found.retries shouldBe 0
         found.deliveryType shouldBe "test"
         found.deliveryMetadata.replace(" ", "") shouldBe """{"type":"test"}"""
+    }
+
+    test("[$dbName] route-aware claim skips older entries of unsupported types") {
+        val unsupported = createTestEntry(
+            now = Instant.parse("2024-01-01T00:00:00Z"),
+            deliveryInfo = StubDeliveryInfo("http"),
+        )
+        val supported = createTestEntry(
+            now = Instant.parse("2024-01-02T00:00:00Z"),
+            deliveryInfo = StubDeliveryInfo("kafka"),
+        )
+        jdbc.withTransaction {
+            store.persist(unsupported)
+            store.persist(supported)
+        }
+
+        val routed = store as RouteAwareOutboxStore
+        val claimed = jdbc.withTransaction { routed.claimPending("kafka", 10) }
+
+        claimed.map { it.outboxId } shouldBe listOf(supported.outboxId)
+        jdbc.withTransaction { routed.claimPending("http", 10) }.map { it.outboxId } shouldBe listOf(unsupported.outboxId)
     }
 
     test("[$dbName] claimPending returns entries ordered by created_at ASC") {

@@ -686,9 +686,13 @@ private fun awaitTermination(thread: Thread, timeoutMs: Long = 5_000) {
 }
 
 private fun stubProcessor(onProcessNext: (Int) -> Unit): OutboxProcessor {
-    val store = object : OutboxStore {
+    val store = object : RouteAwareOutboxStore {
         override fun persist(entry: OutboxEntry) = entry
         override fun claimPending(limit: Int): List<OutboxEntry> {
+            onProcessNext(limit)
+            return emptyList()
+        }
+        override fun claimPending(deliveryType: String, limit: Int): List<OutboxEntry> {
             onProcessNext(limit)
             return emptyList()
         }

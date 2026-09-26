@@ -3,6 +3,7 @@ package com.softwaremill.okapi.core
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Orchestrates a single processing cycle: claims pending entries from [OutboxStore],
@@ -24,6 +25,9 @@ class OutboxProcessor @JvmOverloads constructor(
     private val listener: OutboxProcessorListener? = null,
     private val clock: Clock = Clock.systemUTC(),
 ) {
+    private val deliveryTypes = entryProcessor.supportedDeliveryTypes.toList()
+    private val nextStartingType = AtomicInteger()
+
     /**
      * Claims up to [limit] pending entries, processes them as a batch, and persists
      * each result. Returns the number of entries processed (0 if the store had nothing).
@@ -31,7 +35,22 @@ class OutboxProcessor @JvmOverloads constructor(
     @JvmOverloads
     fun processNext(limit: Int = 10): Int {
         val batchStart = clock.instant()
-        val claimed = store.claimPending(limit)
+        val routeAwareStore = store as? RouteAwareOutboxStore
+            ?: error("OutboxProcessor requires a RouteAwareOutboxStore to avoid claiming unsupported delivery types")
+        check(deliveryTypes.isNotEmpty()) { "OutboxProcessor requires at least one delivery type" }
+        val claimed = buildList {
+            val start = Math.floorMod(nextStartingType.getAndIncrement(), deliveryTypes.size)
+            for (offset in deliveryTypes.indices) {
+                val remaining = limit - size
+                if (remaining <= 0) break
+                val deliveryType = deliveryTypes[(start + offset) % deliveryTypes.size]
+                val entries = routeAwareStore.claimPending(deliveryType, remaining)
+                check(entries.size <= remaining && entries.all { it.deliveryType == deliveryType }) {
+                    "RouteAwareOutboxStore returned entries outside the requested type or limit"
+                }
+                addAll(entries)
+            }
+        }
         if (claimed.isEmpty()) {
             notifyBatch(0, Duration.between(batchStart, clock.instant()))
             return 0
