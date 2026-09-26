@@ -22,14 +22,14 @@ private fun routeDeliverer(type: String) = object : MessageDeliverer {
 }
 
 private class RoutingStore(var pending: List<OutboxEntry>) : RouteAwareOutboxStore {
-    val queriedTypes = mutableListOf<String>()
+    val queriedTypes = mutableListOf<Set<String>>()
     val processed = mutableListOf<OutboxEntry>()
 
     override fun persist(entry: OutboxEntry) = entry
     override fun claimPending(limit: Int): List<OutboxEntry> = error("Unsafe claimPending(limit) must not be used")
-    override fun claimPending(deliveryType: String, limit: Int): List<OutboxEntry> {
-        queriedTypes += deliveryType
-        val claimed = pending.filter { it.deliveryType == deliveryType }.take(limit)
+    override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> {
+        queriedTypes += deliveryTypes
+        val claimed = pending.filter { it.deliveryType in deliveryTypes }.take(limit)
         pending = pending - claimed.toSet()
         return claimed
     }
@@ -58,7 +58,7 @@ class RouteAwareOutboxProcessorTest : FunSpec({
         processor.processNext(10) shouldBe 1
         store.pending shouldContainExactly listOf(unsupported)
         store.processed.single().status shouldBe OutboxStatus.DELIVERED
-        store.queriedTypes shouldContainExactly listOf("kafka")
+        store.queriedTypes shouldContainExactly listOf(setOf("kafka"))
     }
 
     test("starting route rotates and claims at most the batch limit") {
@@ -68,8 +68,19 @@ class RouteAwareOutboxProcessorTest : FunSpec({
 
         processor.processNext(1) shouldBe 1
         processor.processNext(1) shouldBe 1
-        store.queriedTypes shouldContainExactly listOf("kafka", "http")
+        store.queriedTypes shouldContainExactly listOf(setOf("kafka"), setOf("http"))
         store.processed.map { it.deliveryType } shouldContainExactly listOf("kafka", "http")
+    }
+
+    test("an empty poll with many routes uses at most two store calls") {
+        val store = RoutingStore(emptyList())
+        val deliverer = CompositeMessageDeliverer((0 until 100).map { routeDeliverer("route_$it") })
+        val processor = OutboxProcessor(store, OutboxEntryProcessor(deliverer, RetryPolicy(1), Clock.systemUTC()))
+
+        processor.processNext(10) shouldBe 0
+        store.queriedTypes.size shouldBe 2
+        store.queriedTypes.first().size shouldBe 1
+        store.queriedTypes.last().size shouldBe 99
     }
 
     test("processing with a store lacking route-aware claims fails before legacy claim") {

@@ -18,5 +18,5 @@ SELECT md5(n::text)::uuid, 'event', '{}',
        timestamp '2024-01-01', 0, NULL, NULL, '{}'::jsonb
 FROM generate_series(1, 1000000) AS n;
 CREATE INDEX idx_okapi_outbox_status_created_at ON okapi_outbox (status, created_at);
-CREATE INDEX idx_okapi_outbox_status_delivery_created_id ON okapi_outbox (status, delivery_type, created_at, id);
+CREATE INDEX idx_okapi_outbox_pending_delivery_created_id ON okapi_outbox (delivery_type, created_at, id) WHERE status = 'PENDING';
 ANALYZE okapi_outbox;

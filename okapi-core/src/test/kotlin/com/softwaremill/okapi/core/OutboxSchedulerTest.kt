@@ -692,7 +692,7 @@ private fun stubProcessor(onProcessNext: (Int) -> Unit): OutboxProcessor {
             onProcessNext(limit)
             return emptyList()
         }
-        override fun claimPending(deliveryType: String, limit: Int): List<OutboxEntry> {
+        override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> {
             onProcessNext(limit)
             return emptyList()
         }

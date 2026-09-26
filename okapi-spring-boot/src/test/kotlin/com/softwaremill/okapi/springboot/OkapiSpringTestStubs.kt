@@ -19,7 +19,7 @@ import java.time.Instant
 internal fun stubStore() = object : RouteAwareOutboxStore {
     override fun persist(entry: OutboxEntry) = entry
     override fun claimPending(limit: Int) = emptyList<OutboxEntry>()
-    override fun claimPending(deliveryType: String, limit: Int) = emptyList<OutboxEntry>()
+    override fun claimPending(deliveryTypes: Set<String>, limit: Int) = emptyList<OutboxEntry>()
     override fun updateAfterProcessing(entry: OutboxEntry) = entry
     override fun removeDeliveredBefore(time: Instant, limit: Int) = 0
     override fun findOldestCreatedAt(statuses: Set<OutboxStatus>) = emptyMap<OutboxStatus, Instant>()

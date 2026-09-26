@@ -95,6 +95,35 @@ fun FunSpec.outboxStoreContractTests(
         jdbc.withTransaction { routed.claimPending("http", 10) }.map { it.outboxId } shouldBe listOf(unsupported.outboxId)
     }
 
+    test("[$dbName] route-aware claim matches delivery types exactly") {
+        val upper = createTestEntry(deliveryInfo = StubDeliveryInfo("KAFKA"))
+        val lower = createTestEntry(deliveryInfo = StubDeliveryInfo("kafka"))
+        jdbc.withTransaction {
+            store.persist(upper)
+            store.persist(lower)
+        }
+
+        val routed = store as RouteAwareOutboxStore
+        jdbc.withTransaction { routed.claimPending("kafka", 10) }.map { it.outboxId } shouldBe listOf(lower.outboxId)
+        jdbc.withTransaction { routed.claimPending("KAFKA", 10) }.map { it.outboxId } shouldBe listOf(upper.outboxId)
+    }
+
+    test("[$dbName] route-aware claim selects a limited batch across several types") {
+        val ignored = createTestEntry(deliveryInfo = StubDeliveryInfo("ignored"))
+        val kafka = createTestEntry(deliveryInfo = StubDeliveryInfo("kafka"))
+        val http = createTestEntry(deliveryInfo = StubDeliveryInfo("http"))
+        jdbc.withTransaction {
+            store.persist(ignored)
+            store.persist(kafka)
+            store.persist(http)
+        }
+
+        val routed = store as RouteAwareOutboxStore
+        val claimed = jdbc.withTransaction { routed.claimPending(setOf("kafka", "http"), 2) }
+
+        claimed.map { it.outboxId } shouldBe listOf(http.outboxId, kafka.outboxId)
+    }
+
     test("[$dbName] claimPending returns entries ordered by created_at ASC") {
         val t1 = Instant.parse("2024-01-01T00:00:00Z")
         val t2 = Instant.parse("2024-01-02T00:00:00Z")

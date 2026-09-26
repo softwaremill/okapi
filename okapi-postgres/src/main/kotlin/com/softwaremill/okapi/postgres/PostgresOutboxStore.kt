@@ -64,20 +64,23 @@ class PostgresOutboxStore(
         }
     }
 
-    override fun claimPending(deliveryType: String, limit: Int): List<OutboxEntry> {
+    override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> {
+        if (deliveryTypes.isEmpty() || limit <= 0) return emptyList()
+        val routes = deliveryTypes.sorted()
+        val placeholders = routes.joinToString(",") { "?" }
+        // Keep PENDING literal so a generic prepared plan can use the partial index.
         val sql = """
             SELECT * FROM okapi_outbox
-            WHERE status = ? AND delivery_type = ?
-            ORDER BY created_at ASC, id ASC
+            WHERE status = 'PENDING' AND delivery_type IN ($placeholders)
+            ORDER BY delivery_type ASC, created_at ASC, id ASC
             LIMIT ?
             FOR UPDATE SKIP LOCKED
         """.trimIndent()
 
         return connectionProvider.withConnection { conn ->
             conn.prepareStatement(sql).use { stmt ->
-                stmt.setString(1, OutboxStatus.PENDING.name)
-                stmt.setString(2, deliveryType)
-                stmt.setInt(3, limit)
+                routes.forEachIndexed { index, route -> stmt.setString(index + 1, route) }
+                stmt.setInt(routes.size + 1, limit)
                 stmt.executeQuery().use { rs ->
                     generateSequence { if (rs.next()) rs.toOutboxEntry() else null }.toList()
                 }

@@ -38,17 +38,24 @@ class OutboxProcessor @JvmOverloads constructor(
         val routeAwareStore = store as? RouteAwareOutboxStore
             ?: error("OutboxProcessor requires a RouteAwareOutboxStore to avoid claiming unsupported delivery types")
         check(deliveryTypes.isNotEmpty()) { "OutboxProcessor requires at least one delivery type" }
-        val claimed = buildList {
-            val start = Math.floorMod(nextStartingType.getAndIncrement(), deliveryTypes.size)
-            for (offset in deliveryTypes.indices) {
-                val remaining = limit - size
-                if (remaining <= 0) break
-                val deliveryType = deliveryTypes[(start + offset) % deliveryTypes.size]
-                val entries = routeAwareStore.claimPending(deliveryType, remaining)
-                check(entries.size <= remaining && entries.all { it.deliveryType == deliveryType }) {
-                    "RouteAwareOutboxStore returned entries outside the requested type or limit"
+        val claimed = if (limit <= 0) {
+            emptyList()
+        } else {
+            val startingType = deliveryTypes[Math.floorMod(nextStartingType.getAndIncrement(), deliveryTypes.size)]
+            val first = routeAwareStore.claimPending(startingType, limit)
+            check(first.size <= limit && first.all { it.deliveryType == startingType }) {
+                "RouteAwareOutboxStore returned entries outside the requested type or limit"
+            }
+            val remainingTypes = deliveryTypes.filterTo(LinkedHashSet()) { it != startingType }
+            if (first.size == limit || remainingTypes.isEmpty()) {
+                first
+            } else {
+                val remaining = limit - first.size
+                val other = routeAwareStore.claimPending(remainingTypes, remaining)
+                check(other.size <= remaining && other.all { it.deliveryType in remainingTypes }) {
+                    "RouteAwareOutboxStore returned entries outside the requested types or limit"
                 }
-                addAll(entries)
+                first + other
             }
         }
         if (claimed.isEmpty()) {

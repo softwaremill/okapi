@@ -68,13 +68,19 @@ class MysqlOutboxStore(
         }
     }
 
-    override fun claimPending(deliveryType: String, limit: Int): List<OutboxEntry> {
+    override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> {
+        if (deliveryTypes.isEmpty() || limit <= 0) return emptyList()
+        val routes = deliveryTypes.sorted()
+        val placeholders = routes.joinToString(",") { "?" }
+        val binaryPlaceholders = routes.joinToString(",") { "BINARY ?" }
         // A matching index avoids scanning and locking rows for other delivery types.
+        // The binary predicate excludes case-insensitive collation matches for another route.
         val sql = """
             SELECT * FROM okapi_outbox
             FORCE INDEX (idx_okapi_outbox_status_delivery_created_id)
-            WHERE status = ? AND delivery_type = ?
-            ORDER BY created_at ASC, id ASC
+            WHERE status = ? AND delivery_type IN ($placeholders)
+              AND BINARY delivery_type IN ($binaryPlaceholders)
+            ORDER BY delivery_type ASC, created_at ASC, id ASC
             LIMIT ?
             FOR UPDATE SKIP LOCKED
         """.trimIndent()
@@ -82,8 +88,9 @@ class MysqlOutboxStore(
         return connectionProvider.withConnection { conn ->
             conn.prepareStatement(sql).use { stmt ->
                 stmt.setString(1, OutboxStatus.PENDING.name)
-                stmt.setString(2, deliveryType)
-                stmt.setInt(3, limit)
+                routes.forEachIndexed { index, route -> stmt.setString(index + 2, route) }
+                routes.forEachIndexed { index, route -> stmt.setString(index + routes.size + 2, route) }
+                stmt.setInt(routes.size * 2 + 2, limit)
                 stmt.executeQuery().use { rs ->
                     generateSequence { if (rs.next()) rs.toOutboxEntry() else null }.toList()
                 }

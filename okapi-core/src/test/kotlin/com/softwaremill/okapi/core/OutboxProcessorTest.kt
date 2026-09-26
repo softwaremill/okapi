@@ -35,8 +35,8 @@ class OutboxProcessorTest :
 
                 override fun claimPending(limit: Int): List<OutboxEntry> = pendingEntries.take(limit)
 
-                override fun claimPending(deliveryType: String, limit: Int): List<OutboxEntry> =
-                    pendingEntries.filter { it.deliveryType == deliveryType }.take(limit)
+                override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> =
+                    pendingEntries.filter { it.deliveryType in deliveryTypes }.take(limit)
 
                 override fun updateAfterProcessing(entry: OutboxEntry): OutboxEntry = entry.also { processedEntries += it }
 
@@ -340,8 +340,8 @@ class OutboxProcessorTest :
                 val batchAwareStore = object : RouteAwareOutboxStore {
                     override fun persist(entry: OutboxEntry) = entry
                     override fun claimPending(limit: Int): List<OutboxEntry> = pendingEntries.take(limit)
-                    override fun claimPending(deliveryType: String, limit: Int): List<OutboxEntry> =
-                        pendingEntries.filter { it.deliveryType == deliveryType }.take(limit)
+                    override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> =
+                        pendingEntries.filter { it.deliveryType in deliveryTypes }.take(limit)
                     override fun updateAfterProcessing(entry: OutboxEntry): OutboxEntry = entry.also { individualCalls += it }
                     override fun removeDeliveredBefore(time: Instant, limit: Int) = 0
                     override fun findOldestCreatedAt(statuses: Set<OutboxStatus>) = emptyMap<OutboxStatus, Instant>()
