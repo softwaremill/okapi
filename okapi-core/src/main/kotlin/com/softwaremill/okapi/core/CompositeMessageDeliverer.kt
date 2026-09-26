@@ -33,6 +33,8 @@ class CompositeMessageDeliverer @JvmOverloads constructor(
         }
     }
 
+    val supportedDeliveryTypes: Set<String> = registry.keys
+
     override fun deliver(entry: OutboxEntry): DeliveryResult {
         val messageDeliverer = registry[entry.deliveryType]
             ?: return DeliveryResult.PermanentFailure("No deliverer registered for type '${entry.deliveryType}'")

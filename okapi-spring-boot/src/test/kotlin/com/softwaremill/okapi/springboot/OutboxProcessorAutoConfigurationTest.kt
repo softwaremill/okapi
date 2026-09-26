@@ -105,6 +105,21 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             }
     }
 
+    test("custom entry processor starts without a MessageDeliverer bean") {
+        ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+            .withBean(OutboxStore::class.java, { stubStore() })
+            .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+            .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
+            .withBean(OutboxEntryProcessor::class.java, {
+                OutboxEntryProcessor(stubDeliverer(), RetryPolicy(maxRetries = 0), Clock.systemUTC())
+            })
+            .run { ctx ->
+                ctx.startupFailure shouldBe null
+                ctx.getBean(OutboxProcessorScheduler::class.java).shouldNotBeNull()
+            }
+    }
+
     test("custom processor can use the auto-configured entry processor") {
         contextRunner
             .withUserConfiguration(CustomProcessorConfiguration::class.java)

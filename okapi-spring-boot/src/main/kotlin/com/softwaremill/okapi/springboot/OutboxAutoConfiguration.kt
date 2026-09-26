@@ -18,7 +18,6 @@ import org.springframework.beans.factory.BeanFactory
 import org.springframework.beans.factory.BeanNotOfRequiredTypeException
 import org.springframework.beans.factory.NoSuchBeanDefinitionException
 import org.springframework.beans.factory.ObjectProvider
-import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.beans.factory.getBean
 import org.springframework.boot.autoconfigure.AutoConfiguration
@@ -83,9 +82,6 @@ class OutboxAutoConfiguration(
 ) {
     @field:Value("\${okapi.processor.enabled:true}")
     private var processorEnabled: Boolean = true
-
-    @field:Autowired
-    private lateinit var messageDeliverers: ObjectProvider<MessageDeliverer>
 
     private fun resolveDataSource(): DataSource = resolveDataSource(dataSources, primaryDataSource, okapiProperties)
 
@@ -193,7 +189,7 @@ class OutboxAutoConfiguration(
         listener: ObjectProvider<OutboxProcessorListener>,
         clock: ObjectProvider<Clock>,
     ): OutboxProcessor {
-        check(!processorEnabled || messageDeliverers.iterator().hasNext()) {
+        check(!processorEnabled || outboxEntryProcessor.supportedDeliveryTypes.isNotEmpty()) {
             "Okapi processor is enabled but no MessageDeliverer bean is registered. " +
                 "Define a MessageDeliverer or set okapi.processor.enabled=false for publisher-only use."
         }
