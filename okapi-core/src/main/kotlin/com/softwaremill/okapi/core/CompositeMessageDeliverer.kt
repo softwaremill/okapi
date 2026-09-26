@@ -19,7 +19,19 @@ class CompositeMessageDeliverer @JvmOverloads constructor(
 ) : MessageDeliverer {
     override val type: String = "composite"
 
-    private val registry: Map<String, MessageDeliverer> = deliverers.associateBy { it.type }
+    private val registry: Map<String, MessageDeliverer> = buildMap {
+        deliverers.forEach { deliverer ->
+            val type = deliverer.type
+            val previous = this[type]
+            if (previous != null) {
+                throw IllegalArgumentException(
+                    "Duplicate MessageDeliverer type '$type': " +
+                        "${previous.javaClass.name} and ${deliverer.javaClass.name}",
+                )
+            }
+            put(type, deliverer)
+        }
+    }
 
     override fun deliver(entry: OutboxEntry): DeliveryResult {
         val messageDeliverer = registry[entry.deliveryType]
