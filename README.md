@@ -85,14 +85,16 @@ Runnable, self-contained applications live in [okapi-examples](https://github.co
 ## How it works
 
 1. `publish()` writes a `PENDING` row to `okapi_outbox` in your transaction.
-2. A background scheduler polls for pending rows (every second by default), claiming them with `FOR UPDATE SKIP LOCKED` so workers do not process the same row concurrently.
+2. A background scheduler polls for pending rows (every second by default), claiming only the delivery types configured on that worker with `FOR UPDATE SKIP LOCKED` so workers do not process the same row concurrently.
 3. Each row goes to the transport matching its delivery type. Success marks it `DELIVERED`; a retriable failure leaves it `PENDING` while retry attempts remain; an exhausted retry budget or permanent failure marks it `FAILED`.
 4. A purger deletes delivered rows after a retention period.
 
 ### Guarantees and limits
 
 - **Duplicate delivery is possible.** A crash between a successful delivery and the status update means the message may be sent again after restart. If processing a message more than once would cause unwanted effects, make the consumer idempotent — for example, deduplicate on a business key in the payload or a header set in the `DeliveryInfo`. okapi sends your payload and configured headers, but not the `OutboxId` returned by `publish()`; that identifier stays on the publisher side for correlation and logging.
-- **Best-effort ordering.** Rows are claimed by `created_at`, oldest first. However, parallel delivery and retries mean messages may reach consumers in a different order. Strict delivery ordering is not guaranteed.
+- **Best-effort ordering.** Rows are claimed by `created_at, id` within each delivery type. The processor rotates which type it checks first between batches. Parallel delivery and retries can also change arrival order. Strict delivery ordering across types or within a type is not guaranteed.
+- **Different workers can handle different delivery types.** Each worker claims only its registered types, using at most two claim queries per batch regardless of the number of types. A custom `OutboxStore` used for processing must implement `RouteAwareOutboxStore`; otherwise processing fails before an unsafe claim. The older `claimPending(limit)` method remains available for callers that need it, but Okapi's processor does not use it. Apply the new index migration before starting updated workers if you manage the schema yourself.
+- **Rolling upgrades need sequencing.** Workers running an older Okapi version can still claim rows of a newly introduced delivery type. Upgrade or stop all old processors before publishing that type. An upgrade does not automatically retry rows already marked `FAILED` by older workers.
 - **Failure classification is the transport's job.** Each deliverer decides what is retriable. HTTP: 5xx, 429, 408 and connection errors are retriable; other responses and TLS errors are permanent. Kafka: broker-side retriable exceptions are retried; authorization and configuration errors are not.
 - **Retry budget.** `okapi.processor.max-retries` (default 5) counts retries *after* the first attempt — six attempts in total before a row becomes `FAILED`. `FAILED` is terminal. Retriable messages become eligible again on the next processor poll; there is no per-message backoff.
 

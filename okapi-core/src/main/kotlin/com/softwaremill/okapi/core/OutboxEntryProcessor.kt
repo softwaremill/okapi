@@ -11,7 +11,15 @@ class OutboxEntryProcessor(
     private val retryPolicy: RetryPolicy,
     private val clock: Clock,
 ) {
-    fun process(entry: OutboxEntry): OutboxEntry = applyResult(entry, deliverer.deliver(entry), clock.instant())
+    val supportedDeliveryTypes: Set<String> =
+        if (deliverer is CompositeMessageDeliverer) deliverer.supportedDeliveryTypes else setOf(deliverer.type)
+
+    fun process(entry: OutboxEntry): OutboxEntry {
+        check(entry.deliveryType in supportedDeliveryTypes) {
+            "No deliverer registered for type '${entry.deliveryType}'"
+        }
+        return applyResult(entry, deliverer.deliver(entry), clock.instant())
+    }
 
     /**
      * Processes a batch of entries via [MessageDeliverer.deliverBatch], applying
@@ -20,6 +28,9 @@ class OutboxEntryProcessor(
      */
     fun processBatch(entries: List<OutboxEntry>): List<OutboxEntry> {
         if (entries.isEmpty()) return emptyList()
+        check(entries.all { it.deliveryType in supportedDeliveryTypes }) {
+            "Batch contains an entry with no registered deliverer"
+        }
         val now = clock.instant()
         return deliverer.deliverBatch(entries).map { (entry, result) -> applyResult(entry, result, now) }
     }

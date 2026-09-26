@@ -3,6 +3,7 @@ package com.softwaremill.okapi.core
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Orchestrates a single processing cycle: claims pending entries from [OutboxStore],
@@ -24,6 +25,9 @@ class OutboxProcessor @JvmOverloads constructor(
     private val listener: OutboxProcessorListener? = null,
     private val clock: Clock = Clock.systemUTC(),
 ) {
+    private val deliveryTypes = entryProcessor.supportedDeliveryTypes.toList()
+    private val nextStartingType = AtomicInteger()
+
     /**
      * Claims up to [limit] pending entries, processes them as a batch, and persists
      * each result. Returns the number of entries processed (0 if the store had nothing).
@@ -31,7 +35,29 @@ class OutboxProcessor @JvmOverloads constructor(
     @JvmOverloads
     fun processNext(limit: Int = 10): Int {
         val batchStart = clock.instant()
-        val claimed = store.claimPending(limit)
+        val routeAwareStore = store as? RouteAwareOutboxStore
+            ?: error("OutboxProcessor requires a RouteAwareOutboxStore to avoid claiming unsupported delivery types")
+        check(deliveryTypes.isNotEmpty()) { "OutboxProcessor requires at least one delivery type" }
+        val claimed = if (limit <= 0) {
+            emptyList()
+        } else {
+            val startingType = deliveryTypes[Math.floorMod(nextStartingType.getAndIncrement(), deliveryTypes.size)]
+            val first = routeAwareStore.claimPending(startingType, limit)
+            check(first.size <= limit && first.all { it.deliveryType == startingType }) {
+                "RouteAwareOutboxStore returned entries outside the requested type or limit"
+            }
+            val remainingTypes = deliveryTypes.filterTo(LinkedHashSet()) { it != startingType }
+            if (first.size == limit || remainingTypes.isEmpty()) {
+                first
+            } else {
+                val remaining = limit - first.size
+                val other = routeAwareStore.claimPending(remainingTypes, remaining)
+                check(other.size <= remaining && other.all { it.deliveryType in remainingTypes }) {
+                    "RouteAwareOutboxStore returned entries outside the requested types or limit"
+                }
+                first + other
+            }
+        }
         if (claimed.isEmpty()) {
             notifyBatch(0, Duration.between(batchStart, clock.instant()))
             return 0

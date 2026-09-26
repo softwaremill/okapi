@@ -6,7 +6,10 @@ import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxEntryProcessor
 import com.softwaremill.okapi.core.OutboxMessage
+import com.softwaremill.okapi.core.OutboxProcessor
+import com.softwaremill.okapi.core.OutboxPublisher
 import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.core.RetryPolicy
 import com.softwaremill.okapi.core.TransactionRunner
 import com.softwaremill.okapi.core.TransportDispatch
 import com.softwaremill.okapi.micrometer.MicrometerOutboxListener
@@ -18,11 +21,15 @@ import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import org.springframework.beans.factory.getBean
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.autoconfigure.AutoConfigureAfter
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
 import org.springframework.jdbc.datasource.SimpleDriverDataSource
+import java.time.Clock
 import java.time.Duration
 import java.time.Duration.ofMillis
 import java.time.Duration.ofMinutes
@@ -51,6 +58,89 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             .withPropertyValues("okapi.processor.enabled=false")
             .run { ctx ->
                 ctx.containsBean("outboxProcessorScheduler") shouldBe false
+            }
+    }
+
+    test("enabled processor fails startup without a deliverer") {
+        ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+            .withBean(OutboxStore::class.java, { stubStore() })
+            .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+            .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
+            .run { ctx ->
+                generateSequence(ctx.startupFailure.shouldNotBeNull()) { it.cause }
+                    .mapNotNull { it.message }
+                    .joinToString(" ") shouldContain "no MessageDeliverer bean is registered"
+            }
+    }
+
+    test("enabled processor rejects a store without route-aware claiming") {
+        ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+            .withBean(OutboxStore::class.java, { object : OutboxStore by stubStore() {} })
+            .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+            .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+            .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
+            .run { ctx ->
+                generateSequence(ctx.startupFailure.shouldNotBeNull()) { it.cause }
+                    .mapNotNull { it.message }
+                    .joinToString(" ") shouldContain "requires a RouteAwareOutboxStore"
+            }
+    }
+
+    test("publisher-only application starts without a deliverer") {
+        ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+            .withBean(OutboxStore::class.java, { stubStore() })
+            .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+            .withPropertyValues("okapi.processor.enabled=false", "okapi.purger.enabled=false")
+            .run { ctx ->
+                ctx.startupFailure shouldBe null
+                ctx.getBean(OutboxPublisher::class.java).shouldNotBeNull()
+                ctx.containsBean("outboxProcessorScheduler") shouldBe false
+            }
+    }
+
+    test("custom processor starts without a MessageDeliverer bean") {
+        ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+            .withBean(OutboxStore::class.java, { stubStore() })
+            .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+            .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
+            .withBean(OutboxProcessor::class.java, {
+                OutboxProcessor(
+                    stubStore(),
+                    OutboxEntryProcessor(stubDeliverer(), RetryPolicy(maxRetries = 0), Clock.systemUTC()),
+                )
+            })
+            .run { ctx ->
+                ctx.startupFailure shouldBe null
+                ctx.getBean(OutboxProcessorScheduler::class.java).shouldNotBeNull()
+            }
+    }
+
+    test("custom entry processor starts without a MessageDeliverer bean") {
+        ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+            .withBean(OutboxStore::class.java, { stubStore() })
+            .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+            .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
+            .withBean(OutboxEntryProcessor::class.java, {
+                OutboxEntryProcessor(stubDeliverer(), RetryPolicy(maxRetries = 0), Clock.systemUTC())
+            })
+            .run { ctx ->
+                ctx.startupFailure shouldBe null
+                ctx.getBean(OutboxProcessorScheduler::class.java).shouldNotBeNull()
+            }
+    }
+
+    test("custom processor can use the auto-configured entry processor") {
+        contextRunner
+            .withUserConfiguration(CustomProcessorConfiguration::class.java)
+            .run { ctx ->
+                ctx.startupFailure shouldBe null
+                ctx.getBean(OutboxEntryProcessor::class.java).shouldNotBeNull()
+                ctx.getBean(OutboxProcessorScheduler::class.java).shouldNotBeNull()
             }
     }
 
@@ -184,6 +274,17 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             }
     }
 
+    test("duplicate deliverer types fail application startup") {
+        contextRunner
+            .withBean("secondDeliverer", MessageDeliverer::class.java, { stubDeliverer() })
+            .run { ctx ->
+                val errors = generateSequence(ctx.startupFailure.shouldNotBeNull()) { it.cause }
+                    .mapNotNull { it.message }
+                    .joinToString(" ")
+                errors shouldContain "Duplicate MessageDeliverer type"
+            }
+    }
+
     test("listener, metrics and refresher are wired when a MeterRegistry bean is provided directly") {
         contextRunner
             .withBean(io.micrometer.core.instrument.MeterRegistry::class.java, {
@@ -287,7 +388,14 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
     }
 })
 
-// Loads a Spring Boot auto-config class by trying version-specific FQCNs in order.
+@Configuration(proxyBeanMethods = false)
+private class CustomProcessorConfiguration {
+    @Bean
+    fun customProcessor(store: OutboxStore, entryProcessor: OutboxEntryProcessor): OutboxProcessor {
+        return OutboxProcessor(store, entryProcessor)
+    }
+}
+
 /**
  * Context with two thread-recording deliverers, so a batch spanning both transports proves where
  * `okapi.processor.transport-dispatch` actually lands: the recorded threads are the observable
@@ -319,6 +427,7 @@ private fun entryOfType(t: String): OutboxEntry {
     return OutboxEntry.createPending(OutboxMessage("evt", "{}"), deliveryInfo, Instant.EPOCH)
 }
 
+// Loads a Spring Boot auto-config class by trying version-specific FQCNs in order.
 // Lets a single test exercise both the 3.5.x (`...actuate.autoconfigure.metrics...`) and 4.0.x (`...micrometer.metrics.autoconfigure...`) layouts.
 private fun resolveSpringBootClass(vararg candidateFqcns: String): Class<*> {
     val classLoader = OkapiMicrometerAutoConfiguration::class.java.classLoader

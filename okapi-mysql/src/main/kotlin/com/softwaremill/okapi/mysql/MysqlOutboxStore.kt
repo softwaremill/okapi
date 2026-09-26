@@ -4,7 +4,7 @@ import com.softwaremill.okapi.core.ConnectionProvider
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxId
 import com.softwaremill.okapi.core.OutboxStatus
-import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.core.RouteAwareOutboxStore
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.Timestamp
@@ -15,7 +15,7 @@ import java.util.UUID
 /** MySQL [OutboxStore] implementation using plain JDBC. */
 class MysqlOutboxStore(
     private val connectionProvider: ConnectionProvider,
-) : OutboxStore {
+) : RouteAwareOutboxStore {
 
     override fun persist(entry: OutboxEntry): OutboxEntry {
         connectionProvider.withConnection { conn ->
@@ -61,6 +61,36 @@ class MysqlOutboxStore(
             conn.prepareStatement(sql).use { stmt ->
                 stmt.setString(1, OutboxStatus.PENDING.name)
                 stmt.setInt(2, limit)
+                stmt.executeQuery().use { rs ->
+                    generateSequence { if (rs.next()) rs.toOutboxEntry() else null }.toList()
+                }
+            }
+        }
+    }
+
+    override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> {
+        if (deliveryTypes.isEmpty() || limit <= 0) return emptyList()
+        val routes = deliveryTypes.sorted()
+        val placeholders = routes.joinToString(",") { "?" }
+        val binaryPlaceholders = routes.joinToString(",") { "BINARY ?" }
+        // A matching index avoids scanning and locking rows for other delivery types.
+        // The binary predicate excludes case-insensitive collation matches for another route.
+        val sql = """
+            SELECT * FROM okapi_outbox
+            FORCE INDEX (idx_okapi_outbox_status_delivery_created_id)
+            WHERE status = ? AND delivery_type IN ($placeholders)
+              AND BINARY delivery_type IN ($binaryPlaceholders)
+            ORDER BY delivery_type ASC, created_at ASC, id ASC
+            LIMIT ?
+            FOR UPDATE SKIP LOCKED
+        """.trimIndent()
+
+        return connectionProvider.withConnection { conn ->
+            conn.prepareStatement(sql).use { stmt ->
+                stmt.setString(1, OutboxStatus.PENDING.name)
+                routes.forEachIndexed { index, route -> stmt.setString(index + 2, route) }
+                routes.forEachIndexed { index, route -> stmt.setString(index + routes.size + 2, route) }
+                stmt.setInt(routes.size * 2 + 2, limit)
                 stmt.executeQuery().use { rs ->
                     generateSequence { if (rs.next()) rs.toOutboxEntry() else null }.toList()
                 }
