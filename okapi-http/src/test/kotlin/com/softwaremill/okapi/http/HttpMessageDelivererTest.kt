@@ -9,6 +9,7 @@ import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig
 import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.OutboxEntry
+import com.softwaremill.okapi.core.OutboxHeaders
 import com.softwaremill.okapi.core.OutboxMessage
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.datatest.WithDataTestName
@@ -81,6 +82,36 @@ class HttpMessageDelivererTest : FunSpec({
         val e = OutboxEntry.createPending(OutboxMessage("test", "plain text"), info, Instant.now())
         deliverer.deliver(e)
         wiremock.verify(postRequestedFor(urlEqualTo("/test")).withHeader("Content-Type", equalTo("text/plain")))
+    }
+
+    test("sends x-outbox-id carrying the entry's UUID") {
+        wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(200)))
+        val e = entry()
+
+        deliverer.deliver(e)
+
+        wiremock.verify(
+            postRequestedFor(urlEqualTo("/test"))
+                .withHeader(OutboxHeaders.OUTBOX_ID, equalTo(e.outboxId.raw.toString())),
+        )
+    }
+
+    test("okapi's x-outbox-id replaces a caller-supplied header of the same name") {
+        wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(200)))
+        val info = httpDeliveryInfo {
+            serviceName = "svc"
+            endpointPath = "/test"
+            header(OutboxHeaders.OUTBOX_ID, "caller-supplied")
+        }
+        val e = OutboxEntry.createPending(OutboxMessage("test", """{"k":"v"}"""), info, Instant.now())
+
+        deliverer.deliver(e)
+
+        // setHeader replaces, so unlike Kafka the caller's value is gone, not merely shadowed.
+        wiremock.verify(
+            postRequestedFor(urlEqualTo("/test"))
+                .withHeader(OutboxHeaders.OUTBOX_ID, equalTo(e.outboxId.raw.toString())),
+        )
     }
 
     test("connection error -> RetriableFailure") {
