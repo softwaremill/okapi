@@ -11,6 +11,9 @@ class OutboxEntryProcessor(
     private val retryPolicy: RetryPolicy,
     private val clock: Clock,
 ) {
+    val supportedDeliveryTypes: Set<String> =
+        if (deliverer is CompositeMessageDeliverer) deliverer.supportedDeliveryTypes else setOf(deliverer.type)
+
     fun process(entry: OutboxEntry): OutboxEntry = applyResult(entry, deliverer.deliver(entry), clock.instant())
 
     /**

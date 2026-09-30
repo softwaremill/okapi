@@ -1,5 +1,6 @@
 package com.softwaremill.okapi.core
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -45,6 +46,19 @@ private fun rendezvousDeliverer(t: String, barrier: CyclicBarrier) = batchDelive
 }
 
 class CompositeMessageDelivererTest : FunSpec({
+    test("duplicate deliverer types fail at construction") {
+        val error = shouldThrow<IllegalArgumentException> {
+            CompositeMessageDeliverer(
+                listOf(
+                    fixedDeliverer("kafka", DeliveryResult.Success),
+                    fixedDeliverer("kafka", DeliveryResult.Success),
+                ),
+            )
+        }
+
+        error.message shouldContain "Duplicate MessageDeliverer type 'kafka'"
+    }
+
     test("deliverBatch groups entries by type, delegates to each transport, preserves input order") {
         val composite = CompositeMessageDeliverer(
             listOf(
