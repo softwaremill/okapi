@@ -1,19 +1,21 @@
 package com.softwaremill.okapi.http
 
-import com.github.tomakehurst.wiremock.WireMockServer
-import com.github.tomakehurst.wiremock.client.WireMock.aResponse
-import com.github.tomakehurst.wiremock.client.WireMock.post
-import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
-import com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig
 import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxMessage
+import com.sun.net.httpserver.HttpServer
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
-import io.kotest.matchers.longs.shouldBeLessThan
 import io.kotest.matchers.shouldBe
+import java.net.InetSocketAddress
 import java.time.Instant
+import java.util.concurrent.BrokenBarrierException
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
-private const val SCHEDULING_JITTER_TOLERANCE_MS = 200L
+private const val RENDEZVOUS_TIMEOUT_SECONDS = 10L
 
 private fun entry(suffix: String): OutboxEntry {
     val info = httpDeliveryInfo {
@@ -23,46 +25,46 @@ private fun entry(suffix: String): OutboxEntry {
     return OutboxEntry.createPending(OutboxMessage("evt-$suffix", """{"k":"v-$suffix"}"""), info, Instant.now())
 }
 
-/**
- * Proves `deliverBatch` fires requests concurrently rather than one-at-a-time, using WireMock's
- * request journal (`allServeEvents`) rather than just overall wall-clock time — the timestamp
- * spread across requests is direct evidence they overlapped in flight.
- */
 class HttpMessageDelivererBatchConcurrencyTest : FunSpec({
-    val wiremock = WireMockServer(wireMockConfig().dynamicPort())
-    val deliverer by lazy {
-        HttpMessageDeliverer({ "http://localhost:${wiremock.port()}" })
-    }
-
-    beforeSpec { wiremock.start() }
-    afterSpec { wiremock.stop() }
-    beforeEach { wiremock.resetAll() }
-
-    test("deliverBatch fires N requests concurrently: request-log timestamps overlap within one delay window") {
+    test("deliverBatch keeps every request in flight before any response completes") {
         val batchSize = 10
-        val delayMs = 300L
-        wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(200).withFixedDelay(delayMs.toInt())))
-        val entries = (1..batchSize).map { entry("e$it") }
+        val barrier = CyclicBarrier(batchSize)
+        Executors.newVirtualThreadPerTaskExecutor().use { executor ->
+            val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+            server.executor = executor
+            server.createContext("/test") { exchange ->
+                exchange.use {
+                    it.requestBody.use { body -> body.readAllBytes() }
+                    // Every handler waits for the whole batch before responding. Sequential
+                    // delivery breaks the barrier and gets 503s; parallel delivery gets 200s.
+                    val status = try {
+                        barrier.await(RENDEZVOUS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        200
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        503
+                    } catch (_: BrokenBarrierException) {
+                        503
+                    } catch (_: TimeoutException) {
+                        503
+                    }
+                    it.sendResponseHeaders(status, -1)
+                }
+            }
 
-        val start = System.nanoTime()
-        val results = deliverer.deliverBatch(entries)
-        val elapsedMs = (System.nanoTime() - start) / 1_000_000
+            try {
+                server.start()
+                val deliverer = HttpMessageDeliverer({ "http://127.0.0.1:${server.address.port}" })
+                val entries = (1..batchSize).map { entry("e$it") }
 
-        results.forEach { (_, r) -> r shouldBe DeliveryResult.Success }
+                val results = deliverer.deliverBatch(entries)
 
-        // Sequential delivery would take ~batchSize * delayMs; parallel delivery should land near
-        // one delay window plus scheduling overhead — well under half the sequential bound.
-        elapsedMs.shouldBeLessThan(batchSize * delayMs / 2)
-
-        // Direct evidence of overlap: every request's logged arrival time falls within a single
-        // delay window of each other, i.e. WireMock received all of them before the first one
-        // could possibly have completed and freed up a sequential caller to send the next.
-        val loggedTimestamps = wiremock.allServeEvents.map { it.request.loggedDate.time }
-        loggedTimestamps.size shouldBe batchSize
-        val spreadMs = loggedTimestamps.maxOrNull()!! - loggedTimestamps.minOrNull()!!
-        // A fully sequential implementation would spread these across ~(batchSize - 1) * delayMs
-        // (2700 ms here); a small tolerance above one delay window still clearly distinguishes
-        // "overlapped" from "sequential" while absorbing CI scheduling/connection-setup jitter.
-        spreadMs.shouldBeLessThan(delayMs + SCHEDULING_JITTER_TOLERANCE_MS)
+                withClue("All requests must reach the server before it sends any successful response") {
+                    results.map { it.result } shouldBe List(batchSize) { DeliveryResult.Success }
+                }
+            } finally {
+                server.stop(0)
+            }
+        }
     }
 })

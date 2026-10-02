@@ -91,12 +91,36 @@ Runnable, self-contained applications live in [okapi-examples](https://github.co
 
 ### Guarantees and limits
 
-- **Duplicate delivery is possible.** A crash between a successful delivery and the status update means the message may be sent again after restart. If processing a message more than once would cause unwanted effects, make the consumer idempotent — for example, deduplicate on a business key in the payload or a header set in the `DeliveryInfo`. okapi sends your payload and configured headers, but not the `OutboxId` returned by `publish()`; that identifier stays on the publisher side for correlation and logging.
+- **Duplicate delivery is possible.** A crash between a successful delivery and the status update means the message may be sent again after restart. If processing a message more than once would cause unwanted effects, make the consumer idempotent. okapi sends your payload, your configured headers, and an `x-outbox-id` header to deduplicate on — see [Deduplicating on `x-outbox-id`](#deduplicating-on-x-outbox-id).
 - **Best-effort ordering.** Rows are claimed by `created_at, id` within each delivery type. The processor rotates which type it checks first between batches. Parallel delivery and retries can also change arrival order. Strict delivery ordering across types or within a type is not guaranteed.
 - **Different workers can handle different delivery types.** Each worker claims only its registered types, using at most two claim queries per batch regardless of the number of types. A custom `OutboxStore` used for processing must implement `RouteAwareOutboxStore`; otherwise processing fails before an unsafe claim. The older `claimPending(limit)` method remains available for callers that need it, but Okapi's processor does not use it. Apply the new index migration before starting updated workers if you manage the schema yourself.
 - **Rolling upgrades need sequencing.** Workers running an older Okapi version can still claim rows of a newly introduced delivery type. Upgrade or stop all old processors before publishing that type. An upgrade does not automatically retry rows already marked `FAILED` by older workers.
 - **Failure classification is the transport's job.** Each deliverer decides what is retriable. HTTP: 5xx, 429, 408 and connection errors are retriable; other responses and TLS errors are permanent. Kafka: broker-side retriable exceptions are retried; authorization and configuration errors are not.
 - **Retry budget.** `okapi.processor.max-retries` (default 5) counts retries *after* the first attempt — six attempts in total before a row becomes `FAILED`. `FAILED` is terminal. Retriable messages become eligible again on the next processor poll; there is no per-message backoff.
+
+### Deduplicating on `x-outbox-id`
+
+Every delivery carries an `x-outbox-id` header holding the outbox entry's UUID — the same value `publish()` returns. It is set by all transports (the name is the constant `OutboxHeaders.OUTBOX_ID` in `okapi-core`, so consumers can reference it without depending on a transport module), and the value is stable across retries: if okapi delivers the same entry twice, both copies carry the same id. A consumer that records ids it has already processed can therefore drop the repeat.
+
+```kotlin
+// Kafka consumer
+val outboxId = record.headers().lastHeader(OutboxHeaders.OUTBOX_ID)?.let { String(it.value()) }
+if (outboxId != null && !seenIds.add(outboxId)) return  // already processed, skip
+```
+
+```kotlin
+// HTTP receiver (Spring MVC)
+@PostMapping("/webhook")
+fun receive(@RequestHeader("x-outbox-id") outboxId: String, @RequestBody payload: String) {
+    if (!seenIds.add(outboxId)) return  // already processed, skip
+    // ...
+}
+```
+
+Notice that:
+
+- **okapi sets the header last, so it overrides any `x-outbox-id` you set yourself** in `DeliveryInfo`. Over HTTP your value is replaced outright. Kafka headers are multi-valued, so your value is still present in the record, but okapi's is the one appended last — which is why consumers must read it with `lastHeader(...)` (or take the last of `headers(...)`) rather than the first match. Pick a different header name if you need to pass an identifier of your own.
+- **It does not deduplicate at the `publish()` level.** The id identifies an *outbox entry*, not a business event. Calling `publish()` twice for the same event creates two entries with two different ids, and a consumer deduplicating on `x-outbox-id` will process both. Guarding against that is the publisher's job — deduplicate on a business key in the payload, or make the publish itself idempotent.
 
 ## Configuration
 
@@ -188,10 +212,14 @@ okapi ships Liquibase changelogs that create its table and indexes:
 
 With `okapi-spring-boot` and Liquibase on the classpath, these run automatically against the configured `DataSource` at startup, tracked in dedicated Liquibase tables by default to avoid conflicts with the application's migration history.
 
-If you use another migration tool, copy the SQL for your database into your application's migrations:
+If you use another migration tool, apply both SQL migrations for your database in order:
 
-- [PostgreSQL SQL](okapi-postgres/src/main/resources/com/softwaremill/okapi/db/postgres/001__create_okapi_outbox_table.sql)
-- [MySQL SQL](okapi-mysql/src/main/resources/com/softwaremill/okapi/db/mysql/001__create_okapi_outbox_table.sql)
+| Database | 001: table and initial indexes | 002: route-aware claim index |
+|---|---|---|
+| PostgreSQL | [001 SQL](okapi-postgres/src/main/resources/com/softwaremill/okapi/db/postgres/001__create_okapi_outbox_table.sql) | [002 SQL](okapi-postgres/src/main/resources/com/softwaremill/okapi/db/postgres/002__route_aware_claim_index.sql) |
+| MySQL | [001 SQL](okapi-mysql/src/main/resources/com/softwaremill/okapi/db/mysql/001__create_okapi_outbox_table.sql) | [002 SQL](okapi-mysql/src/main/resources/com/softwaremill/okapi/db/mysql/002__route_aware_claim_index.sql) |
+
+For an existing installation, apply `002` before starting updated workers. MySQL claims explicitly select the new index and fail if it is missing. PostgreSQL's `002` uses `CREATE INDEX CONCURRENTLY`, so run it outside a transaction when using another migration tool. The bundled Liquibase changelog handles this automatically.
 
 okapi stores messages in the fixed `okapi_outbox` table. When the built-in Liquibase integration is used, it also uses two dedicated migration tracking tables:
 
