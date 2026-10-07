@@ -6,7 +6,10 @@ interface OutboxStore {
     /** Persists a new outbox entry (publish). */
     fun persist(entry: OutboxEntry): OutboxEntry
 
-    /** Claims up to [limit] PENDING entries with exclusive access. Locking strategy depends on the adapter. */
+    /**
+     * Claims up to [limit] PENDING entries without filtering by delivery type.
+     * Kept for direct callers; [OutboxProcessor] uses [RouteAwareOutboxStore] instead.
+     */
     fun claimPending(limit: Int): List<OutboxEntry>
 
     /** Updates an entry after a delivery attempt (status change, retries, lastError). */

@@ -1,6 +1,8 @@
 package com.softwaremill.okapi.test.concurrency
 
 import com.softwaremill.okapi.core.DeliveryInfo
+import com.softwaremill.okapi.core.DeliveryResult
+import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxEntryProcessor
 import com.softwaremill.okapi.core.OutboxId
@@ -29,6 +31,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 private class StubDeliveryInfo(
     override val type: String = "recording",
@@ -37,9 +40,13 @@ private class StubDeliveryInfo(
     override fun serialize(): String = metadata
 }
 
-private fun createTestEntry(index: Int, now: Instant = Instant.parse("2024-01-01T00:00:00Z")): OutboxEntry = OutboxEntry.createPending(
+private fun createTestEntry(
+    index: Int,
+    now: Instant = Instant.parse("2024-01-01T00:00:00Z"),
+    deliveryType: String = "recording",
+): OutboxEntry = OutboxEntry.createPending(
     message = OutboxMessage(messageType = "concurrent.test", payload = """{"index":$index}"""),
-    deliveryInfo = StubDeliveryInfo(),
+    deliveryInfo = StubDeliveryInfo(deliveryType),
     now = now.plusSeconds(index.toLong()),
 )
 
@@ -168,6 +175,55 @@ fun FunSpec.concurrentClaimTests(
             counts shouldContain (OutboxStatus.DELIVERED to 50L)
             counts shouldContain (OutboxStatus.PENDING to 0L)
         }
+    }
+
+    test("[$dbName] workers with different routes process only their own entries") {
+        jdbc.withTransaction {
+            (0 until 20).forEach { i ->
+                store.persist(createTestEntry(i, deliveryType = "kafka"))
+                store.persist(createTestEntry(i, deliveryType = "http"))
+            }
+        }
+        val kafkaCount = AtomicInteger()
+        val httpCount = AtomicInteger()
+        val barrier = CyclicBarrier(2)
+
+        fun processor(type: String, count: AtomicInteger): OutboxProcessor {
+            val deliverer = object : MessageDeliverer {
+                override val type = type
+                override fun deliver(entry: OutboxEntry): DeliveryResult {
+                    count.incrementAndGet()
+                    return DeliveryResult.Success
+                }
+            }
+            return OutboxProcessor(store, OutboxEntryProcessor(deliverer, RetryPolicy(0), Clock.systemUTC()))
+        }
+
+        val kafka = processor("kafka", kafkaCount)
+        val http = processor("http", httpCount)
+        val executor = Executors.newVirtualThreadPerTaskExecutor()
+        try {
+            val tasks = listOf(kafka, http).map { worker ->
+                CompletableFuture.supplyAsync(
+                    {
+                        barrier.await(10, TimeUnit.SECONDS)
+                        jdbc.withTransaction(transactionIsolation = Connection.TRANSACTION_READ_COMMITTED) {
+                            worker.processNext(20)
+                        }
+                    },
+                    executor,
+                )
+            }
+            tasks.forEach { it.get(30, TimeUnit.SECONDS) shouldBe 20 }
+        } finally {
+            executor.shutdown()
+        }
+
+        kafkaCount.get() shouldBe 20
+        httpCount.get() shouldBe 20
+        val counts = jdbc.withTransaction { store.countByStatuses() }
+        counts shouldContain (OutboxStatus.DELIVERED to 40L)
+        counts shouldContain (OutboxStatus.FAILED to 0L)
     }
 
     test("[$dbName] OutboxScheduler with concurrency=4 workers processes disjoint batches without amplification") {
