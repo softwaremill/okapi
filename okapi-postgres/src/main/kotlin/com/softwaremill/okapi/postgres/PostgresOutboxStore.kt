@@ -4,7 +4,7 @@ import com.softwaremill.okapi.core.ConnectionProvider
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxId
 import com.softwaremill.okapi.core.OutboxStatus
-import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.core.RouteAwareOutboxStore
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.Timestamp
@@ -15,7 +15,7 @@ import java.util.UUID
 /** PostgreSQL [OutboxStore] implementation using plain JDBC. */
 class PostgresOutboxStore(
     private val connectionProvider: ConnectionProvider,
-) : OutboxStore {
+) : RouteAwareOutboxStore {
 
     override fun persist(entry: OutboxEntry): OutboxEntry {
         connectionProvider.withConnection { conn ->
@@ -57,6 +57,30 @@ class PostgresOutboxStore(
             conn.prepareStatement(sql).use { stmt ->
                 stmt.setString(1, OutboxStatus.PENDING.name)
                 stmt.setInt(2, limit)
+                stmt.executeQuery().use { rs ->
+                    generateSequence { if (rs.next()) rs.toOutboxEntry() else null }.toList()
+                }
+            }
+        }
+    }
+
+    override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> {
+        if (deliveryTypes.isEmpty() || limit <= 0) return emptyList()
+        val routes = deliveryTypes.sorted()
+        val placeholders = routes.joinToString(",") { "?" }
+        // Keep PENDING literal so a generic prepared plan can use the partial index.
+        val sql = """
+            SELECT * FROM okapi_outbox
+            WHERE status = 'PENDING' AND delivery_type IN ($placeholders)
+            ORDER BY delivery_type ASC, created_at ASC, id ASC
+            LIMIT ?
+            FOR UPDATE SKIP LOCKED
+        """.trimIndent()
+
+        return connectionProvider.withConnection { conn ->
+            conn.prepareStatement(sql).use { stmt ->
+                routes.forEachIndexed { index, route -> stmt.setString(index + 1, route) }
+                stmt.setInt(routes.size + 1, limit)
                 stmt.executeQuery().use { rs ->
                     generateSequence { if (rs.next()) rs.toOutboxEntry() else null }.toList()
                 }
