@@ -10,6 +10,7 @@ import com.softwaremill.okapi.core.OutboxPurgerConfig
 import com.softwaremill.okapi.core.OutboxSchedulerConfig
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.RetryPolicy
+import com.softwaremill.okapi.core.RouteAwareOutboxStore
 import com.softwaremill.okapi.core.TransactionRunner
 import com.softwaremill.okapi.mysql.MysqlOutboxStore
 import com.softwaremill.okapi.postgres.PostgresOutboxStore
@@ -192,6 +193,10 @@ class OutboxAutoConfiguration(
         check(!processorEnabled || outboxEntryProcessor.supportedDeliveryTypes.isNotEmpty()) {
             "Okapi processor is enabled but no MessageDeliverer bean is registered. " +
                 "Define a MessageDeliverer or set okapi.processor.enabled=false for publisher-only use."
+        }
+        check(!processorEnabled || outboxStore is RouteAwareOutboxStore) {
+            "Okapi processor requires a RouteAwareOutboxStore. " +
+                "Implement route-aware claiming in the custom OutboxStore or set okapi.processor.enabled=false."
         }
         return OutboxProcessor(
             store = outboxStore,
