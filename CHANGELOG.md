@@ -21,6 +21,23 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   not send the `OutboxId`; that is no longer the case, and the "Deduplicating on `x-outbox-id`"
   section documents the recipe and both caveats. (KOJAK-78)
 
+### Fixed
+
+- **MySQL: the processor no longer blocks `publish()` for the duration of delivery.** Under MySQL's
+  default `REPEATABLE READ`, the claim's `FOR UPDATE SKIP LOCKED` took gap locks on
+  `(status, created_at)`; with a backlog smaller than the batch, the gap ran to the end of the index,
+  exactly where every `publish()` inserts, so business transactions waited for the whole HTTP/Kafka
+  delivery and could fail with `Lock wait timeout exceeded`. The scheduler transaction now runs at
+  `READ COMMITTED`, which takes no gap locks:
+  - Spring Boot: the autoconfigured `TransactionRunner` pins `READ COMMITTED` when its
+    `TransactionTemplate` leaves isolation at `DEFAULT`. It uses a copy, so a user's or Boot's
+    template bean is not mutated and its timeout/propagation/read-only settings carry over; a
+    template with an explicit isolation level is still used as-is.
+  - `ExposedTransactionRunner` gains a `transactionIsolation` parameter defaulting to
+    `READ_COMMITTED` (`null` restores the database default).
+
+  On Postgres `READ COMMITTED` is already the default, so behaviour there is unchanged. (#129)
+
 ### Changed
 
 - **`CompositeMessageDeliverer.deliverBatch`** now dispatches transport groups concurrently — one

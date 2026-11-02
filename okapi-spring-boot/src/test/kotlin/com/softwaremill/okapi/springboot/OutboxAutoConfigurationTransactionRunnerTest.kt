@@ -172,7 +172,39 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
             .withUserConfiguration(CustomTransactionTemplateConfiguration::class.java)
             .run { ctx ->
                 val runner = ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
-                runner.transactionTemplate.shouldBeSameInstanceAs(CustomTransactionTemplateConfiguration.TEMPLATE)
+                // The template leaves isolation at DEFAULT, so the runner gets a READ COMMITTED copy
+                // (issue #129) -- which must still carry the user's own settings.
+                runner.transactionTemplate.timeout shouldBe 42
+                runner.transactionTemplate.transactionManager
+                    .shouldBeSameInstanceAs(CustomTransactionTemplateConfiguration.TEMPLATE.transactionManager)
+                runner.transactionTemplate.isolationLevel shouldBe TransactionDefinition.ISOLATION_READ_COMMITTED
+                withClue("the user's shared template bean itself must not be mutated") {
+                    CustomTransactionTemplateConfiguration.TEMPLATE.isolationLevel shouldBe TransactionDefinition.ISOLATION_DEFAULT
+                }
+            }
+    }
+
+    test("user-provided TransactionTemplate with an explicit isolation level is used verbatim") {
+        val ds: DataSource = SimpleDriverDataSource()
+        baseRunner
+            .withBean(DataSource::class.java, { ds })
+            .withBean(PlatformTransactionManager::class.java, { DataSourceTransactionManager(ds) })
+            .withUserConfiguration(SerializableTransactionTemplateConfiguration::class.java)
+            .run { ctx ->
+                val runner = ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
+                runner.transactionTemplate.shouldBeSameInstanceAs(SerializableTransactionTemplateConfiguration.TEMPLATE)
+                runner.transactionTemplate.isolationLevel shouldBe TransactionDefinition.ISOLATION_SERIALIZABLE
+            }
+    }
+
+    test("auto-built TransactionTemplate runs at READ COMMITTED (no MySQL gap locks on the claim, #129)") {
+        val ds: DataSource = SimpleDriverDataSource()
+        baseRunner
+            .withBean(DataSource::class.java, { ds })
+            .withBean(PlatformTransactionManager::class.java, { DataSourceTransactionManager(ds) })
+            .run { ctx ->
+                val runner = ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
+                runner.transactionTemplate.isolationLevel shouldBe TransactionDefinition.ISOLATION_READ_COMMITTED
             }
     }
 
@@ -302,7 +334,7 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
             }
     }
 
-    test("qualifier matching Boot's auto-TT's PTM reuses that TT verbatim (preserves its TX settings)") {
+    test("qualifier matching Boot's auto-TT's PTM builds on that TT (preserves its TX settings)") {
         // Edge of the qualifier-precedence rule: when the qualifier happens to name the same PTM
         // that Boot's auto-TT already wraps, the factory must NOT build a fresh TransactionTemplate
         // around it — that would silently discard timeout/isolation/propagation Boot configured.
@@ -331,9 +363,13 @@ class OutboxAutoConfigurationTransactionRunnerTest : FunSpec({
                 ctx.startupFailure.shouldBeNull()
                 val bootTt = ctx.getBean(org.springframework.transaction.support.TransactionTemplate::class.java)
                 val runner = ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
-                // The runner's TT must be the SAME OBJECT as Boot's auto-TT — proves the factory
-                // didn't rebuild a fresh TT just because qualifier was set.
-                runner.transactionTemplate shouldBeSameInstanceAs bootTt
+                // The runner's TT must be built from Boot's auto-TT — proves the factory didn't
+                // rebuild a fresh TT just because qualifier was set. Boot's TT leaves isolation at
+                // DEFAULT, so it is a READ COMMITTED copy (issue #129) carrying the same settings.
+                runner.transactionTemplate.transactionManager shouldBeSameInstanceAs bootTt.transactionManager
+                runner.transactionTemplate.timeout shouldBe bootTt.timeout
+                runner.transactionTemplate.propagationBehavior shouldBe bootTt.propagationBehavior
+                runner.transactionTemplate.isolationLevel shouldBe TransactionDefinition.ISOLATION_READ_COMMITTED
             }
     }
 
@@ -651,6 +687,22 @@ private class CustomTransactionTemplateConfiguration {
         val TEMPLATE: org.springframework.transaction.support.TransactionTemplate =
             org.springframework.transaction.support.TransactionTemplate().apply {
                 timeout = 42
+            }
+    }
+}
+
+@Configuration(proxyBeanMethods = false)
+private class SerializableTransactionTemplateConfiguration {
+    @Bean
+    fun serializableTemplate(ptm: PlatformTransactionManager): org.springframework.transaction.support.TransactionTemplate {
+        TEMPLATE.transactionManager = ptm
+        return TEMPLATE
+    }
+
+    companion object {
+        val TEMPLATE: org.springframework.transaction.support.TransactionTemplate =
+            org.springframework.transaction.support.TransactionTemplate().apply {
+                isolationLevel = TransactionDefinition.ISOLATION_SERIALIZABLE
             }
     }
 }

@@ -30,6 +30,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
 import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.ResourceTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import java.time.Clock
@@ -138,7 +139,8 @@ class OutboxAutoConfiguration(
         validatePtmDataSourceMatch(ptm, resolveDataSource(), okapiProperties, dataSources.size)
         // Use the supplied TT verbatim ONLY when it actually wraps the PTM we picked (preserves
         // timeout/propagation/isolation). When qualifier forced a different PTM, build a fresh TT
-        // around it — otherwise we'd run on a TT bound to the wrong PTM. NOTE: with
+        // around it — otherwise we'd run on a TT bound to the wrong PTM. Either way the result is
+        // pinned to READ COMMITTED when it leaves isolation at DEFAULT (withOutboxIsolation). NOTE: with
         // PROPAGATION_REQUIRED a tick joining an outer readOnly=true TX inherits that flag
         // silently — keep scheduler invocations outside @Transactional scopes to avoid FOR UPDATE
         // SKIP LOCKED failures.
@@ -163,7 +165,7 @@ class OutboxAutoConfiguration(
             }
             TransactionTemplate(ptm).apply { isReadOnly = false }
         }
-        return SpringTransactionRunner(ttToUse)
+        return SpringTransactionRunner(ttToUse.withOutboxIsolation())
     }
 
     @Bean
@@ -288,6 +290,26 @@ class OutboxAutoConfiguration(
 
     companion object {
         private val logger = LoggerFactory.getLogger(OutboxAutoConfiguration::class.java)
+
+        /**
+         * Pins the scheduler transaction to READ COMMITTED unless [this] already sets an explicit
+         * isolation level (issue #129). Under MySQL's default REPEATABLE READ, the claim's
+         * `FOR UPDATE SKIP LOCKED` takes gap locks on `(status, created_at)` -- SKIP LOCKED only
+         * skips record locks -- and with a backlog smaller than the batch the gap runs to the end of
+         * the index, exactly where every `publish()` inserts. Publishers then block until delivery
+         * finishes and the claim commits. READ COMMITTED takes no gap locks; on Postgres it is
+         * already the default, so nothing changes there.
+         *
+         * A copy rather than a mutation: the template may be the user's or Boot's shared bean, and
+         * the copy keeps its timeout/propagation/read-only settings.
+         */
+        internal fun TransactionTemplate.withOutboxIsolation(): TransactionTemplate {
+            if (isolationLevel != TransactionDefinition.ISOLATION_DEFAULT) return this
+            val ptm = checkNotNull(transactionManager) { "TransactionTemplate has no PlatformTransactionManager" }
+            return TransactionTemplate(ptm, this).apply {
+                isolationLevel = TransactionDefinition.ISOLATION_READ_COMMITTED
+            }
+        }
 
         internal fun resolveDataSource(
             dataSources: Map<String, DataSource>,
