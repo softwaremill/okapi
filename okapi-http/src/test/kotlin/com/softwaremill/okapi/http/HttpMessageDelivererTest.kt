@@ -14,7 +14,10 @@ import com.softwaremill.okapi.core.OutboxMessage
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.datatest.WithDataTestName
 import io.kotest.datatest.withTests
+import io.kotest.matchers.ints.shouldBeLessThanOrEqual
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldEndWith
+import io.kotest.matchers.string.shouldStartWith
 import io.kotest.matchers.types.shouldBeInstanceOf
 import java.time.Instant
 import kotlin.reflect.KClass
@@ -131,5 +134,39 @@ class HttpMessageDelivererTest : FunSpec({
         val throwingResolver = ServiceUrlResolver { name -> error("Unknown service: $name") }
         val d = HttpMessageDeliverer(throwingResolver)
         d.deliver(entry()).shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
+    }
+
+    context("response bodies are bounded (#130)") {
+        val hugeErrorPage = "<html>" + "x".repeat(1_000_000) + "</html>"
+        val maxErrorLength = "HTTP 503: ".length + HttpMessageDeliverer.MAX_ERROR_BODY_BYTES + "... [truncated]".length
+
+        test("deliver() keeps only MAX_ERROR_BODY_BYTES of an error body") {
+            wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(503).withBody(hugeErrorPage)))
+            val error = deliverer.deliver(entry()).shouldBeInstanceOf<DeliveryResult.RetriableFailure>().error
+            error shouldStartWith "HTTP 503: <html>xxx"
+            error shouldEndWith "[truncated]"
+            error.length shouldBeLessThanOrEqual maxErrorLength
+        }
+
+        test("deliverBatch() keeps only MAX_ERROR_BODY_BYTES of an error body") {
+            wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(400).withBody(hugeErrorPage)))
+            val outcomes = deliverer.deliverBatch(listOf(entry(), entry()))
+            outcomes.forEach { outcome ->
+                val error = outcome.result.shouldBeInstanceOf<DeliveryResult.PermanentFailure>().error
+                error shouldEndWith "[truncated]"
+                error.length shouldBeLessThanOrEqual maxErrorLength
+            }
+        }
+
+        test("a short error body is kept whole") {
+            wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(500).withBody("Internal Server Error")))
+            deliverer.deliver(entry()) shouldBe DeliveryResult.RetriableFailure("HTTP 500: Internal Server Error")
+        }
+
+        test("a large success body is discarded and still counts as Success") {
+            wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(200).withBody(hugeErrorPage)))
+            deliverer.deliver(entry()) shouldBe DeliveryResult.Success
+            deliverer.deliverBatch(listOf(entry())).single().result shouldBe DeliveryResult.Success
+        }
     }
 })

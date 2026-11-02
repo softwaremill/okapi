@@ -6,6 +6,7 @@ import com.softwaremill.okapi.core.DeliveryResult
 import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxHeaders
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.URI
 import java.net.http.HttpClient
@@ -47,7 +48,7 @@ class HttpMessageDeliverer @JvmOverloads constructor(
 
     override fun deliver(entry: OutboxEntry): DeliveryResult = try {
         val request = buildRequest(entry)
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+        val response = httpClient.send(request, boundedBodyHandler)
         classifyResponse(response.statusCode(), response.body())
     } catch (e: InterruptedException) {
         Thread.currentThread().interrupt()
@@ -97,7 +98,7 @@ class HttpMessageDeliverer @JvmOverloads constructor(
     private fun fireOne(entry: OutboxEntry): SendAttempt = try {
         val request = buildRequest(entry)
         val future: CompletableFuture<DeliveryResult> = httpClient
-            .sendAsync(request, HttpResponse.BodyHandlers.ofString())
+            .sendAsync(request, boundedBodyHandler)
             .thenApply { response -> classifyResponse(response.statusCode(), response.body()) }
             .exceptionally { e -> classifyThrowable(e.cause ?: e) }
         SendAttempt.InFlight(future)
@@ -129,6 +130,20 @@ class HttpMessageDeliverer @JvmOverloads constructor(
             .build()
     }
 
+    /**
+     * Discards success bodies and keeps at most [MAX_ERROR_BODY_BYTES] of an error body (issue #130).
+     * The body only ever feeds `lastError`, and `BodyHandlers.ofString()` buffered all of it in heap
+     * -- an endpoint answering with a multi-megabyte error page cost that much memory per in-flight
+     * request, and the full text then overflowed the `last_error` column.
+     */
+    private val boundedBodyHandler = HttpResponse.BodyHandler { info ->
+        if (info.statusCode() in 200..299) {
+            HttpResponse.BodySubscribers.replacing("")
+        } else {
+            boundedUtf8Body(MAX_ERROR_BODY_BYTES)
+        }
+    }
+
     private fun classifyResponse(status: Int, body: String): DeliveryResult = when {
         status in 200..299 -> DeliveryResult.Success
         status in retriableStatusCodes -> DeliveryResult.RetriableFailure("HTTP $status: $body")
@@ -157,6 +172,9 @@ class HttpMessageDeliverer @JvmOverloads constructor(
     }
 
     companion object {
+        /** How much of an error response body is kept for `lastError`; the rest is read and dropped. */
+        const val MAX_ERROR_BODY_BYTES: Int = 2048
+
         val DEFAULT_RETRIABLE_STATUS_CODES: Set<Int> = (500..599).toSet() + 429 + 408
         private val CONNECT_TIMEOUT: Duration = Duration.ofSeconds(10)
         private val REQUEST_TIMEOUT: Duration = Duration.ofSeconds(30)
@@ -165,5 +183,27 @@ class HttpMessageDeliverer @JvmOverloads constructor(
             .connectTimeout(CONNECT_TIMEOUT)
             .followRedirects(HttpClient.Redirect.NEVER)
             .build()
+    }
+}
+
+/**
+ * Collects the first [limit] bytes of a body as UTF-8 and reads past the rest without keeping it, so
+ * the connection is still drained and reusable. A multi-byte character cut at the limit decodes as
+ * U+FFFD, which is fine for an error message.
+ */
+private fun boundedUtf8Body(limit: Int): HttpResponse.BodySubscriber<String> {
+    val kept = ByteArrayOutputStream()
+    var truncated = false
+    // ofByteArrayConsumer delivers chunks one at a time, in order (Flow.Subscriber.onNext contract),
+    // and the mapping runs after the last one, so the unsynchronized state above is safe.
+    val consumer = HttpResponse.BodySubscribers.ofByteArrayConsumer { chunk ->
+        chunk.ifPresent { bytes ->
+            val room = limit - kept.size()
+            if (room > 0) kept.write(bytes, 0, minOf(room, bytes.size))
+            if (bytes.size > room) truncated = true
+        }
+    }
+    return HttpResponse.BodySubscribers.mapping(consumer) {
+        kept.toString(Charsets.UTF_8) + if (truncated) "... [truncated]" else ""
     }
 }
