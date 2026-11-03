@@ -9,6 +9,7 @@ import com.softwaremill.okapi.core.OutboxMessage
 import com.softwaremill.okapi.core.OutboxProcessor
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.RetryPolicy
+import com.softwaremill.okapi.core.RouteAwareOutboxStore
 import com.softwaremill.okapi.core.TransactionRunner
 import com.softwaremill.okapi.exposed.ExposedConnectionProvider
 import com.softwaremill.okapi.exposed.ExposedTransactionRunner
@@ -18,6 +19,7 @@ import com.softwaremill.okapi.springboot.SpringConnectionProvider
 import com.softwaremill.okapi.test.support.MysqlTestSupport
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.longs.shouldBeLessThan
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
@@ -44,13 +46,15 @@ import javax.sql.DataSource
  * Regression test for issue #129: under MySQL's default REPEATABLE READ, the processor's claim
  * (`FOR UPDATE SKIP LOCKED` on `(status, delivery_type, created_at, id)`) gap-locks the end of the
  * claimed type's range when its backlog is smaller than the batch. Every `publish()` of that type
- * inserts exactly there, so publishers blocked
- * until the claiming transaction -- held open for the whole delivery -- committed.
+ * inserts exactly there, so publishers blocked until the claiming transaction -- held open for the
+ * whole delivery -- committed.
  *
  * Each case runs a real processor tick through the runner under test with a deliverer that blocks
  * mid-delivery, so the claim transaction stays open exactly as it does during a slow HTTP/Kafka call.
  * Going through [OutboxProcessor.processNext] (not a store claim method directly) keeps the test on
- * whatever claim query the processor actually runs. While delivery is blocked, it publishes from
+ * whatever claim query the processor actually runs; [RecordingStore] asserts that this is the
+ * route-aware `claimPending(deliveryTypes, limit)` from #120, never the legacy `claimPending(limit)`.
+ * While delivery is blocked, it publishes from
  * another connection with a short `innodb_lock_wait_timeout`. The REPEATABLE READ case is the
  * control: it proves the setup really reproduces the lock, so the READ COMMITTED cases passing
  * means the fix works, not that the test is blind.
@@ -88,7 +92,8 @@ class MysqlClaimDoesNotBlockPublishersTest : FunSpec({
     fun publishWhileClaimIsOpen(runner: TransactionRunner, store: OutboxStore) {
         seedPending(2) // fewer than the batch size: the claim scans to the end of the PENDING range
         val deliverer = BlockingDeliverer()
-        val processor = OutboxProcessor(store, OutboxEntryProcessor(deliverer, RetryPolicy(maxRetries = 0), clock))
+        val recordingStore = RecordingStore(store as RouteAwareOutboxStore)
+        val processor = OutboxProcessor(recordingStore, OutboxEntryProcessor(deliverer, RetryPolicy(maxRetries = 0), clock))
         val executor = Executors.newSingleThreadExecutor()
         try {
             val tick = executor.submit<Int> { runner.runInTransaction { processor.processNext(10) } }
@@ -98,6 +103,7 @@ class MysqlClaimDoesNotBlockPublishersTest : FunSpec({
             } finally {
                 deliverer.release.countDown()
                 tick.get(30, TimeUnit.SECONDS) shouldBe 2
+                recordingStore.claims shouldContainExactly listOf("claimPending([${ClaimTestDeliveryInfo.type}], 10)")
             }
         } finally {
             executor.shutdownNow()
@@ -184,6 +190,27 @@ class MysqlClaimDoesNotBlockPublishersTest : FunSpec({
 private const val LOCK_WAIT_TIMEOUT_SECONDS = 3
 
 /** Stands in for a slow transport: the first delivery parks until [release], holding the claim open. */
+/**
+ * Delegates to the real store and records which claim method the processor calls, so the test fails
+ * if the processor stops using the route-aware claim this regression test is meant to cover.
+ */
+private class RecordingStore(private val delegate: RouteAwareOutboxStore) : RouteAwareOutboxStore by delegate {
+    val claims = mutableListOf<String>()
+
+    override fun claimPending(limit: Int): List<OutboxEntry> {
+        claims += "claimPending($limit)"
+        return delegate.claimPending(limit)
+    }
+
+    override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> {
+        claims += "claimPending($deliveryTypes, $limit)"
+        return delegate.claimPending(deliveryTypes, limit)
+    }
+
+    // Overridden so the single-type call is recorded too instead of going straight to the delegate.
+    override fun claimPending(deliveryType: String, limit: Int): List<OutboxEntry> = claimPending(setOf(deliveryType), limit)
+}
+
 private class BlockingDeliverer : MessageDeliverer {
     val inDelivery = CountDownLatch(1)
     val release = CountDownLatch(1)
