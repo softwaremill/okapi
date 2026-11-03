@@ -74,6 +74,20 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             }
     }
 
+    test("enabled processor rejects a store without route-aware claiming") {
+        ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+            .withBean(OutboxStore::class.java, { object : OutboxStore by stubStore() {} })
+            .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+            .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+            .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
+            .run { ctx ->
+                generateSequence(ctx.startupFailure.shouldNotBeNull()) { it.cause }
+                    .mapNotNull { it.message }
+                    .joinToString(" ") shouldContain "requires a RouteAwareOutboxStore"
+            }
+    }
+
     test("publisher-only application starts without a deliverer") {
         ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
