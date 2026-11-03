@@ -93,6 +93,35 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   `OutboxStore`/`OutboxPublisher` operation routes through `withConnection`. Construct one
   instance per `Database`, matching `ExposedTransactionRunner` and
   `ExposedTransactionContextValidator`. ([#96](https://github.com/softwaremill/okapi/issues/96))
+- **`OutboxProcessor` requires a `RouteAwareOutboxStore`.** The processor now claims only the
+  delivery types its `OutboxEntryProcessor` handles, through the new
+  `RouteAwareOutboxStore.claimPending(deliveryTypes, limit)`; `PostgresOutboxStore` and
+  `MysqlOutboxStore` implement it. A custom `OutboxStore`, or a hand-written wrapper around a
+  built-in store, must implement `RouteAwareOutboxStore` too: otherwise `processNext` throws, and
+  Spring autoconfiguration fails at startup while the processor is enabled. `claimPending(limit)`
+  stays on `OutboxStore` for direct callers. ([#120](https://github.com/softwaremill/okapi/pull/120))
+- **`OutboxEntryProcessor.process`/`processBatch` throw `IllegalStateException` for an entry whose
+  delivery type has no registered deliverer.** Previously `CompositeMessageDeliverer` returned a
+  `PermanentFailure` and the entry was marked `FAILED`. Inside `OutboxProcessor` the exception rolls
+  the transaction back and the row stays `PENDING`; direct callers must handle the exception.
+  ([#120](https://github.com/softwaremill/okapi/pull/120))
+- **New migration `002__route_aware_claim_index`** adds a `(status, delivery_type, created_at, id)`
+  index on MySQL and a partial `(delivery_type, created_at, id) WHERE status = 'PENDING'` index on
+  PostgreSQL. The bundled Liquibase changelogs apply it automatically. If you manage the schema
+  yourself, apply it before starting updated workers: the MySQL claim uses `FORCE INDEX` and fails
+  without it, and the PostgreSQL script must run outside a transaction (`CREATE INDEX CONCURRENTLY`).
+  ([#120](https://github.com/softwaremill/okapi/pull/120))
+
+### Fixed
+
+- **A worker no longer marks rows it cannot deliver as `FAILED`.** Previously every worker claimed
+  all `PENDING` rows, so a worker without a deliverer for a row's type turned it into a permanent
+  failure. Each worker now claims only its registered delivery types, in at most two queries per
+  batch. Workers on an older version still claim every type, so publish a newly introduced type only
+  after all old processors are upgraded or stopped. Rows already marked `FAILED` are not retried
+  automatically. Cross-type claim order is no longer globally oldest first: the processor rotates
+  the starting type, and any leftover batch capacity goes to the other types alphabetically.
+  ([#116](https://github.com/softwaremill/okapi/issues/116))
 
 ## [1.0.0] — 2026-07-28
 
