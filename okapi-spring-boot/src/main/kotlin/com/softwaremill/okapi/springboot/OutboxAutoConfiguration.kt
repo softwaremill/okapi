@@ -195,8 +195,10 @@ class OutboxAutoConfiguration(
                 "Define a MessageDeliverer or set okapi.processor.enabled=false for publisher-only use."
         }
         check(!processorEnabled || outboxStore is RouteAwareOutboxStore) {
-            "Okapi processor requires a RouteAwareOutboxStore. " +
-                "Implement route-aware claiming in the custom OutboxStore or set okapi.processor.enabled=false."
+            "Okapi processor requires a RouteAwareOutboxStore, but the OutboxStore bean is ${outboxStore.javaClass.name}. " +
+                "If it wraps or proxies a built-in store, implement RouteAwareOutboxStore on the wrapper and delegate " +
+                "claimPending(deliveryTypes, limit); otherwise implement route-aware claiming in the custom store, " +
+                "or set okapi.processor.enabled=false."
         }
         return OutboxProcessor(
             store = outboxStore,

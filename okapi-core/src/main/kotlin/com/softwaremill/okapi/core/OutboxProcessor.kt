@@ -36,7 +36,10 @@ class OutboxProcessor @JvmOverloads constructor(
     fun processNext(limit: Int = 10): Int {
         val batchStart = clock.instant()
         val routeAwareStore = store as? RouteAwareOutboxStore
-            ?: error("OutboxProcessor requires a RouteAwareOutboxStore to avoid claiming unsupported delivery types")
+            ?: error(
+                "OutboxProcessor requires a RouteAwareOutboxStore to avoid claiming unsupported delivery types, " +
+                    "got ${store.javaClass.name}. A wrapper or proxy around a store must implement RouteAwareOutboxStore itself.",
+            )
         check(deliveryTypes.isNotEmpty()) { "OutboxProcessor requires at least one delivery type" }
         val claimed = if (limit <= 0) {
             emptyList()
@@ -51,6 +54,8 @@ class OutboxProcessor @JvmOverloads constructor(
                 first
             } else {
                 val remaining = limit - first.size
+                // Stores order this claim by delivery type, so leftover capacity favours types that sort first.
+                // Each type is still claimed first once every N ticks, so none is starved.
                 val other = routeAwareStore.claimPending(remainingTypes, remaining)
                 check(other.size <= remaining && other.all { it.deliveryType in remainingTypes }) {
                     "RouteAwareOutboxStore returned entries outside the requested types or limit"

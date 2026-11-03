@@ -72,14 +72,15 @@ class MysqlOutboxStore(
         if (deliveryTypes.isEmpty() || limit <= 0) return emptyList()
         val routes = deliveryTypes.sorted()
         val placeholders = routes.joinToString(",") { "?" }
-        val binaryPlaceholders = routes.joinToString(",") { "BINARY ?" }
+        val binaryPlaceholders = routes.joinToString(",") { "CAST(? AS BINARY)" }
         // A matching index avoids scanning and locking rows for other delivery types.
         // The binary predicate excludes case-insensitive collation matches for another route.
+        // CAST rather than the BINARY operator, which is deprecated since 8.0.27 and warns on every call.
         val sql = """
             SELECT * FROM okapi_outbox
             FORCE INDEX (idx_okapi_outbox_status_delivery_created_id)
             WHERE status = ? AND delivery_type IN ($placeholders)
-              AND BINARY delivery_type IN ($binaryPlaceholders)
+              AND CAST(delivery_type AS BINARY) IN ($binaryPlaceholders)
             ORDER BY delivery_type ASC, created_at ASC, id ASC
             LIMIT ?
             FOR UPDATE SKIP LOCKED
