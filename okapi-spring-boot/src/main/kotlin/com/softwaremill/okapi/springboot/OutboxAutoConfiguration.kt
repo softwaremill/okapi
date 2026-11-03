@@ -302,9 +302,9 @@ class OutboxAutoConfiguration(
         /**
          * Pins the scheduler transaction to READ COMMITTED when [store] is a MySQL store and [this]
          * leaves isolation at DEFAULT (issue #129). Under MySQL's default REPEATABLE READ, the claim's
-         * `FOR UPDATE SKIP LOCKED` takes gap locks on `(status, created_at)` -- SKIP LOCKED only
-         * skips record locks -- and with a backlog smaller than the batch the gap runs to the end of
-         * the index, exactly where every `publish()` inserts. Publishers then block until delivery
+         * `FOR UPDATE SKIP LOCKED` takes gap locks on `(status, delivery_type, created_at, id)` -- SKIP
+         * LOCKED only skips record locks -- and with a backlog smaller than the batch the gap runs to the
+         * end of the claimed type's range, exactly where every `publish()` of that type inserts. Publishers then block until delivery
          * finishes and the claim commits. READ COMMITTED takes no gap locks.
          *
          * Returned unchanged when:

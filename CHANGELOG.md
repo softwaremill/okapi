@@ -24,10 +24,10 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 ### Fixed
 
 - **MySQL: the processor no longer blocks `publish()` for the duration of delivery.** Under MySQL's
-  default `REPEATABLE READ`, the claim's `FOR UPDATE SKIP LOCKED` took gap locks on
-  `(status, created_at)`; with a backlog smaller than the batch, the gap ran to the end of the index,
-  exactly where every `publish()` inserts, so business transactions waited for the whole HTTP/Kafka
-  delivery and could fail with `Lock wait timeout exceeded`. On MySQL and MariaDB the scheduler
+  default `REPEATABLE READ`, the claim's `FOR UPDATE SKIP LOCKED` took gap locks on the claim index;
+  with a backlog smaller than the batch, the gap ran to the end of the claimed type's range, exactly
+  where every `publish()` of that type inserts, so business transactions waited for the whole
+  HTTP/Kafka delivery and could fail with `Lock wait timeout exceeded`. On MySQL and MariaDB the scheduler
   transaction now runs at `READ COMMITTED`, which takes no gap locks:
   - Spring Boot: the autoconfigured `TransactionRunner` pins `READ COMMITTED` when the store is
     `MysqlOutboxStore` and its `TransactionTemplate` leaves isolation at `DEFAULT`. It uses a copy,
@@ -42,6 +42,14 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
   Other stores and databases are unchanged: Postgres already defaults to `READ COMMITTED`. MySQL at
   `READ COMMITTED` needs `binlog_format=ROW` or `MIXED` (see the README). (#129)
+- **A worker no longer marks rows it cannot deliver as `FAILED`.** Previously every worker claimed
+  all `PENDING` rows, so a worker without a deliverer for a row's type turned it into a permanent
+  failure. Each worker now claims only its registered delivery types, in at most two queries per
+  batch. Workers on an older version still claim every type, so publish a newly introduced type only
+  after all old processors are upgraded or stopped. Rows already marked `FAILED` are not retried
+  automatically. Cross-type claim order is no longer globally oldest first: the processor rotates
+  the starting type, and any leftover batch capacity goes to the other types alphabetically.
+  ([#116](https://github.com/softwaremill/okapi/issues/116))
 
 ### Changed
 
@@ -111,17 +119,6 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   yourself, apply it before starting updated workers: the MySQL claim uses `FORCE INDEX` and fails
   without it, and the PostgreSQL script must run outside a transaction (`CREATE INDEX CONCURRENTLY`).
   ([#120](https://github.com/softwaremill/okapi/pull/120))
-
-### Fixed
-
-- **A worker no longer marks rows it cannot deliver as `FAILED`.** Previously every worker claimed
-  all `PENDING` rows, so a worker without a deliverer for a row's type turned it into a permanent
-  failure. Each worker now claims only its registered delivery types, in at most two queries per
-  batch. Workers on an older version still claim every type, so publish a newly introduced type only
-  after all old processors are upgraded or stopped. Rows already marked `FAILED` are not retried
-  automatically. Cross-type claim order is no longer globally oldest first: the processor rotates
-  the starting type, and any leftover batch capacity goes to the other types alphabetically.
-  ([#116](https://github.com/softwaremill/okapi/issues/116))
 
 ## [1.0.0] — 2026-07-28
 

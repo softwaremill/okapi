@@ -14,8 +14,8 @@ import java.sql.Connection
  * an existing transactional context (e.g., background processing thread).
  *
  * On MySQL and MariaDB it runs at READ COMMITTED by default (issue #129). Under MySQL's default
- * REPEATABLE READ the claim's `FOR UPDATE SKIP LOCKED` takes gap locks at the end of the
- * `(status, created_at)` index -- where every `publish()` inserts -- so publishers block until the
+ * REPEATABLE READ the claim's `FOR UPDATE SKIP LOCKED` takes gap locks at the end of each claimed
+ * delivery type's range in the claim index -- where every `publish()` of that type inserts -- so publishers block until the
  * claiming transaction, and with it delivery, finishes. This overrides a
  * `DatabaseConfig.defaultIsolationLevel` set for the rest of the application. Other databases keep
  * their default (Postgres already defaults to READ COMMITTED).

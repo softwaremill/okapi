@@ -42,8 +42,9 @@ import javax.sql.DataSource
 
 /**
  * Regression test for issue #129: under MySQL's default REPEATABLE READ, the processor's claim
- * (`FOR UPDATE SKIP LOCKED` on `(status, created_at)`) gap-locks the end of the index when the
- * backlog is smaller than the batch. Every `publish()` inserts exactly there, so publishers blocked
+ * (`FOR UPDATE SKIP LOCKED` on `(status, delivery_type, created_at, id)`) gap-locks the end of the
+ * claimed type's range when its backlog is smaller than the batch. Every `publish()` of that type
+ * inserts exactly there, so publishers blocked
  * until the claiming transaction -- held open for the whole delivery -- committed.
  *
  * Each case runs a real processor tick through the runner under test with a deliverer that blocks
