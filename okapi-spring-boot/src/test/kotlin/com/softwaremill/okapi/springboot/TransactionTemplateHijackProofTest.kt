@@ -7,7 +7,6 @@ import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.kotest.matchers.types.shouldBeSameInstanceAs
@@ -16,7 +15,6 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.jdbc.datasource.DataSourceTransactionManager
 import org.springframework.jdbc.datasource.SimpleDriverDataSource
 import org.springframework.transaction.PlatformTransactionManager
-import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
 import javax.sql.DataSource
 
@@ -25,10 +23,9 @@ import javax.sql.DataSource
  * `TransactionAutoConfiguration` has registered a `TransactionTemplate` bean for the single PTM
  * in the context:
  *
- *  1. ADOPTS: the factory builds on Boot's `TransactionTemplate`, so the user's / Boot's TX
- *     semantics — PTM, timeout, propagation, read-only — are preserved instead of being silently
- *     replaced by a fresh default `TransactionTemplate`. Boot's template leaves isolation at
- *     DEFAULT, so the runner gets a copy pinned to READ COMMITTED (issue #129).
+ *  1. ADOPTS: the factory uses Boot's `TransactionTemplate` verbatim (reference identity), so the
+ *     user's / Boot's TX semantics — timeout, propagation, isolation — are preserved instead of
+ *     being silently replaced by a fresh default `TransactionTemplate`.
  *
  *  2. VALIDATES: even though Boot's TT is adopted, `validatePtmDataSourceMatch` still runs and
  *     fails the context refresh when the PTM is bound to a different DataSource than okapi's
@@ -53,7 +50,7 @@ class TransactionTemplateHijackProofTest : FunSpec({
             "spring-boot-autoconfigure (3.x) is on testRuntimeClasspath.",
     )
 
-    test("ADOPTS: okapiTransactionRunner builds on Spring Boot's auto-configured TransactionTemplate") {
+    test("ADOPTS: okapiTransactionRunner reuses Spring Boot's auto-configured TransactionTemplate verbatim") {
         val ds: DataSource = SimpleDriverDataSource()
         val ourPtm: PlatformTransactionManager = DataSourceTransactionManager(ds)
         ApplicationContextRunner()
@@ -66,11 +63,8 @@ class TransactionTemplateHijackProofTest : FunSpec({
                 ctx.startupFailure.shouldBeNull()
                 val bootTt = ctx.getBean(TransactionTemplate::class.java).shouldNotBeNull()
                 val runner = ctx.getBean(TransactionRunner::class.java).shouldBeInstanceOf<SpringTransactionRunner>()
-                withClue("okapiTransactionRunner must carry over Boot's TransactionTemplate settings, not wrap a fresh default TT") {
-                    runner.transactionTemplate.transactionManager.shouldBeSameInstanceAs(bootTt.transactionManager)
-                    runner.transactionTemplate.timeout shouldBe bootTt.timeout
-                    runner.transactionTemplate.propagationBehavior shouldBe bootTt.propagationBehavior
-                    runner.transactionTemplate.isolationLevel shouldBe TransactionDefinition.ISOLATION_READ_COMMITTED
+                withClue("okapiTransactionRunner must adopt Boot's TransactionTemplate by reference, not wrap a fresh default TT") {
+                    runner.transactionTemplate.shouldBeSameInstanceAs(bootTt)
                 }
             }
     }

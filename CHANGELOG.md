@@ -27,19 +27,30 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   default `REPEATABLE READ`, the claim's `FOR UPDATE SKIP LOCKED` took gap locks on
   `(status, created_at)`; with a backlog smaller than the batch, the gap ran to the end of the index,
   exactly where every `publish()` inserts, so business transactions waited for the whole HTTP/Kafka
-  delivery and could fail with `Lock wait timeout exceeded`. The scheduler transaction now runs at
-  `READ COMMITTED`, which takes no gap locks:
-  - Spring Boot: the autoconfigured `TransactionRunner` pins `READ COMMITTED` when its
-    `TransactionTemplate` leaves isolation at `DEFAULT`. It uses a copy, so a user's or Boot's
-    template bean is not mutated and its timeout/propagation/read-only settings carry over; a
-    template with an explicit isolation level is still used as-is.
-  - `ExposedTransactionRunner` gains a `transactionIsolation` parameter defaulting to
-    `READ_COMMITTED` (`null` restores the database default).
+  delivery and could fail with `Lock wait timeout exceeded`. On MySQL and MariaDB the scheduler
+  transaction now runs at `READ COMMITTED`, which takes no gap locks:
+  - Spring Boot: the autoconfigured `TransactionRunner` pins `READ COMMITTED` when the store is
+    `MysqlOutboxStore` and its `TransactionTemplate` leaves isolation at `DEFAULT`. It uses a copy,
+    so a user's or Boot's template bean is not mutated and its timeout/propagation/read-only
+    settings carry over; a template with an explicit isolation level is still used as-is. Pinning is
+    skipped, with a startup WARN, for PTMs that reject custom isolation levels — a
+    `JtaTransactionManager`, or a `JpaTransactionManager` without the Hibernate/EclipseLink
+    `JpaDialect` — since every tick would otherwise throw `InvalidIsolationLevelException`.
+  - `ExposedTransactionRunner(database)` uses `READ COMMITTED` when the database's dialect is MySQL or
+    MariaDB. A new `ExposedTransactionRunner(database, transactionIsolation)` constructor sets the
+    level explicitly (`null` = the database default).
 
-  On Postgres `READ COMMITTED` is already the default, so behaviour there is unchanged. (#129)
+  Other stores and databases are unchanged: Postgres already defaults to `READ COMMITTED`. MySQL at
+  `READ COMMITTED` needs `binlog_format=ROW` or `MIXED` (see the README). (#129)
 
 ### Changed
 
+- **`ExposedTransactionRunner` on MySQL/MariaDB now overrides `DatabaseConfig.defaultIsolationLevel`.**
+  Scheduler transactions run at `READ COMMITTED` even when the application configured another default
+  isolation (e.g. `SERIALIZABLE`) for its `Database`; business transactions keep that default. Pass
+  the level you want to `ExposedTransactionRunner(database, transactionIsolation)`, or `null` to keep
+  the database default, but note that `REPEATABLE READ` or stricter brings back the `publish()`
+  blocking described under *Fixed*. (#129)
 - **`CompositeMessageDeliverer.deliverBatch`** now dispatches transport groups concurrently — one
   virtual thread per group, with the last group run on the calling thread — instead of blocking on
   each group in turn. A batch spanning N transports costs ~`max(Tᵢ)` rather than `sum(Tᵢ)`; a batch

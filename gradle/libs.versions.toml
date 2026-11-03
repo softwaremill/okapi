@@ -17,6 +17,7 @@ slf4j = "2.0.20"
 logback = "1.6.5"
 assertj = "3.27.7"
 h2 = "2.5.252"
+jakartaTransaction = "2.0.1"
 micrometer = "1.17.2"
 jmh = "1.37"
 jmhGradlePlugin = "0.7.3"
@@ -66,6 +67,8 @@ slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4jSimple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 logbackClassic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 h2 = { module = "com.h2database:h2", version.ref = "h2" }
+# Test-only: a fake UserTransaction for JtaTransactionManager in okapi-spring-boot tests.
+jakartaTransactionApi = { module = "jakarta.transaction:jakarta.transaction-api", version.ref = "jakartaTransaction" }
 jmhCore = { module = "org.openjdk.jmh:jmh-core", version.ref = "jmh" }
 jmhGeneratorAnnprocess = { module = "org.openjdk.jmh:jmh-generator-annprocess", version.ref = "jmh" }
 
