@@ -50,6 +50,25 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   automatically. Cross-type claim order is no longer globally oldest first: the processor rotates
   the starting type, and any leftover batch capacity goes to the other types alphabetically.
   ([#116](https://github.com/softwaremill/okapi/issues/116))
+- **One unpersistable `lastError` no longer poisons its whole batch.** All results of a batch are
+  written in one update inside the claim transaction, so a `last_error` value the database rejected
+  rolled back the entire batch: entries that had already been delivered went back to `PENDING` with
+  `retries` unchanged and were redelivered on every tick, indefinitely (three times per tick under
+  Exposed's default retry). Two such values were easy to hit: an HTTP error body over 64 KB
+  (MySQL `TEXT` overflow, `ERROR 1406`) and a NUL character (refused by Postgres).
+  `OutboxEntry.retry`/`toFailed` now strip NULs and truncate to `OutboxEntry.MAX_LAST_ERROR_LENGTH`
+  (4096 chars, never splitting a surrogate pair), so every transport is covered. Both built-in
+  stores apply the same `OutboxEntry.sanitizeLastError` again when writing, so an entry built with
+  `copy(lastError = ...)` is covered too; custom stores should call it before writing `last_error`.
+  (#130)
+- **`HttpMessageDeliverer` no longer buffers whole response bodies, or waits on them forever.**
+  Success bodies are discarded, and only the first `HttpMessageDeliverer.MAX_ERROR_BODY_BYTES`
+  (2 KB) of an error body is kept for `lastError`. At most `MAX_DRAINED_BODY_BYTES` (64 KB) of any
+  body is read: up to that the rest is drained so the connection is reused, past it the body is
+  cancelled. Each exchange, body included, must also finish within `EXCHANGE_TIMEOUT` (30 s) or it
+  is cancelled as a `RetriableFailure`; the request timeout only covers waiting for the headers.
+  Previously every response was read fully into heap, and a server dripping its body held delivery,
+  and with it the scheduler's claim transaction, open indefinitely. (#130)
 
 ### Changed
 
