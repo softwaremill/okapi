@@ -39,8 +39,9 @@ private data class Row(val status: OutboxStatus, val retries: Int, val lastError
  * every tick, forever.
  *
  * [rejectedError] is a value this database refuses in `last_error` (over-long for MySQL's `TEXT`,
- * NUL for Postgres). The control test proves it really is rejected, so the processor test passing
- * means the value is sanitized, not that the database happened to accept it.
+ * NUL for Postgres). The control test writes it with plain JDBC, bypassing the store, to prove it
+ * really is rejected, so the other tests passing means the value is sanitized, not that the
+ * database happened to accept it.
  */
 fun FunSpec.lastErrorPoisonBatchTests(
     dbName: String,
@@ -77,10 +78,28 @@ fun FunSpec.lastErrorPoisonBatchTests(
 
     test("[$dbName] control: the database rejects the raw error value") {
         val entry = seed("poisoned")
-        val unsanitized = entry.copy(status = OutboxStatus.PENDING, retries = 1, lastError = rejectedError)
         shouldThrowAny {
-            jdbcProvider().withTransaction { storeFactory().updateAfterProcessingBatch(listOf(unsanitized)) }
+            jdbcProvider().withTransaction {
+                jdbcProvider().withConnection { conn ->
+                    conn.prepareStatement("UPDATE okapi_outbox SET last_error = ? WHERE message_type = ?").use { stmt ->
+                        stmt.setString(1, rejectedError)
+                        stmt.setString(2, entry.messageType)
+                        stmt.executeUpdate()
+                    }
+                }
+            }
         }
+    }
+
+    test("[$dbName] the store sanitizes an entry whose lastError was set without retry/toFailed") {
+        val entry = seed("poisoned")
+        val unsanitized = entry.copy(status = OutboxStatus.PENDING, retries = 1, lastError = rejectedError)
+
+        jdbcProvider().withTransaction { storeFactory().updateAfterProcessingBatch(listOf(unsanitized)) }
+
+        val stored = checkNotNull(row("poisoned").lastError)
+        stored.length shouldBeLessThanOrEqual OutboxEntry.MAX_LAST_ERROR_LENGTH
+        stored shouldNotContain "\u0000"
     }
 
     test("[$dbName] a rejected error value no longer rolls back the delivered entries of its batch") {

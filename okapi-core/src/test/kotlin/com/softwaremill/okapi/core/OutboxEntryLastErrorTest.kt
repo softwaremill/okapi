@@ -27,7 +27,7 @@ class OutboxEntryLastErrorTest : FunSpec({
             val stored = checkNotNull(updated.lastError)
             stored.length shouldBeLessThanOrEqual OutboxEntry.MAX_LAST_ERROR_LENGTH
             stored shouldStartWith "HTTP 503: xxx"
-            stored shouldEndWith "[truncated]"
+            stored shouldEndWith OutboxEntry.TRUNCATION_MARKER
         }
     }
 
@@ -42,7 +42,7 @@ class OutboxEntryLastErrorTest : FunSpec({
 
     test("truncation never splits a surrogate pair") {
         // Pad so the cut lands right after the high surrogate of an emoji.
-        val cut = OutboxEntry.MAX_LAST_ERROR_LENGTH - "... [truncated]".length
+        val cut = OutboxEntry.MAX_LAST_ERROR_LENGTH - OutboxEntry.TRUNCATION_MARKER.length
         val error = "a".repeat(cut - 1) + "😀" + "b".repeat(10_000)
         val stored = checkNotNull(entry.retry(now, error).lastError)
         stored.toCharArray().forEachIndexed { i, c ->

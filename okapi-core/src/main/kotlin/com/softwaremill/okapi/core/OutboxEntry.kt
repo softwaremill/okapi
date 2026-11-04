@@ -48,12 +48,14 @@ data class OutboxEntry(
 
     companion object {
         /**
-         * Upper bound, in UTF-16 chars, on the [lastError] that [retry] and [toFailed] store. At most
-         * 4 bytes per char in UTF-8, it stays well inside MySQL's 65,535-byte `TEXT` column.
+         * Upper bound, in UTF-16 chars, on a stored [lastError]. A UTF-16 char encodes to at most
+         * 3 bytes of UTF-8 (a 4-byte code point takes two chars), so the value is at most ~12 KB,
+         * well inside MySQL's 65,535-byte `TEXT` column.
          */
         const val MAX_LAST_ERROR_LENGTH: Int = 4096
 
-        private const val TRUNCATION_MARKER = "... [truncated]"
+        /** Appended to a [lastError] (or an HTTP error body) that was cut short. */
+        const val TRUNCATION_MARKER: String = "... [truncated]"
 
         /**
          * Makes [error] safe to persist (issue #130). Every result of a batch is written in one
@@ -64,8 +66,13 @@ data class OutboxEntry(
          * `TEXT`) and one containing NUL, which Postgres refuses in text. NULs are dropped and the
          * rest is cut to [MAX_LAST_ERROR_LENGTH], never between the two halves of a surrogate pair,
          * which MySQL would reject as an invalid string.
+         *
+         * [retry] and [toFailed] apply it, and the built-in stores apply it again when writing, so an
+         * entry built with `copy(lastError = ...)` is covered too. Custom [OutboxStore]s should call
+         * it before writing `last_error`. It is idempotent.
          */
-        internal fun sanitizeLastError(error: String): String {
+        @JvmStatic
+        fun sanitizeLastError(error: String): String {
             val withoutNul = if (error.indexOf('\u0000') >= 0) error.replace("\u0000", "") else error
             if (withoutNul.length <= MAX_LAST_ERROR_LENGTH) return withoutNul
             var end = MAX_LAST_ERROR_LENGTH - TRUNCATION_MARKER.length
