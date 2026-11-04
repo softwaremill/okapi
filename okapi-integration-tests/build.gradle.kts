@@ -11,6 +11,7 @@ dependencies {
     testImplementation(project(":okapi-http"))
     testImplementation(project(":okapi-spring-boot"))
     testImplementation(project(":okapi-micrometer"))
+    testImplementation(project(":okapi-exposed"))
 
     // Test framework
     testImplementation(libs.kotestRunnerJunit5)

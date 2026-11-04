@@ -98,6 +98,8 @@ dependencies {
     // LiquibaseDisabledNotice breadcrumb + our PTM↔DS validation cannot-verify WARN) — slf4j-simple
     // does not provide an introspectable appender.
     testImplementation(libs.logbackClassic)
+    // JtaTransactionManager (spring-tx) needs the JTA API to be built around a fake UserTransaction.
+    testImplementation(libs.jakartaTransactionApi)
     testImplementation(kotlin("test"))
 }
 

@@ -23,6 +23,33 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ### Fixed
 
+- **MySQL: the processor no longer blocks `publish()` for the duration of delivery.** Under MySQL's
+  default `REPEATABLE READ`, the claim's `FOR UPDATE SKIP LOCKED` took gap locks on the claim index;
+  with a backlog smaller than the batch, the gap ran to the end of the claimed type's range, exactly
+  where every `publish()` of that type inserts, so business transactions waited for the whole
+  HTTP/Kafka delivery and could fail with `Lock wait timeout exceeded`. On MySQL and MariaDB the scheduler
+  transaction now runs at `READ COMMITTED`, which takes no gap locks:
+  - Spring Boot: the autoconfigured `TransactionRunner` pins `READ COMMITTED` when the store is
+    `MysqlOutboxStore` and its `TransactionTemplate` leaves isolation at `DEFAULT`. It uses a copy,
+    so a user's or Boot's template bean is not mutated and its timeout/propagation/read-only
+    settings carry over; a template with an explicit isolation level is still used as-is. Pinning is
+    skipped, with a startup WARN, for PTMs that reject custom isolation levels — a
+    `JtaTransactionManager`, or a `JpaTransactionManager` without the Hibernate/EclipseLink
+    `JpaDialect` — since every tick would otherwise throw `InvalidIsolationLevelException`.
+  - `ExposedTransactionRunner(database)` uses `READ COMMITTED` when the database's dialect is MySQL or
+    MariaDB. A new `ExposedTransactionRunner(database, transactionIsolation)` constructor sets the
+    level explicitly (`null` = the database default).
+
+  Other stores and databases are unchanged: Postgres already defaults to `READ COMMITTED`. MySQL at
+  `READ COMMITTED` needs `binlog_format=ROW` or `MIXED` (see the README). (#129)
+- **A worker no longer marks rows it cannot deliver as `FAILED`.** Previously every worker claimed
+  all `PENDING` rows, so a worker without a deliverer for a row's type turned it into a permanent
+  failure. Each worker now claims only its registered delivery types, in at most two queries per
+  batch. Workers on an older version still claim every type, so publish a newly introduced type only
+  after all old processors are upgraded or stopped. Rows already marked `FAILED` are not retried
+  automatically. Cross-type claim order is no longer globally oldest first: the processor rotates
+  the starting type, and any leftover batch capacity goes to the other types alphabetically.
+  ([#116](https://github.com/softwaremill/okapi/issues/116))
 - **One unpersistable `lastError` no longer poisons its whole batch.** All results of a batch are
   written in one update inside the claim transaction, so a `last_error` value the database rejected
   rolled back the entire batch: entries that had already been delivered went back to `PENDING` with
@@ -38,6 +65,12 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ### Changed
 
+- **`ExposedTransactionRunner` on MySQL/MariaDB now overrides `DatabaseConfig.defaultIsolationLevel`.**
+  Scheduler transactions run at `READ COMMITTED` even when the application configured another default
+  isolation (e.g. `SERIALIZABLE`) for its `Database`; business transactions keep that default. Pass
+  the level you want to `ExposedTransactionRunner(database, transactionIsolation)`, or `null` to keep
+  the database default, but note that `REPEATABLE READ` or stricter brings back the `publish()`
+  blocking described under *Fixed*. (#129)
 - **`CompositeMessageDeliverer.deliverBatch`** now dispatches transport groups concurrently — one
   virtual thread per group, with the last group run on the calling thread — instead of blocking on
   each group in turn. A batch spanning N transports costs ~`max(Tᵢ)` rather than `sum(Tᵢ)`; a batch
@@ -80,6 +113,24 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   `OutboxStore`/`OutboxPublisher` operation routes through `withConnection`. Construct one
   instance per `Database`, matching `ExposedTransactionRunner` and
   `ExposedTransactionContextValidator`. ([#96](https://github.com/softwaremill/okapi/issues/96))
+- **`OutboxProcessor` requires a `RouteAwareOutboxStore`.** The processor now claims only the
+  delivery types its `OutboxEntryProcessor` handles, through the new
+  `RouteAwareOutboxStore.claimPending(deliveryTypes, limit)`; `PostgresOutboxStore` and
+  `MysqlOutboxStore` implement it. A custom `OutboxStore`, or a hand-written wrapper around a
+  built-in store, must implement `RouteAwareOutboxStore` too: otherwise `processNext` throws, and
+  Spring autoconfiguration fails at startup while the processor is enabled. `claimPending(limit)`
+  stays on `OutboxStore` for direct callers. ([#120](https://github.com/softwaremill/okapi/pull/120))
+- **`OutboxEntryProcessor.process`/`processBatch` throw `IllegalStateException` for an entry whose
+  delivery type has no registered deliverer.** Previously `CompositeMessageDeliverer` returned a
+  `PermanentFailure` and the entry was marked `FAILED`. Inside `OutboxProcessor` the exception rolls
+  the transaction back and the row stays `PENDING`; direct callers must handle the exception.
+  ([#120](https://github.com/softwaremill/okapi/pull/120))
+- **New migration `002__route_aware_claim_index`** adds a `(status, delivery_type, created_at, id)`
+  index on MySQL and a partial `(delivery_type, created_at, id) WHERE status = 'PENDING'` index on
+  PostgreSQL. The bundled Liquibase changelogs apply it automatically. If you manage the schema
+  yourself, apply it before starting updated workers: the MySQL claim uses `FORCE INDEX` and fails
+  without it, and the PostgreSQL script must run outside a transaction (`CREATE INDEX CONCURRENTLY`).
+  ([#120](https://github.com/softwaremill/okapi/pull/120))
 
 ## [1.0.0] — 2026-07-28
 
