@@ -31,6 +31,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
 import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.ResourceTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import java.time.Clock
@@ -118,6 +119,7 @@ class OutboxAutoConfiguration(
     fun okapiTransactionRunner(
         transactionManager: ObjectProvider<PlatformTransactionManager>,
         transactionTemplate: ObjectProvider<TransactionTemplate>,
+        outboxStore: ObjectProvider<OutboxStore>,
         beanFactory: BeanFactory,
     ): TransactionRunner {
         val anyTemplate = transactionTemplate.getIfUnique()
@@ -139,7 +141,8 @@ class OutboxAutoConfiguration(
         validatePtmDataSourceMatch(ptm, resolveDataSource(), okapiProperties, dataSources.size)
         // Use the supplied TT verbatim ONLY when it actually wraps the PTM we picked (preserves
         // timeout/propagation/isolation). When qualifier forced a different PTM, build a fresh TT
-        // around it — otherwise we'd run on a TT bound to the wrong PTM. NOTE: with
+        // around it — otherwise we'd run on a TT bound to the wrong PTM. Either way, on MySQL the
+        // result is pinned to READ COMMITTED when it leaves isolation at DEFAULT (withOutboxIsolation). NOTE: with
         // PROPAGATION_REQUIRED a tick joining an outer readOnly=true TX inherits that flag
         // silently — keep scheduler invocations outside @Transactional scopes to avoid FOR UPDATE
         // SKIP LOCKED failures.
@@ -164,7 +167,7 @@ class OutboxAutoConfiguration(
             }
             TransactionTemplate(ptm).apply { isReadOnly = false }
         }
-        return SpringTransactionRunner(ttToUse)
+        return SpringTransactionRunner(ttToUse.withOutboxIsolation(outboxStore.getIfUnique()))
     }
 
     @Bean
@@ -295,6 +298,84 @@ class OutboxAutoConfiguration(
 
     companion object {
         private val logger = LoggerFactory.getLogger(OutboxAutoConfiguration::class.java)
+
+        /**
+         * Pins the scheduler transaction to READ COMMITTED when [store] is a MySQL store and [this]
+         * leaves isolation at DEFAULT (issue #129). Under MySQL's default REPEATABLE READ, the claim's
+         * `FOR UPDATE SKIP LOCKED` takes gap locks on `(status, delivery_type, created_at, id)` -- SKIP
+         * LOCKED only skips record locks -- and with a backlog smaller than the batch the gap runs to the
+         * end of the claimed type's range, exactly where every `publish()` of that type inserts. Publishers then block until delivery
+         * finishes and the claim commits. READ COMMITTED takes no gap locks.
+         *
+         * Returned unchanged when:
+         * - the template sets an explicit isolation level (the user's choice wins);
+         * - the store is not MySQL: Postgres already defaults to READ COMMITTED, so pinning would buy
+         *   nothing and cost an isolation round trip per tick (a custom store wrapping MySQL is not
+         *   recognised -- give it a template with an explicit isolation level);
+         * - the PTM rejects custom isolation levels ([customIsolationUnsupportedReason]). Pinning
+         *   would make every tick throw `InvalidIsolationLevelException`, so a WARN tells the user
+         *   how to get READ COMMITTED instead.
+         *
+         * A copy rather than a mutation: the template may be the user's or Boot's shared bean, and
+         * the copy keeps its timeout/propagation/read-only settings.
+         */
+        internal fun TransactionTemplate.withOutboxIsolation(store: OutboxStore?): TransactionTemplate {
+            if (isolationLevel != TransactionDefinition.ISOLATION_DEFAULT) return this
+            if (store == null || !isInstanceOfAny(store, setOf(MYSQL_OUTBOX_STORE_CLASS))) return this
+            val ptm = checkNotNull(transactionManager) { "TransactionTemplate has no PlatformTransactionManager" }
+            customIsolationUnsupportedReason(ptm)?.let { reason ->
+                logger.warn(
+                    "okapi could not pin the scheduler transaction to READ COMMITTED: PlatformTransactionManager " +
+                        "'{}' {}. It runs at the database default instead -- on MySQL that is usually REPEATABLE " +
+                        "READ, where the claim's gap locks block concurrent publish() calls until delivery " +
+                        "finishes (issue #129). Fix: define a TransactionTemplate bean with isolationLevel = " +
+                        "ISOLATION_READ_COMMITTED (okapi uses it as-is) once the PTM accepts custom isolation " +
+                        "levels, or set transaction_isolation = 'READ-COMMITTED' on the MySQL server or in the " +
+                        "JDBC URL.",
+                    ptm.javaClass.name,
+                    reason,
+                )
+                return this
+            }
+            return TransactionTemplate(ptm, this).apply {
+                isolationLevel = TransactionDefinition.ISOLATION_READ_COMMITTED
+            }
+        }
+
+        // By name: okapi-mysql is compileOnly, so a class literal would fail to link without it.
+        private const val MYSQL_OUTBOX_STORE_CLASS = "com.softwaremill.okapi.mysql.MysqlOutboxStore"
+
+        private const val JTA_PTM_CLASS = "org.springframework.transaction.jta.JtaTransactionManager"
+        private const val JPA_PTM_CLASS = "org.springframework.orm.jpa.JpaTransactionManager"
+
+        // JpaDialects whose beginTransaction applies a custom isolation level; Spring's
+        // DefaultJpaDialect (and so any JpaTransactionManager without a vendor dialect) rejects it.
+        private val ISOLATION_CAPABLE_JPA_DIALECTS = setOf(
+            "org.springframework.orm.jpa.vendor.HibernateJpaDialect",
+            "org.springframework.orm.jpa.vendor.EclipseLinkJpaDialect",
+        )
+
+        /**
+         * Why [ptm] would throw `InvalidIsolationLevelException` on a non-DEFAULT isolation level, or
+         * `null` if it accepts one. Checked by class name so spring-orm stays optional.
+         *
+         * `JtaTransactionManager` rejects custom levels unless `allowCustomIsolationLevels` is set,
+         * which has no public getter -- so JTA is always treated as unsupported; a user who enabled
+         * it can supply a template with an explicit level.
+         */
+        internal fun customIsolationUnsupportedReason(ptm: PlatformTransactionManager): String? = when {
+            isInstanceOfAny(ptm, setOf(JTA_PTM_CLASS)) ->
+                "is a JtaTransactionManager, which rejects custom isolation levels unless allowCustomIsolationLevels is set"
+            isInstanceOfAny(ptm, setOf(JPA_PTM_CLASS)) -> {
+                val dialect = ptm.javaClass.getMethod("getJpaDialect").invoke(ptm)
+                if (dialect != null && isInstanceOfAny(dialect, ISOLATION_CAPABLE_JPA_DIALECTS)) {
+                    null
+                } else {
+                    "is a JpaTransactionManager with JpaDialect '${dialect?.javaClass?.name}', which rejects custom isolation levels"
+                }
+            }
+            else -> null
+        }
 
         internal fun resolveDataSource(
             dataSources: Map<String, DataSource>,
@@ -481,14 +562,16 @@ class OutboxAutoConfiguration(
             "org.springframework.orm.hibernate5.HibernateTransactionManager",
         )
 
-        // Walk the superclass chain (not just `ptm.javaClass.name`) so user-defined subclasses
-        // of `JpaTransactionManager` / `HibernateTransactionManager` are also recognised. Reads
+        private fun isJpaHibernatePtm(ptm: PlatformTransactionManager): Boolean = isInstanceOfAny(ptm, JPA_HIBERNATE_PTM_CLASSES)
+
+        // Walk the superclass chain (not just `obj.javaClass.name`) so user-defined subclasses
+        // (e.g. of `JpaTransactionManager` / `HibernateTransactionManager`) are also recognised. Reads
         // `.name` / `.superclass` on the already-loaded hierarchy only — no `Class.forName`, so
-        // the "no hard spring-orm compile dependency" constraint is preserved.
-        private fun isJpaHibernatePtm(ptm: PlatformTransactionManager): Boolean {
-            var c: Class<*>? = ptm.javaClass
+        // the "no hard spring-orm / okapi-mysql compile dependency" constraint is preserved.
+        private fun isInstanceOfAny(obj: Any, classNames: Set<String>): Boolean {
+            var c: Class<*>? = obj.javaClass
             while (c != null) {
-                if (c.name in JPA_HIBERNATE_PTM_CLASSES) return true
+                if (c.name in classNames) return true
                 c = c.superclass
             }
             return false
