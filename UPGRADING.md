@@ -3,6 +3,21 @@
 This guide contains actions required when upgrading between incompatible okapi versions.
 For the full release history, see [CHANGELOG.md](CHANGELOG.md).
 
+## From 1.x to 2.0.0
+
+### MySQL: `DATETIME(6)` timestamp columns (#138)
+
+Changeset `003__datetime_columns` converts `created_at`, `updated_at` and `last_attempt` from
+`TIMESTAMP(6)` to `DATETIME(6)` holding UTC. With the bundled Liquibase changelog it runs
+automatically at startup; otherwise apply
+[`003__datetime_columns.sql`](okapi-mysql/src/main/resources/com/softwaremill/okapi/db/mysql/003__datetime_columns.sql)
+yourself, **including its `SET time_zone` statements**, before starting 2.0.0 workers.
+
+- The `ALTER TABLE` rebuilds `okapi_outbox` and blocks writes to it, including `publish()`, until
+  it finishes. Purge delivered rows first or schedule it for a quiet period on a large table.
+- Queries or dashboards that read these columns directly now get UTC wall-clock values, not values
+  converted to the session time zone.
+
 ## From 0.2.x to 1.0.0
 
 Releases up to 0.2.x used the domain table `outbox` and the shared Liquibase tracking

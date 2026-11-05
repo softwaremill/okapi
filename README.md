@@ -213,14 +213,14 @@ okapi ships Liquibase changelogs that create its table and indexes:
 
 With `okapi-spring-boot` and Liquibase on the classpath, these run automatically against the configured `DataSource` at startup, tracked in dedicated Liquibase tables by default to avoid conflicts with the application's migration history.
 
-If you use another migration tool, apply both SQL migrations for your database in order:
+If you use another migration tool, apply every SQL migration for your database, in order:
 
-| Database | 001: table and initial indexes | 002: route-aware claim index |
-|---|---|---|
-| PostgreSQL | [001 SQL](okapi-postgres/src/main/resources/com/softwaremill/okapi/db/postgres/001__create_okapi_outbox_table.sql) | [002 SQL](okapi-postgres/src/main/resources/com/softwaremill/okapi/db/postgres/002__route_aware_claim_index.sql) |
-| MySQL | [001 SQL](okapi-mysql/src/main/resources/com/softwaremill/okapi/db/mysql/001__create_okapi_outbox_table.sql) | [002 SQL](okapi-mysql/src/main/resources/com/softwaremill/okapi/db/mysql/002__route_aware_claim_index.sql) |
+- **PostgreSQL:** [001](okapi-postgres/src/main/resources/com/softwaremill/okapi/db/postgres/001__create_okapi_outbox_table.sql) table and initial indexes, [002](okapi-postgres/src/main/resources/com/softwaremill/okapi/db/postgres/002__route_aware_claim_index.sql) route-aware claim index
+- **MySQL:** [001](okapi-mysql/src/main/resources/com/softwaremill/okapi/db/mysql/001__create_okapi_outbox_table.sql) table and initial indexes, [002](okapi-mysql/src/main/resources/com/softwaremill/okapi/db/mysql/002__route_aware_claim_index.sql) route-aware claim index, [003](okapi-mysql/src/main/resources/com/softwaremill/okapi/db/mysql/003__datetime_columns.sql) `DATETIME(6)` timestamp columns
 
 For an existing installation, apply `002` before starting updated workers. MySQL claims explicitly select the new index and fail if it is missing. PostgreSQL's `002` uses `CREATE INDEX CONCURRENTLY`, so run it outside a transaction when using another migration tool. The bundled Liquibase changelog handles this automatically. `CREATE INDEX CONCURRENTLY` waits for every transaction in the database that started before it, not only those on `okapi_outbox`, so long-running transactions (including old workers delivering a claimed batch) delay it, and with Liquibase they delay application startup while the changelog lock is held. Run it when no long transactions are open, or apply it ahead of the rollout.
+
+MySQL's `003` converts the timestamp columns from `TIMESTAMP(6)`, which ends in January 2038, to `DATETIME(6)` holding UTC. It rebuilds the table, so writes to `okapi_outbox`, including `publish()`, wait until it finishes; on a large table, purge delivered rows first or apply it in a maintenance window. Apply it before starting updated workers: they read and write the columns as UTC `DATETIME` values.
 
 okapi stores messages in the fixed `okapi_outbox` table. When the built-in Liquibase integration is used, it also uses two dedicated migration tracking tables:
 

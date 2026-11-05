@@ -138,6 +138,16 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   yourself, apply it before starting updated workers: the MySQL claim uses `FORCE INDEX` and fails
   without it, and the PostgreSQL script must run outside a transaction (`CREATE INDEX CONCURRENTLY`).
   ([#120](https://github.com/softwaremill/okapi/pull/120))
+- **MySQL: timestamp columns are `DATETIME(6)` in UTC (new migration `003__datetime_columns`).**
+  `created_at`, `updated_at` and `last_attempt` were `TIMESTAMP(6)`, which cannot hold anything
+  after `2038-01-19 03:14:07 UTC`; from then on every `publish()` would fail. The migration converts
+  existing values without shifting them (it pins the session to UTC for the conversion) and drops the
+  `CURRENT_TIMESTAMP` column defaults, which okapi never relied on. `MysqlOutboxStore` now binds and
+  reads these columns as UTC `LocalDateTime`, so stored values no longer depend on the JVM time zone,
+  the session `time_zone` or Connector/J's `connectionTimeZone`/`preserveInstants`. The migration
+  rebuilds the table and blocks writes to it while it runs; apply it before starting updated workers.
+  Anything else reading these columns directly must now treat them as UTC wall-clock values.
+  ([#138](https://github.com/softwaremill/okapi/issues/138))
 
 ## [1.0.0] — 2026-07-28
 
