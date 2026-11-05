@@ -152,6 +152,18 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   copies. Anything else reading these columns directly must now treat them as UTC wall-clock values.
   See UPGRADING.md.
   ([#138](https://github.com/softwaremill/okapi/issues/138))
+- **PostgreSQL: timestamp columns are `TIMESTAMPTZ` (new migration `003__timestamptz_columns`).**
+  `created_at`, `updated_at` and `last_attempt` were `TIMESTAMP WITHOUT TIME ZONE`, and pgjdbc
+  renders a `java.sql.Timestamp` in the JVM default zone, so each row held the writing JVM's local
+  wall-clock time. In a fleet whose JVMs ran in different zones, or across a DST fall-back hour,
+  claim ordering, the lag gauge and the purger's retention cutoff were off by hours. The migration
+  converts existing values using the session `TimeZone`, which pgjdbc sets to the JVM default zone,
+  so the bundled Liquibase changelog keeps them correct when it runs inside the application; apply
+  it by hand only after `SET TIME ZONE '<your JVM zone>'`. `PostgresOutboxStore` now binds and reads
+  these columns as `OffsetDateTime`. The migration takes an `ACCESS EXCLUSIVE` lock (waiting at most
+  30 s for it, then failing and retrying on the next start) and, unless the session zone is UTC,
+  rewrites the table. 1.x instances keep working against the migrated columns. Rows written during a fall-back hour by a non-UTC JVM were
+  already ambiguous and may stay an hour off. ([#135](https://github.com/softwaremill/okapi/issues/135))
 
 ## [1.0.0] — 2026-07-28
 

@@ -7,9 +7,10 @@ import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.RouteAwareOutboxStore
 import java.sql.PreparedStatement
 import java.sql.ResultSet
-import java.sql.Timestamp
 import java.sql.Types
 import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.util.UUID
 
 /** PostgreSQL [OutboxStore] implementation using plain JDBC. */
@@ -25,17 +26,10 @@ class PostgresOutboxStore(
                 stmt.setString(3, entry.payload)
                 stmt.setString(4, entry.deliveryType)
                 stmt.setString(5, entry.status.name)
-                stmt.setTimestamp(6, Timestamp.from(entry.createdAt))
-                stmt.setTimestamp(7, Timestamp.from(entry.updatedAt))
+                stmt.setInstant(6, entry.createdAt)
+                stmt.setInstant(7, entry.updatedAt)
                 stmt.setInt(8, entry.retries)
-                if (entry.lastAttempt != null) {
-                    stmt.setTimestamp(
-                        9,
-                        Timestamp.from(entry.lastAttempt),
-                    )
-                } else {
-                    stmt.setNull(9, Types.TIMESTAMP)
-                }
+                stmt.setInstant(9, entry.lastAttempt)
                 val lastError = entry.lastError
                 if (lastError != null) stmt.setString(10, OutboxEntry.sanitizeLastError(lastError)) else stmt.setNull(10, Types.VARCHAR)
                 stmt.setString(11, entry.deliveryMetadata)
@@ -113,7 +107,7 @@ class PostgresOutboxStore(
         return connectionProvider.withConnection { conn ->
             conn.prepareStatement(sql).use { stmt ->
                 stmt.setString(1, OutboxStatus.DELIVERED.name)
-                stmt.setTimestamp(2, Timestamp.from(time))
+                stmt.setInstant(2, time)
                 stmt.setInt(3, limit)
                 stmt.executeUpdate()
             }
@@ -133,7 +127,7 @@ class PostgresOutboxStore(
                 stmt.executeQuery().use { rs ->
                     while (rs.next()) {
                         val s = OutboxStatus.from(rs.getString("status"))
-                        result[s] = rs.getTimestamp("min_created_at").toInstant()
+                        result[s] = checkNotNull(rs.getInstant("min_created_at"))
                     }
                 }
             }
@@ -176,31 +170,37 @@ class PostgresOutboxStore(
         payload = getString("payload"),
         deliveryType = getString("delivery_type"),
         status = OutboxStatus.from(getString("status")),
-        createdAt = getTimestamp("created_at").toInstant(),
-        updatedAt = getTimestamp("updated_at").toInstant(),
+        createdAt = checkNotNull(getInstant("created_at")),
+        updatedAt = checkNotNull(getInstant("updated_at")),
         retries = getInt("retries"),
-        lastAttempt = getTimestamp("last_attempt")?.toInstant(),
+        lastAttempt = getInstant("last_attempt"),
         lastError = getString("last_error"),
         deliveryMetadata = getString("delivery_metadata"),
     )
 
     private fun PreparedStatement.prepareForUpdateFrom(entry: OutboxEntry): PreparedStatement {
         setString(1, entry.status.name)
-        setTimestamp(2, Timestamp.from(entry.updatedAt))
+        setInstant(2, entry.updatedAt)
         setInt(3, entry.retries)
-        if (entry.lastAttempt != null) {
-            setTimestamp(
-                4,
-                Timestamp.from(entry.lastAttempt),
-            )
-        } else {
-            setNull(4, Types.TIMESTAMP)
-        }
+        setInstant(4, entry.lastAttempt)
         val lastError = entry.lastError
         if (lastError != null) setString(5, OutboxEntry.sanitizeLastError(lastError)) else setNull(5, Types.VARCHAR)
         setObject(6, entry.outboxId.raw)
         return this
     }
+
+    // The TIMESTAMPTZ columns hold instants (issue #135). pgjdbc binds an OffsetDateTime as timestamptz
+    // with its offset, unlike java.sql.Timestamp, which it renders as the JVM zone's wall-clock time --
+    // so stored values no longer depend on the JVM or session time zone.
+    private fun PreparedStatement.setInstant(index: Int, instant: Instant?) {
+        if (instant != null) {
+            setObject(index, OffsetDateTime.ofInstant(instant, ZoneOffset.UTC))
+        } else {
+            setNull(index, Types.TIMESTAMP_WITH_TIMEZONE)
+        }
+    }
+
+    private fun ResultSet.getInstant(column: String): Instant? = getObject(column, OffsetDateTime::class.java)?.toInstant()
 
     companion object {
         private val insertSql = """
