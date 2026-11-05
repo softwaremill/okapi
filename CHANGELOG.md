@@ -144,9 +144,13 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   existing values without shifting them (it pins the session to UTC for the conversion) and drops the
   `CURRENT_TIMESTAMP` column defaults, which okapi never relied on. `MysqlOutboxStore` now binds and
   reads these columns as UTC `LocalDateTime`, so stored values no longer depend on the JVM time zone,
-  the session `time_zone` or Connector/J's `connectionTimeZone`/`preserveInstants`. The migration
-  rebuilds the table and blocks writes to it while it runs; apply it before starting updated workers.
-  Anything else reading these columns directly must now treat them as UTC wall-clock values.
+  the session `time_zone` or Connector/J's `connectionTimeZone`/`preserveInstants`. Stop every 1.x
+  instance, publishers included, before the migration runs (1.x writes these columns in the JVM
+  zone), and drain the outbox first if your JVMs and MySQL session ran in different zones: rows 1.x
+  wrote then were stored shifted by the difference. The migration copies the table, waits at most
+  30 s for a metadata lock (then fails and retries on the next start) and blocks writes while it
+  copies. Anything else reading these columns directly must now treat them as UTC wall-clock values.
+  See UPGRADING.md.
   ([#138](https://github.com/softwaremill/okapi/issues/138))
 
 ## [1.0.0] — 2026-07-28

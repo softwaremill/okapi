@@ -41,6 +41,12 @@ class MysqlDatetimeMigrationTest : FunSpec({
 
     test("changeset 003 keeps existing instants and restores the session time zone") {
         offsetSessionConnection().use { conn ->
+            val defaultLockWaitTimeout = conn.createStatement().use { stmt ->
+                stmt.executeQuery("SELECT @@session.lock_wait_timeout").use { rs ->
+                    rs.next()
+                    rs.getLong(1)
+                }
+            }
             val liquibase =
                 Liquibase(
                     CHANGELOG,
@@ -63,14 +69,40 @@ class MysqlDatetimeMigrationTest : FunSpec({
             liquibase.update("")
 
             conn.createStatement().use { stmt ->
-                stmt.executeQuery(
-                    "SELECT @@session.time_zone AS tz, DATA_TYPE AS t FROM information_schema.COLUMNS " +
-                        "WHERE TABLE_NAME = 'okapi_outbox' AND COLUMN_NAME = 'created_at'",
-                ).use { rs ->
+                stmt.executeQuery("SELECT @@session.time_zone AS tz, @@session.lock_wait_timeout AS lwt").use { rs ->
                     rs.next()
                     rs.getString("tz") shouldBe "+05:00"
-                    rs.getString("t") shouldBe "datetime"
+                    rs.getLong("lwt") shouldBe defaultLockWaitTimeout
                 }
+                val columns = stmt.executeQuery(
+                    """
+                    SELECT COLUMN_NAME, DATA_TYPE, DATETIME_PRECISION, IS_NULLABLE, COLUMN_DEFAULT, EXTRA
+                    FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'okapi_outbox'
+                      AND COLUMN_NAME IN ('created_at', 'updated_at', 'last_attempt')
+                    ORDER BY COLUMN_NAME
+                    """.trimIndent(),
+                ).use { rs ->
+                    generateSequence {
+                        if (rs.next()) {
+                            listOf(
+                                rs.getString("COLUMN_NAME"),
+                                rs.getString("DATA_TYPE"),
+                                rs.getInt("DATETIME_PRECISION").toString(),
+                                rs.getString("IS_NULLABLE"),
+                                rs.getString("COLUMN_DEFAULT") ?: "null",
+                                rs.getString("EXTRA"),
+                            ).joinToString("|")
+                        } else {
+                            null
+                        }
+                    }.toList()
+                }
+                columns shouldBe listOf(
+                    "created_at|datetime|6|NO|null|",
+                    "last_attempt|datetime|6|YES|null|",
+                    "updated_at|datetime|6|NO|null|",
+                )
             }
         }
 

@@ -13,8 +13,25 @@ automatically at startup; otherwise apply
 [`003__datetime_columns.sql`](okapi-mysql/src/main/resources/com/softwaremill/okapi/db/mysql/003__datetime_columns.sql)
 yourself, **including its `SET time_zone` statements**, before starting 2.0.0 workers.
 
-- The `ALTER TABLE` rebuilds `okapi_outbox` and blocks writes to it, including `publish()`, until
-  it finishes. Purge delivered rows first or schedule it for a quiet period on a large table.
+- **Stop every 1.x instance, publishers included, before 003 runs.** 1.x binds these columns as
+  `java.sql.Timestamp`, which Connector/J shifts into the JVM (or `connectionTimeZone`) zone. Against
+  `DATETIME` columns a 1.x instance on a non-UTC JVM writes local wall-clock time instead of UTC and
+  misreads rows written by 2.0. A rolling deploy that mixes the two is only safe if every 1.x JVM
+  runs in UTC.
+- **Rows written by 1.x may read back shifted if the JVM and MySQL zones differed.** Without
+  `connectionTimeZone`, 1.x sent `Timestamp`s as JVM-local wall-clock time and MySQL interpreted them
+  in the session `time_zone`; when the two zones differed, the stored instant was off by the
+  difference, and 1.x reading it back undid the shift. 003 converts what is actually stored, so 2.0
+  reads such rows off by that difference: old `PENDING` rows sort out of order, the lag gauge is skewed
+  and old `DELIVERED` rows are purged early or late. If your JVMs and MySQL session ran in different
+  zones, drain the outbox (let every `PENDING` row be delivered) before upgrading.
+- **Locking.** The `ALTER TABLE` copies `okapi_outbox` (`ALGORITHM=COPY, LOCK=SHARED`). Before it
+  starts it waits for a metadata lock behind every open transaction on the table, such as a 1.x worker
+  delivering a claimed batch, and while it waits every new statement on the table, reads included,
+  queues behind it. The changeset bounds that wait with `lock_wait_timeout = 30` seconds; on timeout
+  the migration fails and runs again on the next start. During the copy, writes, including
+  `publish()`, wait. Stop the workers first, and purge delivered rows or pick a quiet period on a
+  large table.
 - Queries or dashboards that read these columns directly now get UTC wall-clock values, not values
   converted to the session time zone.
 
