@@ -36,7 +36,8 @@ class MysqlOutboxStore(
                 } else {
                     stmt.setNull(9, Types.TIMESTAMP)
                 }
-                if (entry.lastError != null) stmt.setString(10, entry.lastError) else stmt.setNull(10, Types.VARCHAR)
+                val lastError = entry.lastError
+                if (lastError != null) stmt.setString(10, OutboxEntry.sanitizeLastError(lastError)) else stmt.setNull(10, Types.VARCHAR)
                 stmt.setString(11, entry.deliveryMetadata)
                 stmt.executeUpdate()
             }
@@ -205,7 +206,8 @@ class MysqlOutboxStore(
         } else {
             setNull(4, Types.TIMESTAMP)
         }
-        if (entry.lastError != null) setString(5, entry.lastError) else setNull(5, Types.VARCHAR)
+        val lastError = entry.lastError
+        if (lastError != null) setString(5, OutboxEntry.sanitizeLastError(lastError)) else setNull(5, Types.VARCHAR)
         // CHAR(36) column — MySQL has no native UUID type, so the id travels as a string.
         setString(6, entry.outboxId.raw.toString())
         return this

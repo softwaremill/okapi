@@ -14,8 +14,14 @@ import com.softwaremill.okapi.core.OutboxMessage
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.datatest.WithDataTestName
 import io.kotest.datatest.withTests
+import io.kotest.matchers.ints.shouldBeLessThanOrEqual
+import io.kotest.matchers.longs.shouldBeLessThan
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldEndWith
+import io.kotest.matchers.string.shouldStartWith
 import io.kotest.matchers.types.shouldBeInstanceOf
+import java.net.http.HttpClient
+import java.time.Duration
 import java.time.Instant
 import kotlin.reflect.KClass
 
@@ -131,5 +137,78 @@ class HttpMessageDelivererTest : FunSpec({
         val throwingResolver = ServiceUrlResolver { name -> error("Unknown service: $name") }
         val d = HttpMessageDeliverer(throwingResolver)
         d.deliver(entry()).shouldBeInstanceOf<DeliveryResult.PermanentFailure>()
+    }
+
+    context("response bodies are bounded (#130)") {
+        val hugeErrorPage = "<html>" + "x".repeat(1_000_000) + "</html>"
+        val maxErrorLength = "HTTP 503: ".length + HttpMessageDeliverer.MAX_ERROR_BODY_BYTES + OutboxEntry.TRUNCATION_MARKER.length
+
+        test("deliver() keeps only MAX_ERROR_BODY_BYTES of an error body") {
+            wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(503).withBody(hugeErrorPage)))
+            val error = deliverer.deliver(entry()).shouldBeInstanceOf<DeliveryResult.RetriableFailure>().error
+            error shouldStartWith "HTTP 503: <html>xxx"
+            error shouldEndWith OutboxEntry.TRUNCATION_MARKER
+            error.length shouldBeLessThanOrEqual maxErrorLength
+        }
+
+        test("deliverBatch() keeps only MAX_ERROR_BODY_BYTES of an error body") {
+            wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(400).withBody(hugeErrorPage)))
+            val outcomes = deliverer.deliverBatch(listOf(entry(), entry()))
+            outcomes.forEach { outcome ->
+                val error = outcome.result.shouldBeInstanceOf<DeliveryResult.PermanentFailure>().error
+                error shouldEndWith OutboxEntry.TRUNCATION_MARKER
+                error.length shouldBeLessThanOrEqual maxErrorLength
+            }
+        }
+
+        test("a short error body is kept whole") {
+            wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(500).withBody("Internal Server Error")))
+            deliverer.deliver(entry()) shouldBe DeliveryResult.RetriableFailure("HTTP 500: Internal Server Error")
+        }
+
+        test("a large success body is discarded and still counts as Success") {
+            wiremock.stubFor(post(urlEqualTo("/test")).willReturn(aResponse().withStatus(200).withBody(hugeErrorPage)))
+            deliverer.deliver(entry()) shouldBe DeliveryResult.Success
+            deliverer.deliverBatch(listOf(entry())).single().result shouldBe DeliveryResult.Success
+        }
+
+        fun elapsedMillis(block: () -> Unit): Long {
+            val start = System.nanoTime()
+            block()
+            return (System.nanoTime() - start) / 1_000_000
+        }
+
+        test("a slow body is not read past MAX_DRAINED_BODY_BYTES") {
+            // 1 MB in 100 chunks over 20 s: reading it all would take 20 s, the read cap is hit in ~1.5 s.
+            wiremock.stubFor(
+                post(urlEqualTo("/test")).willReturn(
+                    aResponse().withStatus(200).withBody(hugeErrorPage).withChunkedDribbleDelay(100, 20_000),
+                ),
+            )
+            elapsedMillis { deliverer.deliver(entry()) shouldBe DeliveryResult.Success } shouldBeLessThan 10_000
+            elapsedMillis {
+                deliverer.deliverBatch(listOf(entry())).single().result shouldBe DeliveryResult.Success
+            } shouldBeLessThan 10_000
+        }
+
+        test("an exchange whose body outlasts the exchange timeout is cancelled as a RetriableFailure") {
+            // A small error body dripped over 20 s: under the read cap, so only the deadline stops it.
+            wiremock.stubFor(
+                post(urlEqualTo("/test")).willReturn(
+                    aResponse().withStatus(503).withBody("x".repeat(1_000)).withChunkedDribbleDelay(20, 20_000),
+                ),
+            )
+            val impatient = HttpMessageDeliverer(
+                ServiceUrlResolver { "http://localhost:${wiremock.port()}" },
+                HttpClient.newHttpClient(),
+                HttpMessageDeliverer.DEFAULT_RETRIABLE_STATUS_CODES,
+                Duration.ofSeconds(1),
+            )
+            val expected = DeliveryResult.RetriableFailure("HTTP exchange did not complete within PT1S")
+            elapsedMillis { impatient.deliver(entry()) shouldBe expected } shouldBeLessThan 10_000
+            elapsedMillis {
+                impatient.deliverBatch(listOf(entry(), entry())).map { it.result } shouldBe listOf(expected, expected)
+            } shouldBeLessThan 10_000
+        }
     }
 })
