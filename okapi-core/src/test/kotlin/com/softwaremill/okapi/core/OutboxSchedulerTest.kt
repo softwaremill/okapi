@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 class OutboxSchedulerTest : FunSpec({
 
-    test("tick calls processNext with configured batchSize") {
+    test("tick calls processBatch with configured batchSize") {
         var capturedLimit: Int? = null
         val latch = CountDownLatch(1)
         val processor = stubProcessor { limit ->

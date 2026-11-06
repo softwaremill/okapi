@@ -1,5 +1,6 @@
 package com.softwaremill.okapi.core
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainExactly
@@ -39,8 +40,8 @@ private class RecordingListener(private val log: MutableList<String>, private va
     }
 }
 
-private fun processor(listener: OutboxProcessorListener) = OutboxProcessor(
-    store = OneEntryPerClaimStore(),
+private fun processor(listener: OutboxProcessorListener, store: RouteAwareOutboxStore = OneEntryPerClaimStore()) = OutboxProcessor(
+    store = store,
     entryProcessor = OutboxEntryProcessor(
         object : MessageDeliverer {
             override val type = "stub"
@@ -112,5 +113,62 @@ class ListenerAfterCommitTest : FunSpec({
         scheduler.stop()
 
         log.shouldBeEmpty()
+    }
+
+    test("a runner that retries the block, as Exposed does on SQLException, publishes one set of events") {
+        val log = Collections.synchronizedList(mutableListOf<String>())
+        val batchSeen = CountDownLatch(1)
+        val retryingRunner = object : TransactionRunner {
+            override fun <T> runInTransaction(block: () -> T): T {
+                block() // first attempt: its commit fails and it is rolled back
+                log += "rollback"
+                return block().also { log += "commit" }
+            }
+        }
+        val scheduler = OutboxScheduler(
+            processor(RecordingListener(log) { batchSeen.countDown() }),
+            retryingRunner,
+            OutboxSchedulerConfig(interval = Duration.ofMinutes(1)),
+        )
+
+        scheduler.start()
+        batchSeen.await(5, TimeUnit.SECONDS) shouldBe true
+        scheduler.stop()
+
+        log.take(4) shouldContainExactly listOf("rollback", "commit", "entry:Delivered", "batch:1")
+    }
+
+    test("a processBatch that throws publishes nothing") {
+        val log = Collections.synchronizedList(mutableListOf<String>())
+        val ticks = CountDownLatch(2)
+        val failingStore = object : RouteAwareOutboxStore by OneEntryPerClaimStore() {
+            override fun updateAfterProcessingBatch(entries: List<OutboxEntry>): List<OutboxEntry> {
+                ticks.countDown()
+                throw IllegalStateException("update failed")
+            }
+        }
+        val scheduler = OutboxScheduler(
+            processor(RecordingListener(log), failingStore),
+            object : TransactionRunner {
+                override fun <T> runInTransaction(block: () -> T): T = block()
+            },
+            OutboxSchedulerConfig(interval = Duration.ofMillis(20)),
+        )
+
+        scheduler.start()
+        ticks.await(5, TimeUnit.SECONDS) shouldBe true
+        scheduler.stop()
+
+        log.shouldBeEmpty()
+    }
+
+    test("a batch's events can be published only once") {
+        val log = mutableListOf<String>()
+        val processor = processor(RecordingListener(log))
+        val batch = processor.processBatch(10)
+
+        processor.publishEvents(batch)
+        shouldThrow<IllegalStateException> { processor.publishEvents(batch) }
+        log shouldContainExactly listOf("entry:Delivered", "batch:1")
     }
 })

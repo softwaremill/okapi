@@ -59,7 +59,7 @@ class CompositeMessageDeliverer @JvmOverloads constructor(
      * satisfy that opt out via [TransportDispatch.SEQUENTIAL].
      *
      * The outbox transaction is open across delivery, and stays that way: the scheduler wraps the
-     * whole [OutboxProcessor.processNext] cycle — claim, deliver, update — in one transaction, so
+     * whole [OutboxProcessor.processBatch] cycle — claim, deliver, update — in one transaction, so
      * that `FOR UPDATE SKIP LOCKED` holds its row locks until the results are written. What this
      * dispatch changes is which thread the transport runs on, not that scope. The store round-trips
      * still run on the calling thread inside the transaction, but a group handed to a virtual
