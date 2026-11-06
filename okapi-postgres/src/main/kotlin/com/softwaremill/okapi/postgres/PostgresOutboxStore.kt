@@ -33,6 +33,7 @@ class PostgresOutboxStore(
                 val lastError = entry.lastError
                 if (lastError != null) stmt.setString(10, OutboxEntry.sanitizeLastError(lastError)) else stmt.setNull(10, Types.VARCHAR)
                 stmt.setString(11, entry.deliveryMetadata)
+                stmt.setInstant(12, entry.nextAttemptAt)
                 stmt.executeUpdate()
             }
         }
@@ -59,15 +60,17 @@ class PostgresOutboxStore(
         }
     }
 
-    override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> {
+    override fun claimPending(deliveryTypes: Set<String>, limit: Int, now: Instant): List<OutboxEntry> {
         if (deliveryTypes.isEmpty() || limit <= 0) return emptyList()
         val routes = deliveryTypes.sorted()
         val placeholders = routes.joinToString(",") { "?" }
-        // Keep PENDING literal so a generic prepared plan can use the partial index.
+        // Keep PENDING literal so a generic prepared plan can use the partial index. Walking
+        // (delivery_type, next_attempt_at, id) up to `now` skips entries still backing off without
+        // scanning them, however many there are.
         val sql = """
             SELECT * FROM okapi_outbox
-            WHERE status = 'PENDING' AND delivery_type IN ($placeholders)
-            ORDER BY delivery_type ASC, created_at ASC, id ASC
+            WHERE status = 'PENDING' AND delivery_type IN ($placeholders) AND next_attempt_at <= ?
+            ORDER BY delivery_type ASC, next_attempt_at ASC, id ASC
             LIMIT ?
             FOR UPDATE SKIP LOCKED
         """.trimIndent()
@@ -75,7 +78,8 @@ class PostgresOutboxStore(
         return connectionProvider.withConnection { conn ->
             conn.prepareStatement(sql).use { stmt ->
                 routes.forEachIndexed { index, route -> stmt.setString(index + 1, route) }
-                stmt.setInt(routes.size + 1, limit)
+                stmt.setInstant(routes.size + 1, now)
+                stmt.setInt(routes.size + 2, limit)
                 stmt.executeQuery().use { rs ->
                     generateSequence { if (rs.next()) rs.toOutboxEntry() else null }.toList()
                 }
@@ -176,6 +180,7 @@ class PostgresOutboxStore(
         lastAttempt = getInstant("last_attempt"),
         lastError = getString("last_error"),
         deliveryMetadata = getString("delivery_metadata"),
+        nextAttemptAt = checkNotNull(getInstant("next_attempt_at")),
     )
 
     private fun PreparedStatement.prepareForUpdateFrom(entry: OutboxEntry): PreparedStatement {
@@ -185,7 +190,8 @@ class PostgresOutboxStore(
         setInstant(4, entry.lastAttempt)
         val lastError = entry.lastError
         if (lastError != null) setString(5, OutboxEntry.sanitizeLastError(lastError)) else setNull(5, Types.VARCHAR)
-        setObject(6, entry.outboxId.raw)
+        setInstant(6, entry.nextAttemptAt)
+        setObject(7, entry.outboxId.raw)
         return this
     }
 
@@ -204,20 +210,21 @@ class PostgresOutboxStore(
 
     companion object {
         private val insertSql = """
-            INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata)
-            VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+            INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata, next_attempt_at)
+            VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
             ON CONFLICT (id) DO UPDATE SET
                 status = EXCLUDED.status,
                 updated_at = EXCLUDED.updated_at,
                 retries = EXCLUDED.retries,
                 last_attempt = EXCLUDED.last_attempt,
                 last_error = EXCLUDED.last_error,
-                delivery_metadata = EXCLUDED.delivery_metadata
+                delivery_metadata = EXCLUDED.delivery_metadata,
+                next_attempt_at = EXCLUDED.next_attempt_at
         """.trimIndent()
 
         private val updateSql = """
             UPDATE okapi_outbox
-            SET status = ?, updated_at = ?, retries = ?, last_attempt = ?, last_error = ?
+            SET status = ?, updated_at = ?, retries = ?, last_attempt = ?, last_error = ?, next_attempt_at = ?
             WHERE id = ?
         """.trimIndent()
     }

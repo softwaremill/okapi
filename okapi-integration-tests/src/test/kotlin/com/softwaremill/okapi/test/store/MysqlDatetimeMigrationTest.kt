@@ -61,7 +61,9 @@ class MysqlDatetimeMigrationTest : FunSpec({
                     """
                     INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, delivery_metadata)
                     VALUES ('00000000-0000-0000-0000-000000000001', 'm', '{}', 'http', 'PENDING',
-                            '2024-06-01 17:00:00.250000', '2024-06-01 17:00:01', 1, '2024-06-01 17:00:02', '{}')
+                            '2024-06-01 17:00:00.250000', '2024-06-01 17:00:01', 1, '2024-06-01 17:00:02', '{}'),
+                           ('00000000-0000-0000-0000-000000000002', 'm', '{}', 'http', 'FAILED',
+                            '2024-06-01 16:00:00', '2024-06-01 16:00:01', 5, '2024-06-01 16:00:02', '{}')
                     """.trimIndent(),
                 )
             }
@@ -113,10 +115,28 @@ class MysqlDatetimeMigrationTest : FunSpec({
                 setPassword(container.password)
             },
         )
-        val entry = jdbc.withTransaction { MysqlOutboxStore(jdbc).claimPending(10) }.single()
+        val store = MysqlOutboxStore(jdbc)
+        // The route-aware claim, which only returns rows whose next_attempt_at (backfilled by 004) is due.
+        val entry = jdbc.withTransaction { store.claimPending(setOf("http"), 10, Instant.now()) }.single()
         entry.createdAt shouldBe Instant.parse("2024-06-01T12:00:00.25Z")
         entry.updatedAt shouldBe Instant.parse("2024-06-01T12:00:01Z")
         entry.lastAttempt shouldBe Instant.parse("2024-06-01T12:00:02Z")
+        entry.nextAttemptAt shouldBe entry.createdAt
         entry.status shouldBe OutboxStatus.PENDING
+
+        // 004 also backfilled the FAILED row, so requeuing it by hand makes it claimable.
+        jdbc.withTransaction {
+            jdbc.withConnection { conn ->
+                conn.createStatement().use {
+                    it.executeUpdate(
+                        "UPDATE okapi_outbox SET status = 'PENDING', retries = 0 WHERE id = '00000000-0000-0000-0000-000000000002'",
+                    )
+                }
+            }
+        }
+        jdbc.withTransaction { store.claimPending(setOf("http"), 10, Instant.now()) }.map { it.outboxId.raw.toString() } shouldBe listOf(
+            "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000001",
+        )
     }
 })

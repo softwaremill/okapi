@@ -23,12 +23,14 @@ private fun routeDeliverer(type: String) = object : MessageDeliverer {
 
 private class RoutingStore(var pending: List<OutboxEntry>) : RouteAwareOutboxStore {
     val queriedTypes = mutableListOf<Set<String>>()
+    val claimTimes = mutableListOf<Instant>()
     val processed = mutableListOf<OutboxEntry>()
 
     override fun persist(entry: OutboxEntry) = entry
     override fun claimPending(limit: Int): List<OutboxEntry> = error("Unsafe claimPending(limit) must not be used")
-    override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> {
+    override fun claimPending(deliveryTypes: Set<String>, limit: Int, now: Instant): List<OutboxEntry> {
         queriedTypes += deliveryTypes
+        claimTimes += now
         val claimed = pending.filter { it.deliveryType in deliveryTypes }.take(limit)
         pending = pending - claimed.toSet()
         return claimed
@@ -40,6 +42,21 @@ private class RoutingStore(var pending: List<OutboxEntry>) : RouteAwareOutboxSto
 }
 
 class RouteAwareOutboxProcessorTest : FunSpec({
+    test("claims only entries due at the processor clock's now (#131)") {
+        val now = Instant.parse("2024-06-01T00:00:00Z")
+        val store = RoutingStore(listOf(routeEntry("kafka")))
+        val clock = Clock.fixed(now, java.time.ZoneOffset.UTC)
+        val processor = OutboxProcessor(
+            store,
+            OutboxEntryProcessor(routeDeliverer("kafka"), RetryPolicy(1), clock),
+            clock = clock,
+        )
+
+        processor.processNext(10)
+
+        store.claimTimes shouldContainExactly listOf(now)
+    }
+
     test("a single deliverer refuses an entry of another type before delivery") {
         val entryProcessor = OutboxEntryProcessor(routeDeliverer("kafka"), RetryPolicy(1), Clock.systemUTC())
 

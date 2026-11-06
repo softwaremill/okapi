@@ -102,6 +102,26 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ### Changed (BREAKING)
 
+- **Retries back off exponentially instead of firing on every poll (new migration `004__retry_backoff`).**
+  A retriable failure used to be retried on the very next tick, so with the defaults (`interval`
+  1s, `max-retries` 5) a message was `FAILED` — terminally — after about six seconds of downstream
+  outage, and failing rows, always the oldest, were re-claimed first on every tick. Each entry now
+  carries `nextAttemptAt` (column `next_attempt_at`); a retriable failure sets it `RetryPolicy`'s
+  backoff into the future, and the processor claims only due entries, ordered by
+  `(delivery_type, next_attempt_at, id)` through a new index that replaces 002's. The default backoff
+  is 10s, doubling, capped at 10m, with 20% jitter, which covers about five minutes of outage before
+  `FAILED`. New Spring properties `okapi.processor.initial-backoff`, `backoff-multiplier`,
+  `max-backoff` and `backoff-jitter`. API changes: `RetryPolicy` gained `initialBackoff`,
+  `backoffMultiplier`, `maxBackoff` and `jitter` (all defaulted, `@JvmOverloads`) and `backoff(retry)`;
+  `OutboxEntry` gained `nextAttemptAt` (defaults to `createdAt`) and `retry` an optional
+  `nextAttemptAt`; `RouteAwareOutboxStore.claimPending` takes the current time (`now`); and
+  `OutboxProcessorProperties` gained four parameters. `OutboxEntry`'s constructor is `@JvmOverloads`,
+  so Java callers can still omit `nextAttemptAt`. As with every data-class change, Kotlin code
+  calling `copy(...)` or default-argument constructors of these classes must be recompiled; custom
+  `RouteAwareOutboxStore`s must filter on and write `next_attempt_at`. The legacy
+  `OutboxStore.claimPending(limit)` ignores the backoff. Tests or callers that relied on immediate
+  retries need `RetryPolicy(maxRetries, initialBackoff = Duration.ZERO, maxBackoff = Duration.ZERO)`.
+  ([#131](https://github.com/softwaremill/okapi/issues/131))
 - **`OutboxProcessorProperties` gained a `transportDispatch` constructor parameter** (see the
   `CompositeMessageDeliverer` entry above). `@JvmOverloads` preserves the previous four-argument
   JVM constructor, so Java callers are unaffected, but adding a property to a Kotlin `data class`

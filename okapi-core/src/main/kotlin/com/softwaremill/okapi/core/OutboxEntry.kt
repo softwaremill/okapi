@@ -8,7 +8,7 @@ import java.time.Instant
  * Created via [createPending] and progressed through [retry], [toDelivered],
  * or [toFailed] — each returning a new immutable copy.
  */
-data class OutboxEntry(
+data class OutboxEntry @JvmOverloads constructor(
     @get:JvmName("getOutboxId")
     val outboxId: OutboxId,
     val messageType: String,
@@ -21,14 +21,24 @@ data class OutboxEntry(
     val lastAttempt: Instant?,
     val lastError: String?,
     val deliveryMetadata: String,
+    /**
+     * When a `PENDING` entry becomes eligible for its next delivery attempt (issue #131): [createdAt]
+     * for a new entry, later after a retriable failure. Only meaningful while the entry is `PENDING`.
+     */
+    val nextAttemptAt: Instant = createdAt,
 ) {
-    /** Returns a copy scheduled for another delivery attempt. */
-    fun retry(now: Instant, lastError: String): OutboxEntry = copy(
+    /**
+     * Returns a copy scheduled for another delivery attempt at [nextAttemptAt], which defaults to
+     * [now] (retry on the next poll).
+     */
+    @JvmOverloads
+    fun retry(now: Instant, lastError: String, nextAttemptAt: Instant = now): OutboxEntry = copy(
         status = OutboxStatus.PENDING,
         updatedAt = now,
         retries = retries + 1,
         lastAttempt = now,
         lastError = sanitizeLastError(lastError),
+        nextAttemptAt = nextAttemptAt,
     )
 
     /** Returns a copy marked as permanently failed. */

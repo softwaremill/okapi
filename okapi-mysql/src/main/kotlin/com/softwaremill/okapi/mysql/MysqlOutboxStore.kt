@@ -33,6 +33,7 @@ class MysqlOutboxStore(
                 val lastError = entry.lastError
                 if (lastError != null) stmt.setString(10, OutboxEntry.sanitizeLastError(lastError)) else stmt.setNull(10, Types.VARCHAR)
                 stmt.setString(11, entry.deliveryMetadata)
+                stmt.setUtc(12, entry.nextAttemptAt)
                 stmt.executeUpdate()
             }
         }
@@ -63,20 +64,21 @@ class MysqlOutboxStore(
         }
     }
 
-    override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> {
+    override fun claimPending(deliveryTypes: Set<String>, limit: Int, now: Instant): List<OutboxEntry> {
         if (deliveryTypes.isEmpty() || limit <= 0) return emptyList()
         val routes = deliveryTypes.sorted()
         val placeholders = routes.joinToString(",") { "?" }
         val binaryPlaceholders = routes.joinToString(",") { "CAST(? AS BINARY)" }
-        // A matching index avoids scanning and locking rows for other delivery types.
+        // A matching index avoids scanning and locking rows for other delivery types, and its
+        // next_attempt_at range stops at `now`, so entries still backing off are neither scanned nor locked.
         // The binary predicate excludes case-insensitive collation matches for another route.
         // CAST rather than the BINARY operator, which is deprecated since 8.0.27 and warns on every call.
         val sql = """
             SELECT * FROM okapi_outbox
-            FORCE INDEX (idx_okapi_outbox_status_delivery_created_id)
-            WHERE status = ? AND delivery_type IN ($placeholders)
+            FORCE INDEX (idx_okapi_outbox_status_delivery_next_attempt_id)
+            WHERE status = ? AND delivery_type IN ($placeholders) AND next_attempt_at <= ?
               AND CAST(delivery_type AS BINARY) IN ($binaryPlaceholders)
-            ORDER BY delivery_type ASC, created_at ASC, id ASC
+            ORDER BY delivery_type ASC, next_attempt_at ASC, id ASC
             LIMIT ?
             FOR UPDATE SKIP LOCKED
         """.trimIndent()
@@ -85,8 +87,9 @@ class MysqlOutboxStore(
             conn.prepareStatement(sql).use { stmt ->
                 stmt.setString(1, OutboxStatus.PENDING.name)
                 routes.forEachIndexed { index, route -> stmt.setString(index + 2, route) }
-                routes.forEachIndexed { index, route -> stmt.setString(index + routes.size + 2, route) }
-                stmt.setInt(routes.size * 2 + 2, limit)
+                stmt.setUtc(routes.size + 2, now)
+                routes.forEachIndexed { index, route -> stmt.setString(index + routes.size + 3, route) }
+                stmt.setInt(routes.size * 2 + 3, limit)
                 stmt.executeQuery().use { rs ->
                     generateSequence { if (rs.next()) rs.toOutboxEntry() else null }.toList()
                 }
@@ -189,6 +192,8 @@ class MysqlOutboxStore(
         lastAttempt = getUtc("last_attempt"),
         lastError = getString("last_error"),
         deliveryMetadata = getString("delivery_metadata"),
+        // NULL only on rows that were not PENDING when changeset 004 added the column.
+        nextAttemptAt = getUtc("next_attempt_at") ?: checkNotNull(getUtc("created_at")),
     )
 
     private fun PreparedStatement.prepareForUpdateFrom(entry: OutboxEntry): PreparedStatement {
@@ -198,8 +203,9 @@ class MysqlOutboxStore(
         setUtc(4, entry.lastAttempt)
         val lastError = entry.lastError
         if (lastError != null) setString(5, OutboxEntry.sanitizeLastError(lastError)) else setNull(5, Types.VARCHAR)
+        setUtc(6, entry.nextAttemptAt)
         // CHAR(36) column — MySQL has no native UUID type, so the id travels as a string.
-        setString(6, entry.outboxId.raw.toString())
+        setString(7, entry.outboxId.raw.toString())
         return this
     }
 
@@ -214,20 +220,21 @@ class MysqlOutboxStore(
 
     companion object {
         private val upsertSql = """
-            INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata, next_attempt_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
                 status = VALUES(status),
                 updated_at = VALUES(updated_at),
                 retries = VALUES(retries),
                 last_attempt = VALUES(last_attempt),
                 last_error = VALUES(last_error),
-                delivery_metadata = VALUES(delivery_metadata)
+                delivery_metadata = VALUES(delivery_metadata),
+                next_attempt_at = VALUES(next_attempt_at)
         """.trimIndent()
 
         private val updateSql = """
             UPDATE okapi_outbox
-            SET status = ?, updated_at = ?, retries = ?, last_attempt = ?, last_error = ?
+            SET status = ?, updated_at = ?, retries = ?, last_attempt = ?, last_error = ?, next_attempt_at = ?
             WHERE id = ?
         """.trimIndent()
     }
