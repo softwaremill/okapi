@@ -91,11 +91,14 @@ class OutboxProcessor @JvmOverloads constructor(
     /**
      * Notifies the listener of [batch]: [OutboxProcessorListener.onEntryProcessed] for each entry,
      * then [OutboxProcessorListener.onBatchProcessed], whose duration runs from the start of the batch
-     * until now, so it includes the commit when called after one. Call it at most once per batch.
+     * until this call, so it includes the commit when called after one, but not the listener
+     * callbacks. A batch's events can be published only once; a second call throws.
      */
     fun publishEvents(batch: ProcessedBatch) {
+        check(batch.markPublished()) { "Events of this batch were already published" }
+        val batchDuration = Duration.between(batch.startedAt, clock.instant())
         batch.entries.forEach { updated -> notifyEntry(updated, batch.deliveryDuration) }
-        notifyBatch(batch.count, Duration.between(batch.startedAt, clock.instant()))
+        notifyBatch(batch.count, batchDuration)
     }
 
     private fun notifyEntry(updated: OutboxEntry, duration: Duration) {

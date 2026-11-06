@@ -133,7 +133,10 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   listener runs after the commit, outside the transaction, and not at all for a batch whose commit
   failed. A listener that relied on running inside the processing transaction (e.g. to write to the
   database atomically with the status update) no longer can. `onBatchProcessed`'s duration, and with
-  it `okapi.batch.duration`, now includes the commit; empty polls are still reported.
+  it `okapi.batch.duration`, now includes the commit (and excludes the listener callbacks); empty
+  polls are still reported. Counters now count committed status changes rather than delivery
+  attempts. `TransactionRunner` now documents that `runInTransaction` must have committed when it
+  returns, and `publishEvents` throws if a batch is published twice.
   `processNext(limit)` keeps notifying at once, for callers that drive the processor themselves.
   ([#137](https://github.com/softwaremill/okapi/issues/137))
 - **`OutboxProcessorProperties` gained a `transportDispatch` constructor parameter** (see the
