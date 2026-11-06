@@ -12,7 +12,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Standalone scheduler that periodically calls [OutboxProcessor.processNext].
+ * Standalone scheduler that periodically calls [OutboxProcessor.processBatch] in a transaction and,
+ * once it has committed, [OutboxProcessor.publishEvents].
  *
  * Each worker's call runs inside [transactionRunner]. The runner is required: without a
  * surrounding transaction, `FOR UPDATE SKIP LOCKED` releases its row lock at the end of the
@@ -179,7 +180,9 @@ class OutboxScheduler @JvmOverloads constructor(
 
     private fun processBatch() {
         try {
-            transactionRunner.runInTransaction { outboxProcessor.processNext(config.batchSize) }
+            val batch = transactionRunner.runInTransaction { outboxProcessor.processBatch(config.batchSize) }
+            // After the commit (issue #137): a batch whose commit failed is rolled back and is not reported.
+            outboxProcessor.publishEvents(batch)
             logger.debug("Outbox processor tick completed [batchSize={}]", config.batchSize)
         } catch (e: Exception) {
             logger.error("Outbox processor tick failed, will retry at next scheduled interval", e)

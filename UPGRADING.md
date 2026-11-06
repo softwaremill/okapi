@@ -72,6 +72,19 @@ them, and the conversion reads them in the session `TimeZone`:
   correct too. A claim query a 1.x connection prepared before the migration fails once with
   `cached plan must not change result type`; that tick is retried on the next poll.
 
+### `OutboxProcessorListener` runs after the commit (#137)
+
+Under `OutboxScheduler` (and so with Spring Boot autoconfiguration), listener callbacks now run after
+the processing transaction has committed, outside of it, and are skipped for a batch whose commit
+failed.
+
+- A custom listener that wrote to the database expecting to join the processing transaction now
+  runs without one: open your own transaction in the callback, or make the write idempotent.
+- `okapi.batch.duration` now includes the commit, so it reads slightly higher than before.
+- If you call `OutboxProcessor.processNext` inside your own transaction, events still fire before
+  your commit. Switch to `val batch = runInTransaction { processor.processBatch(limit) }` followed by
+  `processor.publishEvents(batch)` to get the after-commit behaviour.
+
 ## From 0.2.x to 1.0.0
 
 Releases up to 0.2.x used the domain table `outbox` and the shared Liquibase tracking
