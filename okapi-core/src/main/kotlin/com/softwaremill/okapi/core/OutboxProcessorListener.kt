@@ -11,6 +11,11 @@ import java.time.Duration
  *
  * [OutboxProcessor] accepts a single listener. To combine multiple listeners,
  * implement a composite that delegates to each.
+ *
+ * Under [OutboxScheduler], callbacks run after the processing transaction has committed, outside of
+ * it, and not at all for a batch whose commit failed (issue #137). A callback therefore cannot take
+ * part in that transaction, and every event describes persisted state. With [OutboxProcessor.processNext]
+ * called inside your own transaction, events still precede your commit.
  */
 interface OutboxProcessorListener {
     /** Called after each entry is processed (delivered, retried, or failed). */

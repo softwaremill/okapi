@@ -102,6 +102,23 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ### Changed (BREAKING)
 
+- **`OutboxProcessorListener` events are emitted after the transaction commits.** `OutboxProcessor`
+  notified the listener right after writing a batch, still inside the scheduler's transaction, so a
+  failed commit (connection loss, serialization failure, timeout) left `okapi.entries.delivered` /
+  `okapi.entries.failed` incremented for rows that rolled back to `PENDING`, which were then counted
+  again on redelivery, and a custom listener could act on state that was never persisted.
+  `OutboxProcessor` now has `processBatch(limit)`, which claims, delivers and persists without
+  notifying and returns a `ProcessedBatch`, and `publishEvents(batch)`. `OutboxScheduler` runs
+  `processBatch` in the transaction and `publishEvents` after it returns, so under the scheduler the
+  listener runs after the commit, outside the transaction, and not at all for a batch whose commit
+  failed. A listener that relied on running inside the processing transaction (e.g. to write to the
+  database atomically with the status update) no longer can. `onBatchProcessed`'s duration, and with
+  it `okapi.batch.duration`, now includes the commit (and excludes the listener callbacks); empty
+  polls are still reported. Counters now count committed status changes rather than delivery
+  attempts. `TransactionRunner` now documents that `runInTransaction` must have committed when it
+  returns, and `publishEvents` throws if a batch is published twice.
+  `processNext(limit)` keeps notifying at once, for callers that drive the processor themselves.
+  ([#137](https://github.com/softwaremill/okapi/issues/137))
 - **`OutboxProcessorProperties` gained a `transportDispatch` constructor parameter** (see the
   `CompositeMessageDeliverer` entry above). `@JvmOverloads` preserves the previous four-argument
   JVM constructor, so Java callers are unaffected, but adding a property to a Kotlin `data class`
