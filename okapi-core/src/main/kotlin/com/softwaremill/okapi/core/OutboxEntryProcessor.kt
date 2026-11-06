@@ -31,8 +31,11 @@ class OutboxEntryProcessor(
         check(entries.all { it.deliveryType in supportedDeliveryTypes }) {
             "Batch contains an entry with no registered deliverer"
         }
+        val outcomes = deliverer.deliverBatch(entries)
+        // Read after delivery, like process(): a retry's backoff counts from when the attempt ended, so
+        // a slow failure (e.g. a 30 s HTTP timeout) does not eat into it (issue #131).
         val now = clock.instant()
-        return deliverer.deliverBatch(entries).map { (entry, result) -> applyResult(entry, result, now) }
+        return outcomes.map { (entry, result) -> applyResult(entry, result, now) }
     }
 
     private fun applyResult(entry: OutboxEntry, result: DeliveryResult, now: java.time.Instant): OutboxEntry = when (result) {

@@ -63,6 +63,13 @@ class RetryPolicyTest : FunSpec({
         shouldThrow<IllegalArgumentException> { RetryPolicy(1, initialBackoff = Duration.ofMinutes(2), maxBackoff = Duration.ofMinutes(1)) }
         shouldThrow<IllegalArgumentException> { RetryPolicy(1, jitter = 1.5) }
         shouldThrow<IllegalArgumentException> { noJitter.backoff(0) }
+        shouldThrow<IllegalArgumentException> { RetryPolicy(1, maxBackoff = Duration.ofDays(366)) }
+        shouldThrow<IllegalArgumentException> { RetryPolicy(1, backoffMultiplier = Double.POSITIVE_INFINITY) }
+    }
+
+    test("sub-millisecond backoffs are kept") {
+        RetryPolicy(1, initialBackoff = Duration.ofNanos(500_000), maxBackoff = Duration.ofMillis(1), jitter = 0.0).backoff(1) shouldBe
+            Duration.ofNanos(500_000)
     }
 
     test("a retriable failure schedules the next attempt after the backoff") {
@@ -81,6 +88,31 @@ class RetryPolicyTest : FunSpec({
         val first = processor.process(entry)
         first.nextAttemptAt shouldBe now.plusSeconds(10)
         processor.process(first).nextAttemptAt shouldBe now.plusSeconds(20)
+    }
+
+    test("in a batch the backoff counts from when the slow attempt ended, not when it started") {
+        var now = Instant.parse("2024-01-01T00:00:00Z")
+        val clock = object : Clock() {
+            override fun getZone() = ZoneOffset.UTC
+            override fun withZone(zone: java.time.ZoneId) = this
+            override fun instant() = now
+        }
+        val timingOut = object : MessageDeliverer {
+            override val type = "stub"
+            override fun deliver(entry: OutboxEntry): DeliveryResult {
+                now = now.plusSeconds(30) // e.g. an HTTP request timeout
+                return DeliveryResult.RetriableFailure("timeout")
+            }
+        }
+        val info = object : DeliveryInfo {
+            override val type = "stub"
+            override fun serialize(): String = "{}"
+        }
+        val entry = OutboxEntry.createPending(OutboxMessage("e", "{}"), info, Instant.EPOCH)
+
+        val retried = OutboxEntryProcessor(timingOut, noJitter, clock).processBatch(listOf(entry)).single()
+
+        retried.nextAttemptAt shouldBe Instant.parse("2024-01-01T00:00:40Z")
     }
 
     test("a new entry is due when it is created") {

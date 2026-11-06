@@ -6,13 +6,17 @@
 --
 -- The DEFAULT keeps rows inserted by 1.x instances during a rolling deploy claimable (they do not
 -- know the column). CURRENT_TIMESTAMP is not volatile, so PostgreSQL 11+ records it in the catalog
--- instead of rewriting the table; existing PENDING rows are then set to their created_at so they
--- keep their order. The ADD COLUMN needs a brief ACCESS EXCLUSIVE lock; lock_timeout bounds the wait.
+-- instead of rewriting the table. The ADD COLUMN needs an ACCESS EXCLUSIVE lock, held until the
+-- transaction of this step commits, so the step does nothing else; lock_timeout bounds the wait.
 SET LOCAL lock_timeout = '30s';
 
 ALTER TABLE okapi_outbox ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
-UPDATE okapi_outbox SET next_attempt_at = created_at WHERE status = 'PENDING';
+--changeset outbox:004-backfill
+
+-- In its own transaction, so it takes only row locks: existing PENDING rows get their created_at and
+-- keep their order instead of all becoming due at the migration time.
+UPDATE okapi_outbox SET next_attempt_at = created_at WHERE status = 'PENDING' AND next_attempt_at <> created_at;
 
 --changeset outbox:004-claim-index runInTransaction:false
 

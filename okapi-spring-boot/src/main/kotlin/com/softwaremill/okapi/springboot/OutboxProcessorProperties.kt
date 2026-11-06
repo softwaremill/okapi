@@ -39,8 +39,9 @@ data class OutboxProcessorProperties @JvmOverloads constructor(
         require(concurrency in 1..256) { "concurrency must be between 1 and 256" }
         // Fail at startup, with the property names, rather than when the RetryPolicy is built.
         require(!initialBackoff.isNegative) { "initialBackoff must be >= 0" }
-        require(backoffMultiplier >= 1.0) { "backoffMultiplier must be >= 1" }
+        require(backoffMultiplier >= 1.0 && backoffMultiplier.isFinite()) { "backoffMultiplier must be finite and >= 1" }
         require(maxBackoff >= initialBackoff) { "maxBackoff must be >= initialBackoff" }
+        require(maxBackoff <= RetryPolicy.MAX_ALLOWED_BACKOFF) { "maxBackoff must be at most ${RetryPolicy.MAX_ALLOWED_BACKOFF}" }
         require(backoffJitter in 0.0..1.0) { "backoffJitter must be between 0 and 1" }
     }
 }

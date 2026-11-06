@@ -8,7 +8,7 @@ import java.time.Instant
  * Created via [createPending] and progressed through [retry], [toDelivered],
  * or [toFailed] — each returning a new immutable copy.
  */
-data class OutboxEntry(
+data class OutboxEntry @JvmOverloads constructor(
     @get:JvmName("getOutboxId")
     val outboxId: OutboxId,
     val messageType: String,

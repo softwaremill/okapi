@@ -119,7 +119,9 @@ class PostgresTimestamptzMigrationTest : FunSpec({
             }
         }
         val (jdbc, store) = store(url)
-        val entry = jdbc.withTransaction { store.claimPending(10) }.single()
+        // The route-aware claim, which only returns rows whose next_attempt_at (backfilled by 004) is due.
+        val entry = jdbc.withTransaction { store.claimPending(setOf("http"), 10, Instant.now()) }.single()
+        entry.nextAttemptAt shouldBe createdAt
         entry.createdAt shouldBe createdAt
         entry.updatedAt shouldBe createdAt
         entry.lastAttempt shouldBe lastAttempt
@@ -158,6 +160,8 @@ class PostgresTimestamptzMigrationTest : FunSpec({
         }
 
         val (jdbc, store) = store(url)
-        jdbc.withTransaction { store.claimPending(10) }.map { it.createdAt } shouldBe listOf(before, after)
+        // `after` was inserted by 1.x after 004, so only the column DEFAULT made it claimable.
+        jdbc.withTransaction { store.claimPending(setOf("http"), 10, Instant.now().plusSeconds(5)) }
+            .map { it.createdAt }.sorted() shouldBe listOf(before, after)
     }
 })

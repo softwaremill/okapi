@@ -115,7 +115,8 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   `backoffMultiplier`, `maxBackoff` and `jitter` (all defaulted, `@JvmOverloads`) and `backoff(retry)`;
   `OutboxEntry` gained `nextAttemptAt` (defaults to `createdAt`) and `retry` an optional
   `nextAttemptAt`; `RouteAwareOutboxStore.claimPending` takes the current time (`now`); and
-  `OutboxProcessorProperties` gained four parameters. As with every data-class change, Kotlin code
+  `OutboxProcessorProperties` gained four parameters. `OutboxEntry`'s constructor is `@JvmOverloads`,
+  so Java callers can still omit `nextAttemptAt`. As with every data-class change, Kotlin code
   calling `copy(...)` or default-argument constructors of these classes must be recompiled; custom
   `RouteAwareOutboxStore`s must filter on and write `next_attempt_at`. The legacy
   `OutboxStore.claimPending(limit)` ignores the backoff. Tests or callers that relied on immediate
