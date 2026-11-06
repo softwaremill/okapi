@@ -159,11 +159,13 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   claim ordering, the lag gauge and the purger's retention cutoff were off by hours. The migration
   converts existing values using the session `TimeZone`, which pgjdbc sets to the JVM default zone,
   so the bundled Liquibase changelog keeps them correct when it runs inside the application; apply
-  it by hand only after `SET TIME ZONE '<your JVM zone>'`. `PostgresOutboxStore` now binds and reads
-  these columns as `OffsetDateTime`. The migration takes an `ACCESS EXCLUSIVE` lock (waiting at most
-  30 s for it, then failing and retrying on the next start) and, unless the session zone is UTC,
-  rewrites the table. 1.x instances keep working against the migrated columns. Rows written during a fall-back hour by a non-UTC JVM were
-  already ambiguous and may stay an hour off. ([#135](https://github.com/softwaremill/okapi/issues/135))
+  it by hand only inside a transaction and after `SET TIME ZONE '<your JVM zone>'`.
+  `PostgresOutboxStore` now binds and reads these columns as `OffsetDateTime`. The migration takes an
+  `ACCESS EXCLUSIVE` lock (waiting at most 30 s for it, then failing and retrying on the next start)
+  and, unless the session zone is UTC, rewrites the table. 1.x instances keep working against the
+  migrated columns, apart from one failed poll per pooled connection. Rows written during a
+  fall-back hour by a non-UTC JVM were already ambiguous and may stay an hour off. See UPGRADING.md.
+  ([#135](https://github.com/softwaremill/okapi/issues/135))
 
 ## [1.0.0] — 2026-07-28
 

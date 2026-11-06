@@ -46,8 +46,14 @@ them, and the conversion reads them in the session `TimeZone`:
   zone as the JVMs that wrote the rows.
 - Applying
   [`003__timestamptz_columns.sql`](okapi-postgres/src/main/resources/com/softwaremill/okapi/db/postgres/003__timestamptz_columns.sql)
-  yourself: run `SET TIME ZONE '<zone your okapi JVMs run in>';` first, in the same session (e.g.
-  `SET TIME ZONE 'UTC';` for JVMs running in UTC).
+  yourself: run it inside a transaction (`BEGIN` … `COMMIT`, or `psql -1`; outside one its
+  `SET LOCAL lock_timeout` has no effect), and run `SET TIME ZONE '<zone your okapi JVMs run in>';`
+  first in the same session (e.g. `SET TIME ZONE 'UTC';` for JVMs running in UTC).
+- The in-app conversion uses the zone pgjdbc gave the session when the connection was opened. It is
+  wrong if that differs from the zone your instances wrote with: if the application calls
+  `TimeZone.setDefault` after its connection pool has opened connections, if a pool init SQL (e.g.
+  HikariCP `connectionInitSql`) or the pgjdbc `options` property changes the session `TimeZone`, or if
+  the migrating JVM runs in another zone than the writers. In those cases apply 003 by hand as above.
 - If your JVMs ran in different zones, rows written by each were stored in that JVM's zone; no single
   conversion fixes all of them. Drain the outbox (let every `PENDING` row be delivered) before
   migrating if accurate history matters.
@@ -58,8 +64,13 @@ them, and the conversion reads them in the session `TimeZone`:
   Holding the lock, it rewrites the table unless the session zone is UTC, and reads and writes,
   including `publish()`, wait until it finishes. Purge delivered rows or pick a quiet period on a
   large table.
-- **Rolling deploys are safe.** 1.x binds `java.sql.Timestamp`, which pgjdbc sends with the JVM's
-  offset, so 1.x instances write and read `TIMESTAMPTZ` columns correctly after the migration.
+- **Rolling deploys work, with one transient error per pooled 1.x connection.** 1.x binds
+  `java.sql.Timestamp`, which pgjdbc sends with the JVM's offset. After the migration, a fresh 1.x
+  statement stores it as the right instant, and a statement server-prepared before the migration
+  keeps its `timestamp` parameter type, so the offset is dropped and the value is read in the session
+  zone, which pgjdbc set to that same JVM zone: also the right instant. Reads via `getTimestamp` are
+  correct too. A claim query a 1.x connection prepared before the migration fails once with
+  `cached plan must not change result type`; that tick is retried on the next poll.
 
 ## From 0.2.x to 1.0.0
 
