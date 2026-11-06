@@ -7,9 +7,10 @@ import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.RouteAwareOutboxStore
 import java.sql.PreparedStatement
 import java.sql.ResultSet
-import java.sql.Timestamp
 import java.sql.Types
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 import java.util.UUID
 
 /** MySQL [OutboxStore] implementation using plain JDBC. */
@@ -25,17 +26,10 @@ class MysqlOutboxStore(
                 stmt.setString(3, entry.payload)
                 stmt.setString(4, entry.deliveryType)
                 stmt.setString(5, entry.status.name)
-                stmt.setTimestamp(6, Timestamp.from(entry.createdAt))
-                stmt.setTimestamp(7, Timestamp.from(entry.updatedAt))
+                stmt.setUtc(6, entry.createdAt)
+                stmt.setUtc(7, entry.updatedAt)
                 stmt.setInt(8, entry.retries)
-                if (entry.lastAttempt != null) {
-                    stmt.setTimestamp(
-                        9,
-                        Timestamp.from(entry.lastAttempt),
-                    )
-                } else {
-                    stmt.setNull(9, Types.TIMESTAMP)
-                }
+                stmt.setUtc(9, entry.lastAttempt)
                 val lastError = entry.lastError
                 if (lastError != null) stmt.setString(10, OutboxEntry.sanitizeLastError(lastError)) else stmt.setNull(10, Types.VARCHAR)
                 stmt.setString(11, entry.deliveryMetadata)
@@ -126,7 +120,7 @@ class MysqlOutboxStore(
         return connectionProvider.withConnection { conn ->
             conn.prepareStatement(sql).use { stmt ->
                 stmt.setString(1, OutboxStatus.DELIVERED.name)
-                stmt.setTimestamp(2, Timestamp.from(time))
+                stmt.setUtc(2, time)
                 stmt.setInt(3, limit)
                 stmt.executeUpdate()
             }
@@ -146,7 +140,7 @@ class MysqlOutboxStore(
                 stmt.executeQuery().use { rs ->
                     while (rs.next()) {
                         val s = OutboxStatus.from(rs.getString("status"))
-                        result[s] = rs.getTimestamp("min_created_at").toInstant()
+                        result[s] = checkNotNull(rs.getUtc("min_created_at"))
                     }
                 }
             }
@@ -189,29 +183,34 @@ class MysqlOutboxStore(
         payload = getString("payload"),
         deliveryType = getString("delivery_type"),
         status = OutboxStatus.from(getString("status")),
-        createdAt = getTimestamp("created_at").toInstant(),
-        updatedAt = getTimestamp("updated_at").toInstant(),
+        createdAt = checkNotNull(getUtc("created_at")),
+        updatedAt = checkNotNull(getUtc("updated_at")),
         retries = getInt("retries"),
-        lastAttempt = getTimestamp("last_attempt")?.toInstant(),
+        lastAttempt = getUtc("last_attempt"),
         lastError = getString("last_error"),
         deliveryMetadata = getString("delivery_metadata"),
     )
 
     private fun PreparedStatement.prepareForUpdateFrom(entry: OutboxEntry): PreparedStatement {
         setString(1, entry.status.name)
-        setTimestamp(2, Timestamp.from(entry.updatedAt))
+        setUtc(2, entry.updatedAt)
         setInt(3, entry.retries)
-        if (entry.lastAttempt != null) {
-            setTimestamp(4, Timestamp.from(entry.lastAttempt))
-        } else {
-            setNull(4, Types.TIMESTAMP)
-        }
+        setUtc(4, entry.lastAttempt)
         val lastError = entry.lastError
         if (lastError != null) setString(5, OutboxEntry.sanitizeLastError(lastError)) else setNull(5, Types.VARCHAR)
         // CHAR(36) column — MySQL has no native UUID type, so the id travels as a string.
         setString(6, entry.outboxId.raw.toString())
         return this
     }
+
+    // The DATETIME(6) columns hold UTC wall-clock time (issue #138). Connector/J passes LocalDateTime
+    // through without time-zone conversion, unlike java.sql.Timestamp, which it shifts by the JVM or
+    // connectionTimeZone zone -- so values stay UTC whatever the JVM, session or driver settings.
+    private fun PreparedStatement.setUtc(index: Int, instant: Instant?) {
+        if (instant != null) setObject(index, LocalDateTime.ofInstant(instant, ZoneOffset.UTC)) else setNull(index, Types.TIMESTAMP)
+    }
+
+    private fun ResultSet.getUtc(column: String): Instant? = getObject(column, LocalDateTime::class.java)?.toInstant(ZoneOffset.UTC)
 
     companion object {
         private val upsertSql = """
