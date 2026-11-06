@@ -23,6 +23,7 @@ import io.kotest.matchers.doubles.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.shouldBe
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import java.time.Clock
+import java.time.Duration
 import java.util.concurrent.TimeUnit
 
 class ObservabilityEndToEndTest : FunSpec({
@@ -62,7 +63,12 @@ class ObservabilityEndToEndTest : FunSpec({
         val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = jdbcTransactionRunner, clock = clock)
 
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
-        val entryProcessor = OutboxEntryProcessor(HttpMessageDeliverer(urlResolver), RetryPolicy(maxRetries = 3), clock)
+        val entryProcessor =
+            OutboxEntryProcessor(
+                HttpMessageDeliverer(urlResolver),
+                RetryPolicy(maxRetries = 3, initialBackoff = Duration.ZERO, maxBackoff = Duration.ZERO),
+                clock,
+            )
         val processor = OutboxProcessor(store, entryProcessor, listener = listener, clock = clock)
 
         // Stub: first call → 500 (retriable), second call → 200 (success)
@@ -115,7 +121,12 @@ class ObservabilityEndToEndTest : FunSpec({
         val metrics = MicrometerOutboxMetrics(store, registry, transactionRunner = jdbcTransactionRunner, clock = clock)
 
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
-        val entryProcessor = OutboxEntryProcessor(HttpMessageDeliverer(urlResolver), RetryPolicy(maxRetries = 3), clock)
+        val entryProcessor =
+            OutboxEntryProcessor(
+                HttpMessageDeliverer(urlResolver),
+                RetryPolicy(maxRetries = 3, initialBackoff = Duration.ZERO, maxBackoff = Duration.ZERO),
+                clock,
+            )
         val processor = OutboxProcessor(store, entryProcessor, listener = listener, clock = clock)
 
         wiremock.stubFor(
@@ -140,7 +151,12 @@ class ObservabilityEndToEndTest : FunSpec({
         val listener = MicrometerOutboxListener(registry)
 
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
-        val entryProcessor = OutboxEntryProcessor(HttpMessageDeliverer(urlResolver), RetryPolicy(maxRetries = 3), clock)
+        val entryProcessor =
+            OutboxEntryProcessor(
+                HttpMessageDeliverer(urlResolver),
+                RetryPolicy(maxRetries = 3, initialBackoff = Duration.ZERO, maxBackoff = Duration.ZERO),
+                clock,
+            )
         val processor = OutboxProcessor(store, entryProcessor, listener = listener, clock = clock)
 
         wiremock.stubFor(

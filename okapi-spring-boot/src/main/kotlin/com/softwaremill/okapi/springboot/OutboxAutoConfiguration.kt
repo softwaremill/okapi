@@ -57,7 +57,7 @@ import javax.sql.DataSource
  *   documented, not enforced, and MySQL could silently win instead depending on undocumented
  *   nested-`@Configuration` processing order). Override by defining your own `@Bean OutboxStore`.
  * - [Clock] — defaults to [Clock.systemUTC]
- * - [RetryPolicy] — defaults to `maxRetries = 5`
+ * - [RetryPolicy] — built from `okapi.processor.max-retries` and the `okapi.processor.*backoff*` properties
  *
  * Multi-datasource / multi-PlatformTransactionManager support:
  * - Set `okapi.datasource-qualifier` to the bean name of the [DataSource] that holds the outbox table.
@@ -180,7 +180,15 @@ class OutboxAutoConfiguration(
     ): OutboxEntryProcessor {
         return OutboxEntryProcessor(
             deliverer = if (deliverers.size == 1) deliverers.single() else CompositeMessageDeliverer(deliverers, props.transportDispatch),
-            retryPolicy = retryPolicy.getIfAvailable { RetryPolicy(maxRetries = props.maxRetries) },
+            retryPolicy = retryPolicy.getIfAvailable {
+                RetryPolicy(
+                    maxRetries = props.maxRetries,
+                    initialBackoff = props.initialBackoff,
+                    backoffMultiplier = props.backoffMultiplier,
+                    maxBackoff = props.maxBackoff,
+                    jitter = props.backoffJitter,
+                )
+            },
             clock = clock.getIfAvailable { Clock.systemUTC() },
         )
     }

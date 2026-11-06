@@ -37,6 +37,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.sql.Connection
 import java.sql.SQLException
 import java.time.Clock
+import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -202,13 +203,14 @@ private class RecordingStore(private val delegate: RouteAwareOutboxStore) : Rout
         return delegate.claimPending(limit)
     }
 
-    override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> {
+    override fun claimPending(deliveryTypes: Set<String>, limit: Int, now: Instant): List<OutboxEntry> {
         claims += "claimPending($deliveryTypes, $limit)"
-        return delegate.claimPending(deliveryTypes, limit)
+        return delegate.claimPending(deliveryTypes, limit, now)
     }
 
     // Overridden so the single-type call is recorded too instead of going straight to the delegate.
-    override fun claimPending(deliveryType: String, limit: Int): List<OutboxEntry> = claimPending(setOf(deliveryType), limit)
+    override fun claimPending(deliveryType: String, limit: Int, now: Instant): List<OutboxEntry> =
+        claimPending(setOf(deliveryType), limit, now)
 }
 
 private class BlockingDeliverer : MessageDeliverer {

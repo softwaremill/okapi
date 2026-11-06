@@ -11,6 +11,7 @@ import io.kotest.matchers.shouldBe
 import org.slf4j.LoggerFactory
 import java.time.Duration.ofMillis
 import java.time.Duration.ofMinutes
+import java.time.Instant
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
@@ -692,7 +693,7 @@ private fun stubProcessor(onProcessNext: (Int) -> Unit): OutboxProcessor {
             onProcessNext(limit)
             return emptyList()
         }
-        override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> {
+        override fun claimPending(deliveryTypes: Set<String>, limit: Int, now: Instant): List<OutboxEntry> {
             onProcessNext(limit)
             return emptyList()
         }

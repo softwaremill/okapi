@@ -45,7 +45,7 @@ class OutboxProcessor @JvmOverloads constructor(
             emptyList()
         } else {
             val startingType = deliveryTypes[Math.floorMod(nextStartingType.getAndIncrement(), deliveryTypes.size)]
-            val first = routeAwareStore.claimPending(startingType, limit)
+            val first = routeAwareStore.claimPending(startingType, limit, batchStart)
             check(first.size <= limit && first.all { it.deliveryType == startingType }) {
                 "RouteAwareOutboxStore returned entries outside the requested type or limit"
             }
@@ -56,7 +56,7 @@ class OutboxProcessor @JvmOverloads constructor(
                 val remaining = limit - first.size
                 // Stores order this claim by delivery type, so leftover capacity favours types that sort first.
                 // Each type is still claimed first once every N ticks, so none is starved.
-                val other = routeAwareStore.claimPending(remainingTypes, remaining)
+                val other = routeAwareStore.claimPending(remainingTypes, remaining, batchStart)
                 check(other.size <= remaining && other.all { it.deliveryType in remainingTypes }) {
                     "RouteAwareOutboxStore returned entries outside the requested types or limit"
                 }

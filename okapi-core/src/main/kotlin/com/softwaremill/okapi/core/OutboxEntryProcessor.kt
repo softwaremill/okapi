@@ -39,7 +39,7 @@ class OutboxEntryProcessor(
         is DeliveryResult.Success -> entry.toDelivered(now)
         is DeliveryResult.RetriableFailure ->
             if (retryPolicy.shouldRetry(entry.retries)) {
-                entry.retry(now, result.error)
+                entry.retry(now, result.error, nextAttemptAt = now + retryPolicy.backoff(entry.retries + 1))
             } else {
                 entry.toFailed(now, result.error)
             }

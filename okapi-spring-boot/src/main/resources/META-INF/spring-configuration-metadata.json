@@ -76,6 +76,30 @@
       "description": "Maximum number of delivery retries before marking an entry as failed."
     },
     {
+      "name": "okapi.processor.initial-backoff",
+      "type": "java.time.Duration",
+      "defaultValue": "10s",
+      "description": "Delay before the first retry of a retriable delivery failure. Each further retry waits backoff-multiplier times longer, up to max-backoff."
+    },
+    {
+      "name": "okapi.processor.backoff-multiplier",
+      "type": "java.lang.Double",
+      "defaultValue": 2.0,
+      "description": "Factor applied to the retry delay after each retry. Must be >= 1."
+    },
+    {
+      "name": "okapi.processor.max-backoff",
+      "type": "java.time.Duration",
+      "defaultValue": "10m",
+      "description": "Upper bound on the delay between two retries of an entry."
+    },
+    {
+      "name": "okapi.processor.backoff-jitter",
+      "type": "java.lang.Double",
+      "defaultValue": 0.2,
+      "description": "Fraction (0 to 1) by which each retry delay is shortened at random, so entries that failed together do not all retry at once."
+    },
+    {
       "name": "okapi.datasource-qualifier",
       "type": "java.lang.String",
       "defaultValue": null,

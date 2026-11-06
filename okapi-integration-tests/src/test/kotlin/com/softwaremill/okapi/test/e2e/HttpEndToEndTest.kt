@@ -22,6 +22,7 @@ import com.softwaremill.okapi.test.support.PostgresTestSupport
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.maps.shouldContain
 import java.time.Clock
+import java.time.Duration
 
 class HttpEndToEndTest : FunSpec({
     val db = PostgresTestSupport()
@@ -49,7 +50,7 @@ class HttpEndToEndTest : FunSpec({
         val urlResolver = ServiceUrlResolver { "http://localhost:${wiremock.port()}" }
         val entryProcessor = OutboxEntryProcessor(
             HttpMessageDeliverer(urlResolver),
-            RetryPolicy(maxRetries = maxRetries),
+            RetryPolicy(maxRetries = maxRetries, initialBackoff = Duration.ZERO, maxBackoff = Duration.ZERO),
             clock,
         )
         return Triple(publisher, OutboxProcessor(store, entryProcessor), store)

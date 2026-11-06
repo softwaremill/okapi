@@ -1,5 +1,6 @@
 package com.softwaremill.okapi.springboot
 
+import com.softwaremill.okapi.core.RetryPolicy
 import com.softwaremill.okapi.core.TransportDispatch
 import org.springframework.boot.context.properties.ConfigurationProperties
 import java.time.Duration
@@ -22,11 +23,24 @@ data class OutboxProcessorProperties @JvmOverloads constructor(
      * [com.softwaremill.okapi.core.TransportDispatch].
      */
     val transportDispatch: TransportDispatch = TransportDispatch.PARALLEL,
+    /** Delay before the first retry of a retriable failure. See [com.softwaremill.okapi.core.RetryPolicy]. */
+    val initialBackoff: Duration = RetryPolicy.DEFAULT_INITIAL_BACKOFF,
+    /** Factor applied to the delay after each further retry. */
+    val backoffMultiplier: Double = RetryPolicy.DEFAULT_BACKOFF_MULTIPLIER,
+    /** Upper bound on the delay between retries. */
+    val maxBackoff: Duration = RetryPolicy.DEFAULT_MAX_BACKOFF,
+    /** Fraction (0 to 1) by which each delay is shortened at random, to spread retries out. */
+    val backoffJitter: Double = RetryPolicy.DEFAULT_JITTER,
 ) {
     init {
         require(!interval.isNegative && interval.toMillis() > 0) { "interval must be at least 1ms" }
         require(batchSize > 0) { "batchSize must be positive" }
         require(maxRetries >= 0) { "maxRetries must be >= 0" }
         require(concurrency in 1..256) { "concurrency must be between 1 and 256" }
+        // Fail at startup, with the property names, rather than when the RetryPolicy is built.
+        require(!initialBackoff.isNegative) { "initialBackoff must be >= 0" }
+        require(backoffMultiplier >= 1.0) { "backoffMultiplier must be >= 1" }
+        require(maxBackoff >= initialBackoff) { "maxBackoff must be >= initialBackoff" }
+        require(backoffJitter in 0.0..1.0) { "backoffJitter must be between 0 and 1" }
     }
 }
