@@ -163,6 +163,43 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             }
     }
 
+    test("retry backoff properties are bound, with RetryPolicy's defaults when unset (#131)") {
+        contextRunner
+            .withPropertyValues(
+                "okapi.processor.initial-backoff=2s",
+                "okapi.processor.backoff-multiplier=3.5",
+                "okapi.processor.max-backoff=1h",
+                "okapi.processor.backoff-jitter=0",
+            )
+            .run { ctx ->
+                val props = ctx.getBean<OutboxProcessorProperties>()
+                props.initialBackoff shouldBe ofSeconds(2)
+                props.backoffMultiplier shouldBe 3.5
+                props.maxBackoff shouldBe java.time.Duration.ofHours(1)
+                props.backoffJitter shouldBe 0.0
+            }
+        contextRunner.run { ctx ->
+            val props = ctx.getBean<OutboxProcessorProperties>()
+            props.initialBackoff shouldBe RetryPolicy.DEFAULT_INITIAL_BACKOFF
+            props.backoffMultiplier shouldBe RetryPolicy.DEFAULT_BACKOFF_MULTIPLIER
+            props.maxBackoff shouldBe RetryPolicy.DEFAULT_MAX_BACKOFF
+            props.backoffJitter shouldBe RetryPolicy.DEFAULT_JITTER
+        }
+    }
+
+    test("invalid retry backoff properties fail startup (#131)") {
+        listOf(
+            "okapi.processor.backoff-multiplier=0.5",
+            "okapi.processor.backoff-jitter=2",
+            "okapi.processor.initial-backoff=15m",
+            "okapi.processor.max-backoff=400d",
+        ).forEach { property ->
+            contextRunner.withPropertyValues(property).run { ctx ->
+                withClue(property) { ctx.startupFailure.shouldNotBeNull() }
+            }
+        }
+    }
+
     test("default properties when nothing is configured") {
         contextRunner.run { ctx ->
             val props = ctx.getBean<OutboxProcessorProperties>()

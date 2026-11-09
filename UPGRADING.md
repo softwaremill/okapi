@@ -72,6 +72,39 @@ them, and the conversion reads them in the session `TimeZone`:
   correct too. A claim query a 1.x connection prepared before the migration fails once with
   `cached plan must not change result type`; that tick is retried on the next poll.
 
+### Retry backoff and `next_attempt_at` (#131)
+
+Changeset `004__retry_backoff` adds `next_attempt_at`, sets it to `created_at` on existing `PENDING`
+rows and replaces 002's claim index with one on `(delivery_type, next_attempt_at, id)`.
+
+- **PostgreSQL:** the column is `NOT NULL DEFAULT CURRENT_TIMESTAMP` (added without a table rewrite
+  on PostgreSQL 11+), so rows that 1.x instances insert during a rolling deploy are claimable at once.
+  The `ADD COLUMN` holds an `ACCESS EXCLUSIVE` lock only for itself (waiting at most 30 s for it); the
+  backfill of `PENDING` rows runs in a separate changeset with row locks only. The index is built in a second changeset with `CREATE INDEX CONCURRENTLY`, which must run outside a
+  transaction when you apply the script by hand, and which waits for every transaction that started
+  before it.
+- **MySQL:** the column is nullable (an instant change on 8.0.12+); `PENDING` and `FAILED` rows are
+  backfilled, `DELIVERED` rows stay `NULL`. 1.x instances are already stopped for 003, so nothing
+  writes rows without it. Each step is a changeset of its own with a precondition, so a migration that
+  stopped half-way (e.g. on its 30 s `lock_wait_timeout`) resumes where it stopped.
+- **Behaviour:** retriable failures now wait 10s, 20s, 40s, ... (capped at 10m, 20% jitter) before
+  the next attempt, so with `max-retries` 5 an entry becomes `FAILED` after about five minutes rather
+  than six seconds. Set `okapi.processor.initial-backoff`, `backoff-multiplier`, `max-backoff`,
+  `backoff-jitter` or `max-retries` to change that. 1.x workers still running during a rolling deploy
+  ignore the backoff for the rows they claim.
+- **Clocks:** a new entry is due at its `createdAt`, taken from the publishing instance's clock, and
+  claimed once the processing instance's clock reaches it, so a publisher whose clock runs ahead of
+  the processors' delays its messages by the difference. Keep instance clocks NTP-synchronised.
+- **Requeuing a `FAILED` row by hand** now needs a due time as well:
+  `UPDATE okapi_outbox SET status = 'PENDING', retries = 0, next_attempt_at = <now in UTC> WHERE ...`
+  (`CURRENT_TIMESTAMP` on PostgreSQL, `UTC_TIMESTAMP(6)` on MySQL). A row whose `next_attempt_at`
+  lies in the future is not claimed until then.
+- **Code:** a custom `RouteAwareOutboxStore` must implement `claimPending(deliveryTypes, limit, now)`,
+  return only rows with `next_attempt_at <= now`, and write `nextAttemptAt` in `persist` and the update
+  methods. `OutboxEntry` keeps a Java constructor without `nextAttemptAt` (`@JvmOverloads`). Tests
+  that drive retries tick by tick need a zero backoff:
+  `RetryPolicy(maxRetries, initialBackoff = Duration.ZERO, maxBackoff = Duration.ZERO)`.
+
 ## From 0.2.x to 1.0.0
 
 Releases up to 0.2.x used the domain table `outbox` and the shared Liquibase tracking

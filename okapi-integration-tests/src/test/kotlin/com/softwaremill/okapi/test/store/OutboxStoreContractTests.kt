@@ -1,17 +1,26 @@
 package com.softwaremill.okapi.test.store
 
 import com.softwaremill.okapi.core.DeliveryInfo
+import com.softwaremill.okapi.core.DeliveryResult
+import com.softwaremill.okapi.core.MessageDeliverer
 import com.softwaremill.okapi.core.OutboxEntry
+import com.softwaremill.okapi.core.OutboxEntryProcessor
 import com.softwaremill.okapi.core.OutboxMessage
+import com.softwaremill.okapi.core.OutboxProcessor
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.OutboxStore
+import com.softwaremill.okapi.core.RetryPolicy
 import com.softwaremill.okapi.core.RouteAwareOutboxStore
 import com.softwaremill.okapi.test.support.JdbcConnectionProvider
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.maps.shouldContain
 import io.kotest.matchers.shouldBe
+import java.time.Clock
+import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 private class StubDeliveryInfo(
     override val type: String = "test",
@@ -89,10 +98,10 @@ fun FunSpec.outboxStoreContractTests(
         }
 
         val routed = store as RouteAwareOutboxStore
-        val claimed = jdbc.withTransaction { routed.claimPending("kafka", 10) }
+        val claimed = jdbc.withTransaction { routed.claimPending("kafka", 10, Instant.now()) }
 
         claimed.map { it.outboxId } shouldBe listOf(supported.outboxId)
-        jdbc.withTransaction { routed.claimPending("http", 10) }.map { it.outboxId } shouldBe listOf(unsupported.outboxId)
+        jdbc.withTransaction { routed.claimPending("http", 10, Instant.now()) }.map { it.outboxId } shouldBe listOf(unsupported.outboxId)
     }
 
     test("[$dbName] route-aware claim matches delivery types exactly") {
@@ -104,8 +113,8 @@ fun FunSpec.outboxStoreContractTests(
         }
 
         val routed = store as RouteAwareOutboxStore
-        jdbc.withTransaction { routed.claimPending("kafka", 10) }.map { it.outboxId } shouldBe listOf(lower.outboxId)
-        jdbc.withTransaction { routed.claimPending("KAFKA", 10) }.map { it.outboxId } shouldBe listOf(upper.outboxId)
+        jdbc.withTransaction { routed.claimPending("kafka", 10, Instant.now()) }.map { it.outboxId } shouldBe listOf(lower.outboxId)
+        jdbc.withTransaction { routed.claimPending("KAFKA", 10, Instant.now()) }.map { it.outboxId } shouldBe listOf(upper.outboxId)
     }
 
     test("[$dbName] route-aware claim selects a limited batch across several types") {
@@ -119,9 +128,81 @@ fun FunSpec.outboxStoreContractTests(
         }
 
         val routed = store as RouteAwareOutboxStore
-        val claimed = jdbc.withTransaction { routed.claimPending(setOf("kafka", "http"), 2) }
+        val claimed = jdbc.withTransaction { routed.claimPending(setOf("kafka", "http"), 2, Instant.now()) }
 
         claimed.map { it.outboxId } shouldBe listOf(http.outboxId, kafka.outboxId)
+    }
+
+    test("[$dbName] route-aware claim skips entries whose next attempt is not yet due (#131)") {
+        val now = Instant.parse("2024-01-10T00:00:00Z")
+        val backingOff = createTestEntry(now = Instant.parse("2024-01-01T00:00:00Z"), deliveryInfo = StubDeliveryInfo("kafka"))
+            .retry(Instant.parse("2024-01-09T23:59:00Z"), "503", nextAttemptAt = now.plusSeconds(60))
+        val due = createTestEntry(now = Instant.parse("2024-01-05T00:00:00Z"), deliveryInfo = StubDeliveryInfo("kafka"))
+        jdbc.withTransaction {
+            store.persist(backingOff)
+            store.persist(due)
+        }
+
+        val routed = store as RouteAwareOutboxStore
+        jdbc.withTransaction { routed.claimPending("kafka", 10, now) }.map { it.outboxId } shouldBe listOf(due.outboxId)
+        jdbc.withTransaction { routed.claimPending("kafka", 10, now.plusSeconds(60)) }.map { it.outboxId } shouldBe
+            listOf(due.outboxId, backingOff.outboxId)
+    }
+
+    test("[$dbName] route-aware claim orders by next attempt, so a retried entry does not block newer ones (#131)") {
+        val retried = createTestEntry(now = Instant.parse("2024-01-01T00:00:00Z"), deliveryInfo = StubDeliveryInfo("kafka"))
+            .retry(Instant.parse("2024-01-02T00:00:00Z"), "503", nextAttemptAt = Instant.parse("2024-01-03T00:00:00Z"))
+        val newer = createTestEntry(now = Instant.parse("2024-01-02T12:00:00Z"), deliveryInfo = StubDeliveryInfo("kafka"))
+        jdbc.withTransaction {
+            store.persist(retried)
+            store.persist(newer)
+        }
+
+        val routed = store as RouteAwareOutboxStore
+        jdbc.withTransaction { routed.claimPending("kafka", 1, Instant.parse("2024-01-04T00:00:00Z")) }.map { it.outboxId } shouldBe
+            listOf(newer.outboxId)
+    }
+
+    test("[$dbName] updateAfterProcessing persists nextAttemptAt (#131)") {
+        val entry = createTestEntry(deliveryInfo = StubDeliveryInfo("kafka"))
+        jdbc.withTransaction { store.persist(entry) }
+        val nextAttemptAt = Instant.parse("2030-01-01T00:00:00.123456Z")
+        val retried = entry.retry(Instant.parse("2024-01-01T00:00:01Z"), "503", nextAttemptAt)
+
+        jdbc.withTransaction { store.updateAfterProcessingBatch(listOf(retried)) }
+
+        val routed = store as RouteAwareOutboxStore
+        jdbc.withTransaction { routed.claimPending("kafka", 10, Instant.parse("2029-12-31T23:59:59Z")) } shouldHaveSize 0
+        val claimed = jdbc.withTransaction { routed.claimPending("kafka", 10, nextAttemptAt) }.single()
+        claimed.nextAttemptAt shouldBe nextAttemptAt
+        claimed.retries shouldBe 1
+    }
+
+    test("[$dbName] a retriable failure is not redelivered until its backoff has passed (#131)") {
+        var now = Instant.parse("2024-01-01T00:00:00Z")
+        val clock = object : Clock() {
+            override fun getZone(): ZoneId = ZoneOffset.UTC
+            override fun withZone(zone: ZoneId): Clock = this
+            override fun instant(): Instant = now
+        }
+        var attempts = 0
+        val deliverer = object : MessageDeliverer {
+            override val type = "kafka"
+            override fun deliver(entry: OutboxEntry): DeliveryResult {
+                attempts++
+                return DeliveryResult.RetriableFailure("503")
+            }
+        }
+        val policy = RetryPolicy(maxRetries = 5, initialBackoff = Duration.ofSeconds(10), jitter = 0.0)
+        val processor = OutboxProcessor(store, OutboxEntryProcessor(deliverer, policy, clock), clock = clock)
+        jdbc.withTransaction { store.persist(createTestEntry(now = now, deliveryInfo = StubDeliveryInfo("kafka"))) }
+
+        jdbc.withTransaction { processor.processNext(10) } shouldBe 1
+        now = now.plusSeconds(9)
+        jdbc.withTransaction { processor.processNext(10) } shouldBe 0
+        now = now.plusSeconds(1)
+        jdbc.withTransaction { processor.processNext(10) } shouldBe 1
+        attempts shouldBe 2
     }
 
     test("[$dbName] claimPending returns entries ordered by created_at ASC") {
