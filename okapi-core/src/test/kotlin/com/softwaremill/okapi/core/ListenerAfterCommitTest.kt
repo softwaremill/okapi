@@ -21,7 +21,7 @@ private val info = object : DeliveryInfo {
 private class OneEntryPerClaimStore : RouteAwareOutboxStore {
     override fun persist(entry: OutboxEntry) = entry
     override fun claimPending(limit: Int): List<OutboxEntry> = error("not used")
-    override fun claimPending(deliveryTypes: Set<String>, limit: Int): List<OutboxEntry> =
+    override fun claimPending(deliveryTypes: Set<String>, limit: Int, now: Instant): List<OutboxEntry> =
         listOf(OutboxEntry.createPending(OutboxMessage("e", "{}"), info, Instant.EPOCH))
     override fun updateAfterProcessing(entry: OutboxEntry) = entry
     override fun removeDeliveredBefore(time: Instant, limit: Int) = 0
