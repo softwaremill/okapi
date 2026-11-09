@@ -105,6 +105,25 @@ rows and replaces 002's claim index with one on `(delivery_type, next_attempt_at
   that drive retries tick by tick need a zero backoff:
   `RetryPolicy(maxRetries, initialBackoff = Duration.ZERO, maxBackoff = Duration.ZERO)`.
 
+### `OutboxProcessorListener` runs after the commit (#137)
+
+Under `OutboxScheduler` (and so with Spring Boot autoconfiguration), listener callbacks now run after
+the processing transaction has committed, outside of it, and are skipped for a batch whose commit
+failed.
+
+- A custom listener that wrote to the database expecting to join the processing transaction now
+  runs without one: open your own transaction in the callback, or make the write idempotent. This
+  fails quietly: an Exposed listener gets "No transaction in context", a Spring call with
+  `MANDATORY` propagation throws, and okapi only logs each such exception as a WARN.
+- Counters (`okapi.entries.delivered`, `okapi.entries.failed`, ...) now count committed status
+  changes. A send whose transaction rolled back is no longer counted.
+- A custom `TransactionRunner` must have committed when `runInTransaction` returns (now documented on
+  the interface); one that joins an outer transaction brings back pre-commit events.
+- `okapi.batch.duration` now includes the commit, so it reads slightly higher than before.
+- If you call `OutboxProcessor.processNext` inside your own transaction, events still fire before
+  your commit. Switch to `val batch = runInTransaction { processor.processBatch(limit) }` followed by
+  `processor.publishEvents(batch)` to get the after-commit behaviour.
+
 ## From 0.2.x to 1.0.0
 
 Releases up to 0.2.x used the domain table `outbox` and the shared Liquibase tracking

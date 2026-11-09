@@ -13,6 +13,12 @@ import java.util.concurrent.atomic.AtomicInteger
  * full batch. Exceptions in the listener are caught and logged — they never break
  * processing. Transaction management is the caller's responsibility.
  *
+ * Listener events describe state the caller's transaction has persisted, so they belong after
+ * it commits (issue #137): call [processBatch] inside the transaction and [publishEvents] after
+ * it commits, as [OutboxScheduler] does. A commit that fails then emits nothing, and the entries
+ * are reported again when they are re-processed. [processNext] does both in one call, so inside a
+ * transaction its events precede the commit.
+ *
  * In the batch processing path, the per-entry `duration` reported in
  * [OutboxProcessingEvent] reflects the **wall-clock duration of the whole batch**
  * (because transports may overlap their per-entry I/O internally — e.g. Kafka's
@@ -29,11 +35,21 @@ class OutboxProcessor @JvmOverloads constructor(
     private val nextStartingType = AtomicInteger()
 
     /**
-     * Claims up to [limit] pending entries, processes them as a batch, and persists
-     * each result. Returns the number of entries processed (0 if the store had nothing).
+     * Claims up to [limit] pending entries, processes them as a batch, persists each result and
+     * notifies the listener at once. Returns the number of entries processed (0 if the store had
+     * nothing). Called inside a transaction, the events precede its commit; use [processBatch] and
+     * [publishEvents] to emit them only after the commit.
      */
     @JvmOverloads
-    fun processNext(limit: Int = 10): Int {
+    fun processNext(limit: Int = 10): Int = processBatch(limit).also { publishEvents(it) }.count
+
+    /**
+     * Claims up to [limit] pending entries, processes them as a batch and persists each result,
+     * without notifying the listener. Run it inside the processing transaction and pass the result
+     * to [publishEvents] once that transaction has committed.
+     */
+    @JvmOverloads
+    fun processBatch(limit: Int = 10): ProcessedBatch {
         val batchStart = clock.instant()
         val routeAwareStore = store as? RouteAwareOutboxStore
             ?: error(
@@ -63,19 +79,26 @@ class OutboxProcessor @JvmOverloads constructor(
                 first + other
             }
         }
-        if (claimed.isEmpty()) {
-            notifyBatch(0, Duration.between(batchStart, clock.instant()))
-            return 0
-        }
+        if (claimed.isEmpty()) return ProcessedBatch(emptyList(), batchStart, Duration.ZERO)
 
         val processed = entryProcessor.processBatch(claimed)
-        val batchDuration = Duration.between(batchStart, clock.instant())
+        val deliveryDuration = Duration.between(batchStart, clock.instant())
 
         store.updateAfterProcessingBatch(processed)
-        processed.forEach { updated -> notifyEntry(updated, batchDuration) }
+        return ProcessedBatch(processed, batchStart, deliveryDuration)
+    }
 
-        notifyBatch(processed.size, Duration.between(batchStart, clock.instant()))
-        return processed.size
+    /**
+     * Notifies the listener of [batch]: [OutboxProcessorListener.onEntryProcessed] for each entry,
+     * then [OutboxProcessorListener.onBatchProcessed], whose duration runs from the start of the batch
+     * until this call, so it includes the commit when called after one, but not the listener
+     * callbacks. A batch's events can be published only once; a second call throws.
+     */
+    fun publishEvents(batch: ProcessedBatch) {
+        check(batch.markPublished()) { "Events of this batch were already published" }
+        val batchDuration = Duration.between(batch.startedAt, clock.instant())
+        batch.entries.forEach { updated -> notifyEntry(updated, batch.deliveryDuration) }
+        notifyBatch(batch.count, batchDuration)
     }
 
     private fun notifyEntry(updated: OutboxEntry, duration: Duration) {

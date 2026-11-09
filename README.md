@@ -279,7 +279,7 @@ Metrics are then available at `/actuator/prometheus`.
 | `okapi.entries.delivered` | Counter | Successfully delivered entries |
 | `okapi.entries.retry.scheduled` | Counter | Failed attempts rescheduled for retry |
 | `okapi.entries.failed` | Counter | Permanently failed entries |
-| `okapi.batch.duration` | Timer | Processing time per batch |
+| `okapi.batch.duration` | Timer | Processing time per batch; under the scheduler from the claim until the transaction has committed (not including listener callbacks) |
 | `okapi.entries.count` | Gauge | Current entry count (tag: `status`) |
 | `okapi.entries.lag.seconds` | Gauge | Age of the oldest entry (tag: `status`) |
 
@@ -297,7 +297,7 @@ max by (job, status) (okapi_entries_count)
 
 Without Spring Boot, construct `MicrometerOutboxListener` and `MicrometerOutboxMetrics` with your `MeterRegistry`. Refresh gauges with `OutboxMetricsRefresher` or your own scheduler.
 
-For custom reactions to delivery events, implement `OutboxProcessorListener`. `OutboxProcessor` takes a single listener; combine several with a composite of your own.
+For custom reactions to delivery events, implement `OutboxProcessorListener`. `OutboxProcessor` takes a single listener; combine several with a composite of your own. The scheduler calls the listener after the processing transaction has committed, outside of it, and not for a batch whose commit failed, so every event describes persisted state and counters do not over-count when a commit fails. Counters therefore count committed status changes, not delivery attempts: a send whose transaction then rolled back (a failed commit, or a block Exposed retried) is not counted, though the message may have reached the consumer. If you drive `OutboxProcessor` yourself, call `processBatch` inside your transaction and `publishEvents` after it commits; `processNext` does both at once, so inside a transaction its events precede the commit.
 
 ## Modules
 
