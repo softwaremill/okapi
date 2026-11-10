@@ -1,6 +1,7 @@
 package com.softwaremill.okapi.core
 
 import org.slf4j.LoggerFactory
+import java.time.Instant
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
@@ -15,6 +16,16 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Standalone scheduler that periodically calls [OutboxProcessor.processBatch] in a transaction and,
  * once it has committed, [OutboxProcessor.publishEvents].
  *
+ * Each tick drains (issue #132): a worker keeps processing batches, each in its own transaction,
+ * while the previous one was full, up to [OutboxSchedulerConfig.maxBatchesPerTick].
+ * [OutboxSchedulerConfig.interval] is the delay after a tick, so it sets the polling rate of an
+ * idle outbox, not peak throughput. A delivery type none of whose entries in a batch was delivered
+ * (all rescheduled for retry or failed for good) is skipped for the rest of the worker's tick, so a
+ * failing or misconfigured downstream gets one batch per tick, as in 1.x, while healthy types keep
+ * draining; the tick ends once every type is skipped. All batches of a tick claim entries due at
+ * the tick's start, so an entry retried during the tick waits for the next one even with a zero
+ * backoff. [stop] lets the batch in progress finish and starts no further one.
+ *
  * Each worker's call runs inside [transactionRunner]. The runner is required: without a
  * surrounding transaction, `FOR UPDATE SKIP LOCKED` releases its row lock at the end of the
  * claim SELECT and concurrent processor instances deliver the same entry multiple times.
@@ -23,7 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * [OutboxSchedulerConfig.workerExecutorFactory]'s pool. `FOR UPDATE SKIP LOCKED` guarantees
  * disjoint claims, but [outboxProcessor] (and its dependencies) must be safe for concurrent use.
  * The tick waits for every worker before the next scheduled interval, so ticks never overlap.
- * `concurrency = 1` (default) calls the batch inline, preserving single-worker semantics.
+ * `concurrency = 1` (default) runs the worker inline, preserving single-worker semantics.
  *
  * At `concurrency > 1`, [outboxProcessor] -- and by extension its [OutboxStore], [MessageDeliverer],
  * and any [OutboxProcessorListener] -- is invoked concurrently from multiple worker threads, so all
@@ -59,10 +70,11 @@ class OutboxScheduler @JvmOverloads constructor(
         check(!scheduler.isShutdown) { "OutboxScheduler cannot be restarted after stop()" }
         if (!running.compareAndSet(false, true)) return
         logger.info(
-            "Outbox processor started [interval={}, batchSize={}, concurrency={}]",
+            "Outbox processor started [interval={}, batchSize={}, concurrency={}, maxBatchesPerTick={}]",
             config.interval,
             config.batchSize,
             config.concurrency,
+            config.maxBatchesPerTick,
         )
         scheduler.scheduleWithFixedDelay(::tick, 0L, config.interval.toMillis(), TimeUnit.MILLISECONDS)
     }
@@ -110,7 +122,7 @@ class OutboxScheduler @JvmOverloads constructor(
         if (config.concurrency == 1) {
             // Skips workers/Lazy entirely -- not just an inline no-op path -- so this configuration
             // truly pays no executor/synchronization overhead per tick, matching the class KDoc.
-            processBatch()
+            drain()
             return
         }
         val pool = try {
@@ -130,13 +142,13 @@ class OutboxScheduler @JvmOverloads constructor(
     }
 
     /**
-     * Submits one worker's [processBatch] without letting [RejectedExecutionException] escape
+     * Submits one worker's [drain] without letting [RejectedExecutionException] escape
      * [tick] -- a custom [OutboxSchedulerConfig.workerExecutorFactory] may return an executor that
      * can reject submissions (bounded queue, shutdown executor), and an uncaught exception here
      * would make `scheduleWithFixedDelay` suppress all future ticks.
      */
     private fun submitWorker(pool: ExecutorService): Future<*>? = try {
-        pool.submit(::processBatch)
+        pool.submit(::drain)
     } catch (e: RejectedExecutionException) {
         logger.error("Outbox worker submission rejected, will retry at next scheduled interval", e)
         null
@@ -145,7 +157,7 @@ class OutboxScheduler @JvmOverloads constructor(
     /**
      * Awaits one worker's completion without letting anything escape [tick] -- an uncaught
      * exception here would make `scheduleWithFixedDelay` suppress all future ticks, silently
-     * killing the scheduler. [processBatch] already catches [Exception] internally, so this
+     * killing the scheduler. [drain] already catches [Exception] internally, so this
      * only guards against an [Error] surfacing via [ExecutionException], a [CancellationException]
      * if a custom [OutboxSchedulerConfig.workerExecutorFactory] cancels queued/running tasks (e.g.
      * as a backpressure strategy), or an interrupt while awaiting.
@@ -178,15 +190,50 @@ class OutboxScheduler @JvmOverloads constructor(
         }
     }
 
-    private fun processBatch() {
-        try {
-            val batch = transactionRunner.runInTransaction { outboxProcessor.processBatch(config.batchSize) }
-            // After the commit (issue #137): a batch whose commit failed is rolled back and is not reported.
-            outboxProcessor.publishEvents(batch)
-            logger.debug("Outbox processor tick completed [batchSize={}]", config.batchSize)
-        } catch (e: Exception) {
-            logger.error("Outbox processor tick failed, will retry at next scheduled interval", e)
+    /** One worker's share of a tick: processes batches until [shouldContinue] says to stop. */
+    private fun drain() {
+        var batches = 0
+        var claimTime: Instant? = null
+        val stalledTypes = mutableSetOf<String>()
+        while (true) {
+            val batch = processBatch(claimTime, stalledTypes, batches) ?: return
+            batches++
+            claimTime = claimTime ?: batch.startedAt
+            // A type with nothing delivered in this batch is failing (or misconfigured): no more of it this tick.
+            batch.entries.groupBy { it.deliveryType }
+                .filterValues { entries -> entries.none { it.status == OutboxStatus.DELIVERED } }
+                .keys.let(stalledTypes::addAll)
+            if (!shouldContinue(batch, batches, stalledTypes)) {
+                logger.debug(
+                    "Outbox processor tick completed [batches={}, lastBatchSize={}, skippedTypes={}]",
+                    batches,
+                    batch.count,
+                    stalledTypes,
+                )
+                return
+            }
         }
+    }
+
+    private fun shouldContinue(batch: ProcessedBatch, batches: Int, stalledTypes: Set<String>): Boolean = batch.count >= config.batchSize &&
+        batches < config.maxBatchesPerTick &&
+        running.get() &&
+        !Thread.currentThread().isInterrupted &&
+        !stalledTypes.containsAll(outboxProcessor.supportedDeliveryTypes)
+
+    /** Processes one batch in its own transaction; returns `null` if that failed. */
+    private fun processBatch(claimTime: Instant?, skipTypes: Set<String>, committedBatches: Int): ProcessedBatch? = try {
+        val batch = transactionRunner.runInTransaction { outboxProcessor.processBatch(config.batchSize, claimTime, skipTypes) }
+        // After the commit (issue #137): a batch whose commit failed is rolled back and is not reported.
+        outboxProcessor.publishEvents(batch)
+        batch
+    } catch (e: Exception) {
+        logger.error(
+            "Outbox processor batch failed after {} committed batch(es) in this tick, will retry at next scheduled interval",
+            committedBatches,
+            e,
+        )
+        null
     }
 
     companion object {

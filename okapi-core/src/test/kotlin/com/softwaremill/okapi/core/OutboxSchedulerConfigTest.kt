@@ -17,6 +17,13 @@ class OutboxSchedulerConfigTest : FunSpec({
         config.interval shouldBe ofSeconds(1)
         config.batchSize shouldBe 10
         config.concurrency shouldBe 1
+        config.maxBatchesPerTick shouldBe OutboxSchedulerConfig.DEFAULT_MAX_BATCHES_PER_TICK
+    }
+
+    test("rejects non-positive maxBatchesPerTick") {
+        listOf(0, -1).forEach { value ->
+            shouldThrow<IllegalArgumentException> { OutboxSchedulerConfig(maxBatchesPerTick = value) }
+        }
     }
 
     test("accepts custom valid values") {

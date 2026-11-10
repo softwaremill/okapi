@@ -102,6 +102,24 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ### Changed (BREAKING)
 
+- **The scheduler drains the backlog within a tick instead of processing one batch per worker.**
+  Each worker used to process exactly one batch per tick, capping throughput at about
+  `concurrency × batchSize / interval`, under 10 messages/s with the defaults, so any sustained
+  higher publish rate grew the backlog without bound. A worker now keeps processing batches, each in
+  its own transaction, while the previous one was full, up to the new
+  `OutboxSchedulerConfig.maxBatchesPerTick` (default 1000, Spring property
+  `okapi.processor.max-batches-per-tick`). A delivery type with nothing delivered in a batch (all
+  rescheduled for retry or failed for good) is skipped for the rest of the tick, so a failing or
+  misconfigured downstream still gets one batch per tick while other types keep draining, and the
+  tick ends when every type is skipped. Batches of a tick claim only entries due when the tick
+  started, so a retry waits for the next tick even with a zero backoff. The poll interval now only
+  sets the idle polling rate: a healthy downstream receives a backlog as fast as okapi can deliver
+  it, and `onBatchProcessed` / `okapi.batch.duration` fire more often per tick.
+  `maxBatchesPerTick = 1` restores the previous behaviour. `OutboxSchedulerConfig` and
+  `OutboxProcessorProperties` gained a constructor parameter: `@JvmOverloads` keeps the previous
+  Java constructors, but compiled Kotlin code that calls `copy(...)` or a constructor relying on
+  default arguments fails with `NoSuchMethodError` until recompiled.
+  ([#132](https://github.com/softwaremill/okapi/issues/132))
 - **Retries back off exponentially instead of firing on every poll (new migration `004__retry_backoff`).**
   A retriable failure used to be retried on the very next tick, so with the defaults (`interval`
   1s, `max-retries` 5) a message was `FAILED` — terminally — after about six seconds of downstream

@@ -234,6 +234,7 @@ class OutboxAutoConfiguration(
                 interval = props.interval,
                 batchSize = props.batchSize,
                 concurrency = props.concurrency,
+                maxBatchesPerTick = props.maxBatchesPerTick,
             ),
         )
     }
