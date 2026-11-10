@@ -8,6 +8,13 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-11-10
+
+First major release since 1.0.0. It fixes bugs whose fixes could not ship without breaking
+compatibility: database schema migrations for MySQL (#138) and PostgreSQL (#135), exponential retry
+backoff (#131), listener events after commit (#137) and backlog draining within a scheduler tick (#132).
+Read [UPGRADING.md](UPGRADING.md#from-1x-to-200) before upgrading.
+
 ### Added
 
 - **`x-outbox-id` header on every delivery.** Both `KafkaMessageDeliverer` and `HttpMessageDeliverer`
@@ -386,7 +393,8 @@ Initial public release.
 - `okapi-exposed` integration (transaction runner, connection provider, validator).
 - Concurrent processing via `FOR UPDATE SKIP LOCKED`.
 
-[Unreleased]: https://github.com/softwaremill/okapi/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/softwaremill/okapi/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/softwaremill/okapi/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/softwaremill/okapi/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/softwaremill/okapi/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/softwaremill/okapi/compare/v0.1.0...v0.2.0

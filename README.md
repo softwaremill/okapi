@@ -27,7 +27,7 @@ This example assumes an existing Spring Boot application connected to PostgreSQL
 
 ```kotlin
 dependencies {
-    implementation(platform("com.softwaremill.okapi:okapi-bom:1.0.0"))
+    implementation(platform("com.softwaremill.okapi:okapi-bom:2.0.0"))
     implementation("com.softwaremill.okapi:okapi-core")
     implementation("com.softwaremill.okapi:okapi-postgres")
     implementation("com.softwaremill.okapi:okapi-http")

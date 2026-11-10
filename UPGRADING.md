@@ -145,6 +145,34 @@ batch per worker per tick, as in 1.x.
   calls `copy(...)` or a constructor relying on default arguments must be recompiled, or it fails
   with `NoSuchMethodError`.
 
+### Route-aware claiming: `RouteAwareOutboxStore` and migration `002` (#120)
+
+The processor now claims only the delivery types it has a deliverer for.
+
+- **Schema.** Changeset `002__route_aware_claim_index` adds a claim index. The bundled Liquibase
+  changelogs apply it automatically. If you manage the schema yourself, apply it before starting
+  2.0.0 workers: the MySQL claim uses `FORCE INDEX` and fails without it, and the PostgreSQL script
+  (`CREATE INDEX CONCURRENTLY`) must run outside a transaction.
+- **Custom stores.** `OutboxProcessor` requires a `RouteAwareOutboxStore`. A custom `OutboxStore`,
+  or a hand-written wrapper around a built-in store, must implement it, or `processNext` throws and
+  Spring autoconfiguration fails at startup while the processor is enabled.
+- **Unknown delivery types.** `OutboxEntryProcessor.process`/`processBatch` throw
+  `IllegalStateException` for an entry with no registered deliverer instead of marking it `FAILED`.
+  Under `OutboxProcessor` the transaction rolls back and the row stays `PENDING`; direct callers must
+  handle the exception.
+
+### `ExposedConnectionProvider` takes a `Database` (#96)
+
+Pass the `Database` the outbox lives in: `ExposedConnectionProvider(database)`, one instance per
+`Database`, as with `ExposedTransactionRunner` and `ExposedTransactionContextValidator`. It now
+reads that database's transaction instead of whichever one is innermost on the thread.
+
+### `OutboxProcessorProperties.transportDispatch` (#113)
+
+`OutboxProcessorProperties` gained a `transportDispatch` parameter. Java callers and
+`application.yml` binding are unaffected; compiled Kotlin code that calls `copy(...)` or a
+constructor relying on default arguments must be recompiled, or it fails with `NoSuchMethodError`.
+
 ## From 0.2.x to 1.0.0
 
 Releases up to 0.2.x used the domain table `outbox` and the shared Liquibase tracking
