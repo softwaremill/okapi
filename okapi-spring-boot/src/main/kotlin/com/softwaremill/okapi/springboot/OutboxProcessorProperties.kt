@@ -12,7 +12,7 @@ data class OutboxProcessorProperties @JvmOverloads constructor(
     val batchSize: Int = 10,
     val maxRetries: Int = 5,
     /**
-     * Number of parallel workers fanned out per scheduler tick, each claiming its own batch
+     * Number of parallel workers fanned out per scheduler tick, each draining its own batches
      * via `FOR UPDATE SKIP LOCKED`. See [com.softwaremill.okapi.core.OutboxSchedulerConfig].
      */
     val concurrency: Int = 1,

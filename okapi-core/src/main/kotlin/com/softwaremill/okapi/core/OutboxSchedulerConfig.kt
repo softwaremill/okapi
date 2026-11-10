@@ -26,10 +26,11 @@ data class OutboxSchedulerConfig @JvmOverloads constructor(
     val workerExecutorFactory: (Int) -> ExecutorService = ::defaultPlatformPool,
     /**
      * Upper bound on the batches each worker processes per tick (issue #132). A worker keeps
-     * claiming, each batch in its own transaction, while the previous batch was full and made
-     * progress, so [interval] only sets the idle polling delay and a backlog drains as fast as the
-     * database and transports allow. `1` restores the 1.x behaviour of one batch per worker per
-     * tick, which caps throughput at about `concurrency × batchSize / interval`.
+     * claiming, each batch in its own transaction, while the previous batch was full, skipping for
+     * the rest of the tick any delivery type with nothing delivered in a batch; see [OutboxScheduler].
+     * So [interval] only sets the idle polling delay and a backlog drains as fast as the database and
+     * transports allow. `1` restores the 1.x behaviour of one batch per worker per tick, which caps
+     * throughput at about `concurrency × batchSize / interval`.
      */
     val maxBatchesPerTick: Int = DEFAULT_MAX_BATCHES_PER_TICK,
 ) {

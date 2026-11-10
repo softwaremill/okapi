@@ -3,6 +3,7 @@ package com.softwaremill.okapi.core
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -49,30 +50,42 @@ class OutboxProcessor @JvmOverloads constructor(
      * to [publishEvents] once that transaction has committed.
      */
     @JvmOverloads
-    fun processBatch(limit: Int = 10): ProcessedBatch {
+    fun processBatch(limit: Int = 10): ProcessedBatch = processBatch(limit, claimTime = null, skipTypes = emptySet())
+
+    /** Delivery types this processor claims. */
+    internal val supportedDeliveryTypes: Set<String> get() = deliveryTypes.toSet()
+
+    /**
+     * [processBatch] for [OutboxScheduler]'s drain loop (issue #132): claims only entries due at
+     * [claimTime] (the start of the batch when `null`), so a retry rescheduled during a tick waits
+     * for the next tick, and leaves out [skipTypes].
+     */
+    internal fun processBatch(limit: Int, claimTime: Instant?, skipTypes: Set<String>): ProcessedBatch {
         val batchStart = clock.instant()
+        val claimAt = claimTime ?: batchStart
+        val types = deliveryTypes.filterNot { it in skipTypes }
         val routeAwareStore = store as? RouteAwareOutboxStore
             ?: error(
                 "OutboxProcessor requires a RouteAwareOutboxStore to avoid claiming unsupported delivery types, " +
                     "got ${store.javaClass.name}. A wrapper or proxy around a store must implement RouteAwareOutboxStore itself.",
             )
         check(deliveryTypes.isNotEmpty()) { "OutboxProcessor requires at least one delivery type" }
-        val claimed = if (limit <= 0) {
+        val claimed = if (limit <= 0 || types.isEmpty()) {
             emptyList()
         } else {
-            val startingType = deliveryTypes[Math.floorMod(nextStartingType.getAndIncrement(), deliveryTypes.size)]
-            val first = routeAwareStore.claimPending(startingType, limit, batchStart)
+            val startingType = types[Math.floorMod(nextStartingType.getAndIncrement(), types.size)]
+            val first = routeAwareStore.claimPending(startingType, limit, claimAt)
             check(first.size <= limit && first.all { it.deliveryType == startingType }) {
                 "RouteAwareOutboxStore returned entries outside the requested type or limit"
             }
-            val remainingTypes = deliveryTypes.filterTo(LinkedHashSet()) { it != startingType }
+            val remainingTypes = types.filterTo(LinkedHashSet()) { it != startingType }
             if (first.size == limit || remainingTypes.isEmpty()) {
                 first
             } else {
                 val remaining = limit - first.size
                 // Stores order this claim by delivery type, so leftover capacity favours types that sort first.
                 // Each type is still claimed first once every N ticks, so none is starved.
-                val other = routeAwareStore.claimPending(remainingTypes, remaining, batchStart)
+                val other = routeAwareStore.claimPending(remainingTypes, remaining, claimAt)
                 check(other.size <= remaining && other.all { it.deliveryType in remainingTypes }) {
                     "RouteAwareOutboxStore returned entries outside the requested types or limit"
                 }

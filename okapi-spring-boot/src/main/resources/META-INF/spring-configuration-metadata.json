@@ -73,7 +73,7 @@
       "name": "okapi.processor.max-batches-per-tick",
       "type": "java.lang.Integer",
       "defaultValue": 1000,
-      "description": "Maximum number of batches each worker processes per tick. A worker continues while the previous batch was full and at least one of its entries was delivered or failed. 1 restores the 1.x behaviour of one batch per worker per tick."
+      "description": "Maximum number of batches each worker processes per tick. A worker continues while the previous batch was full; a delivery type with nothing delivered in a batch (all rescheduled for retry or failed for good) is skipped for the rest of the tick, and the tick ends when every type is skipped. 1 restores the 1.x behaviour of one batch per worker per tick."
     },
     {
       "name": "okapi.processor.max-retries",

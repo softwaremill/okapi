@@ -1,6 +1,7 @@
 package com.softwaremill.okapi.core
 
 import org.slf4j.LoggerFactory
+import java.time.Instant
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
@@ -16,12 +17,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  * once it has committed, [OutboxProcessor.publishEvents].
  *
  * Each tick drains (issue #132): a worker keeps processing batches, each in its own transaction,
- * while the previous one was full and made progress -- at least one entry ended `DELIVERED` or
- * `FAILED` rather than being rescheduled -- up to [OutboxSchedulerConfig.maxBatchesPerTick].
+ * while the previous one was full, up to [OutboxSchedulerConfig.maxBatchesPerTick].
  * [OutboxSchedulerConfig.interval] is the delay after a tick, so it sets the polling rate of an
- * idle outbox, not peak throughput. A batch whose entries were all rescheduled for retry ends the
- * tick, so a failing downstream is not sent the whole backlog in one go. [stop] lets the batch in
- * progress finish and starts no further one.
+ * idle outbox, not peak throughput. A delivery type none of whose entries in a batch was delivered
+ * (all rescheduled for retry or failed for good) is skipped for the rest of the worker's tick, so a
+ * failing or misconfigured downstream gets one batch per tick, as in 1.x, while healthy types keep
+ * draining; the tick ends once every type is skipped. All batches of a tick claim entries due at
+ * the tick's start, so an entry retried during the tick waits for the next one even with a zero
+ * backoff. [stop] lets the batch in progress finish and starts no further one.
  *
  * Each worker's call runs inside [transactionRunner]. The runner is required: without a
  * surrounding transaction, `FOR UPDATE SKIP LOCKED` releases its row lock at the end of the
@@ -67,10 +70,11 @@ class OutboxScheduler @JvmOverloads constructor(
         check(!scheduler.isShutdown) { "OutboxScheduler cannot be restarted after stop()" }
         if (!running.compareAndSet(false, true)) return
         logger.info(
-            "Outbox processor started [interval={}, batchSize={}, concurrency={}]",
+            "Outbox processor started [interval={}, batchSize={}, concurrency={}, maxBatchesPerTick={}]",
             config.interval,
             config.batchSize,
             config.concurrency,
+            config.maxBatchesPerTick,
         )
         scheduler.scheduleWithFixedDelay(::tick, 0L, config.interval.toMillis(), TimeUnit.MILLISECONDS)
     }
@@ -189,30 +193,46 @@ class OutboxScheduler @JvmOverloads constructor(
     /** One worker's share of a tick: processes batches until [shouldContinue] says to stop. */
     private fun drain() {
         var batches = 0
+        var claimTime: Instant? = null
+        val stalledTypes = mutableSetOf<String>()
         while (true) {
-            val batch = processBatch() ?: return
+            val batch = processBatch(claimTime, stalledTypes, batches) ?: return
             batches++
-            if (!shouldContinue(batch, batches)) {
-                logger.debug("Outbox processor tick completed [batches={}, lastBatchSize={}]", batches, batch.count)
+            claimTime = claimTime ?: batch.startedAt
+            // A type with nothing delivered in this batch is failing (or misconfigured): no more of it this tick.
+            batch.entries.groupBy { it.deliveryType }
+                .filterValues { entries -> entries.none { it.status == OutboxStatus.DELIVERED } }
+                .keys.let(stalledTypes::addAll)
+            if (!shouldContinue(batch, batches, stalledTypes)) {
+                logger.debug(
+                    "Outbox processor tick completed [batches={}, lastBatchSize={}, skippedTypes={}]",
+                    batches,
+                    batch.count,
+                    stalledTypes,
+                )
                 return
             }
         }
     }
 
-    private fun shouldContinue(batch: ProcessedBatch, batches: Int): Boolean = batch.count >= config.batchSize &&
+    private fun shouldContinue(batch: ProcessedBatch, batches: Int, stalledTypes: Set<String>): Boolean = batch.count >= config.batchSize &&
         batches < config.maxBatchesPerTick &&
         running.get() &&
         !Thread.currentThread().isInterrupted &&
-        batch.entries.any { it.status != OutboxStatus.PENDING }
+        !stalledTypes.containsAll(outboxProcessor.supportedDeliveryTypes)
 
     /** Processes one batch in its own transaction; returns `null` if that failed. */
-    private fun processBatch(): ProcessedBatch? = try {
-        val batch = transactionRunner.runInTransaction { outboxProcessor.processBatch(config.batchSize) }
+    private fun processBatch(claimTime: Instant?, skipTypes: Set<String>, committedBatches: Int): ProcessedBatch? = try {
+        val batch = transactionRunner.runInTransaction { outboxProcessor.processBatch(config.batchSize, claimTime, skipTypes) }
         // After the commit (issue #137): a batch whose commit failed is rolled back and is not reported.
         outboxProcessor.publishEvents(batch)
         batch
     } catch (e: Exception) {
-        logger.error("Outbox processor tick failed, will retry at next scheduled interval", e)
+        logger.error(
+            "Outbox processor batch failed after {} committed batch(es) in this tick, will retry at next scheduled interval",
+            committedBatches,
+            e,
+        )
         null
     }
 

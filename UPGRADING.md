@@ -127,8 +127,10 @@ failed.
 ### The scheduler drains the backlog in each tick (#132)
 
 A worker no longer stops after one batch per tick: it keeps processing batches, each in its own
-transaction, while they come back full and make progress, up to `max-batches-per-tick` (default
-1000).
+transaction, while they come back full, up to `max-batches-per-tick` (default 1000). A delivery
+type with nothing delivered in a batch (all rescheduled for retry, or failed for good, e.g. after a
+401) is skipped for the rest of the tick, so a failing or misconfigured downstream still gets one
+batch per worker per tick, as in 1.x.
 
 - **Downstream load.** With a backlog, okapi now sends as fast as the database and transports allow.
   If you relied on `batch-size` / `interval` to throttle a rate-limited downstream system, set
@@ -139,8 +141,9 @@ transaction, while they come back full and make progress, up to `max-batches-per
 - **Metrics.** `onBatchProcessed` and `okapi.batch.duration` are still per batch, so a tick can now
   report many batches.
 - **Code.** `OutboxSchedulerConfig` and `OutboxProcessorProperties` gained a `maxBatchesPerTick`
-  parameter. Java callers keep the previous constructors (`@JvmOverloads`); Kotlin code calling
-  `copy(...)` must be recompiled.
+  parameter. Java callers keep the previous constructors (`@JvmOverloads`); compiled Kotlin code that
+  calls `copy(...)` or a constructor relying on default arguments must be recompiled, or it fails
+  with `NoSuchMethodError`.
 
 ## From 0.2.x to 1.0.0
 
