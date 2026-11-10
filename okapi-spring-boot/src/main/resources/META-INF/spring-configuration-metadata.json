@@ -61,13 +61,19 @@
       "name": "okapi.processor.interval",
       "type": "java.time.Duration",
       "defaultValue": "1s",
-      "description": "How often the processor runs."
+      "description": "Delay between scheduler ticks: how often an idle outbox is polled. A tick with a backlog keeps processing batches (see max-batches-per-tick), so this does not cap throughput."
     },
     {
       "name": "okapi.processor.batch-size",
       "type": "java.lang.Integer",
       "defaultValue": 10,
-      "description": "Maximum number of pending entries to process per tick."
+      "description": "Maximum number of pending entries claimed and processed per batch, each batch in its own transaction."
+    },
+    {
+      "name": "okapi.processor.max-batches-per-tick",
+      "type": "java.lang.Integer",
+      "defaultValue": 1000,
+      "description": "Maximum number of batches each worker processes per tick. A worker continues while the previous batch was full and at least one of its entries was delivered or failed. 1 restores the 1.x behaviour of one batch per worker per tick."
     },
     {
       "name": "okapi.processor.max-retries",

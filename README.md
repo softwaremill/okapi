@@ -132,8 +132,9 @@ In a typical single-DataSource application, all properties are optional. Multi-D
 | Property | Default | Description |
 |---|---|---|
 | `okapi.processor.enabled` | `true` | Set `false` to disable delivery entirely (e.g. on instances that only publish). |
-| `okapi.processor.interval` | `1s` | How often the scheduler polls for pending entries. |
-| `okapi.processor.batch-size` | `10` | Maximum entries claimed per worker per tick. |
+| `okapi.processor.interval` | `1s` | Delay between scheduler ticks, i.e. how often an idle outbox is polled. A tick with a backlog keeps going (see `max-batches-per-tick`), so this does not cap throughput. |
+| `okapi.processor.batch-size` | `10` | Maximum entries claimed per batch; each batch runs in its own transaction. |
+| `okapi.processor.max-batches-per-tick` | `1000` | Batches each worker processes per tick. A worker continues while the previous batch was full and at least one of its entries was delivered or failed for good; a batch that was entirely rescheduled for retry ends the tick. `1` restores the 1.x one batch per tick, which caps throughput at about `concurrency × batch-size / interval`. |
 | `okapi.processor.max-retries` | `5` | Retries after the initial attempt before an entry becomes `FAILED`. |
 | `okapi.processor.initial-backoff` | `10s` | Delay before the first retry of a retriable failure. |
 | `okapi.processor.backoff-multiplier` | `2.0` | Factor applied to the delay for each further retry (>= 1). |
@@ -238,7 +239,7 @@ okapi stores messages in the fixed `okapi_outbox` table. When the built-in Liqui
 
 ## Transactions
 
-Each processor worker runs its claim, delivery and state update inside one transaction, which keeps `FOR UPDATE SKIP LOCKED` active until delivery state is saved. Each purge batch also runs in its own transaction. With a single `DataSource` and `PlatformTransactionManager`, no additional transaction configuration is needed.
+Each processor worker runs its claim, delivery and state update inside one transaction per batch, which keeps `FOR UPDATE SKIP LOCKED` active until delivery state is saved. While a backlog remains, a worker runs batch after batch within one tick, each in a transaction of its own. Each purge batch also runs in its own transaction. With a single `DataSource` and `PlatformTransactionManager`, no additional transaction configuration is needed.
 
 **Multiple data sources or transaction managers?** Set both `okapi.datasource-qualifier` and `okapi.transaction-manager-qualifier` to the beans used for the outbox. okapi fails fast when it detects a mismatch. If the selected transaction manager does not expose its `DataSource`, okapi cannot verify the pairing and logs a warning instead.
 
@@ -341,6 +342,8 @@ The storage modules use plain JDBC. With Spring Boot, they participate in the tr
 ## Performance
 
 Performance depends on the selected transport, database, batch size, concurrency and downstream latency. See [`benchmarks/`](benchmarks/) for methodology and measured results.
+
+Each tick drains: a worker keeps claiming batches while they come back full, so a backlog is delivered as fast as the database and transports allow, and `interval` only sets how quickly a new message is picked up when the outbox was idle. To limit the rate at which okapi sends to a downstream system, set `max-batches-per-tick` (with `batch-size` and `interval`) rather than relying on the poll interval alone.
 
 ## Building
 

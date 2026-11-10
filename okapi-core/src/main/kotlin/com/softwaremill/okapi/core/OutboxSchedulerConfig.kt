@@ -24,14 +24,25 @@ data class OutboxSchedulerConfig @JvmOverloads constructor(
      * switching away from the default.
      */
     val workerExecutorFactory: (Int) -> ExecutorService = ::defaultPlatformPool,
+    /**
+     * Upper bound on the batches each worker processes per tick (issue #132). A worker keeps
+     * claiming, each batch in its own transaction, while the previous batch was full and made
+     * progress, so [interval] only sets the idle polling delay and a backlog drains as fast as the
+     * database and transports allow. `1` restores the 1.x behaviour of one batch per worker per
+     * tick, which caps throughput at about `concurrency × batchSize / interval`.
+     */
+    val maxBatchesPerTick: Int = DEFAULT_MAX_BATCHES_PER_TICK,
 ) {
     init {
         require(!interval.isNegative && interval.toMillis() > 0) { "interval must be at least 1ms, got: $interval" }
         require(batchSize > 0) { "batchSize must be positive, got: $batchSize" }
         require(concurrency in 1..256) { "concurrency must be between 1 and 256, got: $concurrency" }
+        require(maxBatchesPerTick > 0) { "maxBatchesPerTick must be positive, got: $maxBatchesPerTick" }
     }
 
     companion object {
+        const val DEFAULT_MAX_BATCHES_PER_TICK = 1000
+
         /** Fixed pool of [n] daemon platform threads, named `outbox-worker-N`. */
         @JvmStatic
         fun defaultPlatformPool(n: Int): ExecutorService {

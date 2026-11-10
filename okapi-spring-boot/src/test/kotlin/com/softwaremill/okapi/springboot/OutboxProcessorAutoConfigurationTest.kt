@@ -8,8 +8,10 @@ import com.softwaremill.okapi.core.OutboxEntryProcessor
 import com.softwaremill.okapi.core.OutboxMessage
 import com.softwaremill.okapi.core.OutboxProcessor
 import com.softwaremill.okapi.core.OutboxPublisher
+import com.softwaremill.okapi.core.OutboxSchedulerConfig
 import com.softwaremill.okapi.core.OutboxStore
 import com.softwaremill.okapi.core.RetryPolicy
+import com.softwaremill.okapi.core.RouteAwareOutboxStore
 import com.softwaremill.okapi.core.TransactionRunner
 import com.softwaremill.okapi.core.TransportDispatch
 import com.softwaremill.okapi.micrometer.MicrometerOutboxListener
@@ -36,6 +38,7 @@ import java.time.Duration.ofMinutes
 import java.time.Duration.ofSeconds
 import java.time.Instant
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicInteger
 import javax.sql.DataSource
 
 class OutboxProcessorAutoConfigurationTest : FunSpec({
@@ -197,6 +200,52 @@ class OutboxProcessorAutoConfigurationTest : FunSpec({
             contextRunner.withPropertyValues(property).run { ctx ->
                 withClue(property) { ctx.startupFailure.shouldNotBeNull() }
             }
+        }
+    }
+
+    test("max-batches-per-tick is bound and validated, defaulting to OutboxSchedulerConfig's (#132)") {
+        contextRunner.withPropertyValues("okapi.processor.max-batches-per-tick=7").run { ctx ->
+            ctx.getBean<OutboxProcessorProperties>().maxBatchesPerTick shouldBe 7
+        }
+        contextRunner.run { ctx ->
+            ctx.getBean<OutboxProcessorProperties>().maxBatchesPerTick shouldBe OutboxSchedulerConfig.DEFAULT_MAX_BATCHES_PER_TICK
+        }
+        contextRunner.withPropertyValues("okapi.processor.max-batches-per-tick=0").run { ctx ->
+            ctx.startupFailure.shouldNotBeNull()
+        }
+    }
+
+    test("the scheduler drains up to max-batches-per-tick batches in a tick (#132)") {
+        listOf(1, 3).forEach { maxBatches ->
+            val claims = AtomicInteger()
+            // Every claim comes back full, so only max-batches-per-tick ends the tick.
+            val alwaysFull = object : RouteAwareOutboxStore by stubStore() {
+                override fun claimPending(deliveryTypes: Set<String>, limit: Int, now: Instant): List<OutboxEntry> {
+                    claims.incrementAndGet()
+                    return List(limit) { entryOfType("stub") }
+                }
+
+                // Delegation would otherwise send the processor's single-type claim to the stub.
+                override fun claimPending(deliveryType: String, limit: Int, now: Instant) = claimPending(setOf(deliveryType), limit, now)
+            }
+            ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(OutboxAutoConfiguration::class.java))
+                .withBean(OutboxStore::class.java, { alwaysFull })
+                .withBean(MessageDeliverer::class.java, { stubDeliverer() })
+                .withBean(DataSource::class.java, { SimpleDriverDataSource() })
+                .withBean(TransactionRunner::class.java, { noOpTransactionRunner() })
+                .withPropertyValues(
+                    "okapi.processor.interval=1h",
+                    "okapi.processor.batch-size=2",
+                    "okapi.processor.max-batches-per-tick=$maxBatches",
+                )
+                .run { ctx ->
+                    ctx.startupFailure shouldBe null
+                    val deadline = System.nanoTime() + ofSeconds(5).toNanos()
+                    while (claims.get() < maxBatches && System.nanoTime() < deadline) Thread.sleep(10)
+                    Thread.sleep(300)
+                    withClue("max-batches-per-tick=$maxBatches") { claims.get() shouldBe maxBatches }
+                }
         }
     }
 
