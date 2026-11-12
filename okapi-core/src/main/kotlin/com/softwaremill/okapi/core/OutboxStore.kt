@@ -39,6 +39,11 @@ interface OutboxStore {
      * Updates a batch of entries after a delivery attempt in a single roundtrip where
      * possible. Default loops over [updateAfterProcessing] one at a time; storage modules
      * override this with a single JDBC `executeBatch()` call.
+     *
+     * It runs in the claim's transaction, so if it throws, the results of the whole batch roll
+     * back, including entries already delivered, and they are delivered again. The built-in stores
+     * therefore write the rows one by one when the batch update fails, and store a placeholder
+     * `last_error` for a row the database still rejects (issue #141).
      */
     fun updateAfterProcessingBatch(entries: List<OutboxEntry>): List<OutboxEntry> = entries.map { updateAfterProcessing(it) }
 }

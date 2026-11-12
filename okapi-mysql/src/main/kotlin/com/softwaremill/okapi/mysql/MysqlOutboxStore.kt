@@ -5,8 +5,11 @@ import com.softwaremill.okapi.core.OutboxEntry
 import com.softwaremill.okapi.core.OutboxId
 import com.softwaremill.okapi.core.OutboxStatus
 import com.softwaremill.okapi.core.RouteAwareOutboxStore
+import org.slf4j.LoggerFactory
+import java.sql.Connection
 import java.sql.PreparedStatement
 import java.sql.ResultSet
+import java.sql.SQLException
 import java.sql.Types
 import java.time.Instant
 import java.time.LocalDateTime
@@ -170,14 +173,68 @@ class MysqlOutboxStore(
     override fun updateAfterProcessingBatch(entries: List<OutboxEntry>): List<OutboxEntry> {
         if (entries.isEmpty()) return entries
         connectionProvider.withConnection { conn ->
-            conn.prepareStatement(updateSql).use { stmt ->
-                entries.forEach { entry ->
-                    stmt.prepareForUpdateFrom(entry).addBatch()
+            // A row the database rejects must not roll back the results of the rest of the batch (issue #141),
+            // so on failure the rows are written one by one.
+            val batchFailure = conn.isolated {
+                conn.prepareStatement(updateSql).use { stmt ->
+                    entries.forEach { entry ->
+                        stmt.prepareForUpdateFrom(entry).addBatch()
+                    }
+                    stmt.executeBatch()
                 }
-                stmt.executeBatch()
+            }
+            if (batchFailure != null) {
+                logger.debug("Batch update of {} outbox entries failed; writing them one by one", entries.size, batchFailure)
+                entries.forEach { conn.updateRowByRow(it) }
             }
         }
         return entries
+    }
+
+    /**
+     * Writes [entry] on its own. If the database rejects it and it has a `last_error`, the most likely
+     * culprit, it is written again with a placeholder error, so that its status and retries are kept.
+     */
+    private fun Connection.updateRowByRow(entry: OutboxEntry) {
+        val rejected = isolated { prepareStatement(updateSql).use { it.prepareForUpdateFrom(entry).executeUpdate() } } ?: return
+        val lastError = entry.lastError ?: throw rejected
+        logger.warn(
+            "The database rejected the last_error of outbox entry {}; storing a placeholder. Rejected error (truncated): {}",
+            entry.outboxId.raw,
+            lastError.take(LOGGED_ERROR_LENGTH),
+            rejected,
+        )
+        val placeholder = entry.copy(lastError = "$REJECTED_LAST_ERROR (SQLState ${rejected.sqlState})")
+        isolated { prepareStatement(updateSql).use { it.prepareForUpdateFrom(placeholder).executeUpdate() } }?.let {
+            it.addSuppressed(rejected)
+            throw it
+        }
+    }
+
+    /**
+     * Runs [block] under a savepoint and returns the [SQLException] it threw, after rolling back to the
+     * savepoint, or `null`. A Postgres transaction accepts no statement after an error until then. When
+     * the database has already rolled back the whole transaction, e.g. a MySQL deadlock victim, the
+     * rollback to the savepoint fails and that exception propagates, so nothing is written outside
+     * the claim's transaction. Without a transaction there is nothing to protect, and no savepoint.
+     */
+    private fun Connection.isolated(block: () -> Unit): SQLException? {
+        val savepoint = if (autoCommit) null else setSavepoint()
+        return try {
+            block()
+            if (savepoint != null) releaseSavepoint(savepoint)
+            null
+        } catch (e: SQLException) {
+            if (savepoint != null) {
+                try {
+                    rollback(savepoint)
+                } catch (rollbackFailure: SQLException) {
+                    rollbackFailure.addSuppressed(e)
+                    throw rollbackFailure
+                }
+            }
+            e
+        }
     }
 
     private fun ResultSet.toOutboxEntry(): OutboxEntry = OutboxEntry(
@@ -219,6 +276,12 @@ class MysqlOutboxStore(
     private fun ResultSet.getUtc(column: String): Instant? = getObject(column, LocalDateTime::class.java)?.toInstant(ZoneOffset.UTC)
 
     companion object {
+        private val logger = LoggerFactory.getLogger(MysqlOutboxStore::class.java)
+
+        /** Stored instead of a `last_error` the database rejected. ASCII, so that any charset accepts it. */
+        private const val REJECTED_LAST_ERROR = "okapi: the database rejected this entry's error message; see the application log"
+        private const val LOGGED_ERROR_LENGTH = 2_000
+
         private val upsertSql = """
             INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata, next_attempt_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
