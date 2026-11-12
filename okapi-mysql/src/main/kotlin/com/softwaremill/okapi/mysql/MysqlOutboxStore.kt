@@ -182,59 +182,83 @@ class MysqlOutboxStore(
                     }
                     stmt.executeBatch()
                 }
-            }
-            if (batchFailure != null) {
-                logger.debug("Batch update of {} outbox entries failed; writing them one by one", entries.size, batchFailure)
+            } ?: return@withConnection
+            logger.debug("Batch update of {} outbox entries failed, writing them one by one: {}", entries.size, batchFailure.toString())
+            try {
                 entries.forEach { conn.updateRowByRow(it) }
+            } catch (e: SQLException) {
+                e.addSuppressed(batchFailure)
+                throw e
             }
         }
         return entries
     }
 
     /**
-     * Writes [entry] on its own. If the database rejects it and it has a `last_error`, the most likely
-     * culprit, it is written again with a placeholder error, so that its status and retries are kept.
+     * Writes [entry] on its own. If the database rejects a value in it (an SQL data exception) and it
+     * has a `last_error`, the likely culprit, it is written again with a placeholder error, so that
+     * its status and retries are kept. Any other failure propagates.
      */
     private fun Connection.updateRowByRow(entry: OutboxEntry) {
         val rejected = isolated { prepareStatement(updateSql).use { it.prepareForUpdateFrom(entry).executeUpdate() } } ?: return
-        val lastError = entry.lastError ?: throw rejected
-        logger.warn(
-            "The database rejected the last_error of outbox entry {}; storing a placeholder. Rejected error (truncated): {}",
-            entry.outboxId.raw,
-            lastError.take(LOGGED_ERROR_LENGTH),
-            rejected,
-        )
-        val placeholder = entry.copy(lastError = "$REJECTED_LAST_ERROR (SQLState ${rejected.sqlState})")
+        val lastError = entry.lastError
+        if (lastError == null || !rejected.isRejectedValue()) throw rejected
+        val placeholder = entry.copy(lastError = "$REJECTED_LAST_ERROR (SQLState ${rejected.sqlState}, error code ${rejected.errorCode})")
         isolated { prepareStatement(updateSql).use { it.prepareForUpdateFrom(placeholder).executeUpdate() } }?.let {
             it.addSuppressed(rejected)
             throw it
         }
+        logger.warn(
+            "The database rejected the last_error of outbox entry {} ({}); stored a placeholder instead. " +
+                "First {} characters of the rejected error: {}",
+            entry.outboxId.raw,
+            rejected.toString(),
+            LOGGED_ERROR_LENGTH,
+            lastError.take(LOGGED_ERROR_LENGTH),
+        )
     }
+
+    /** A value the database refuses to store, as opposed to a transient or transaction-level failure. */
+    private fun SQLException.isRejectedValue(): Boolean = sqlState?.startsWith("22") == true || errorCode in REJECTED_VALUE_ERROR_CODES
 
     /**
      * Runs [block] under a savepoint and returns the [SQLException] it threw, after rolling back to the
      * savepoint, or `null`. A Postgres transaction accepts no statement after an error until then. When
      * the database has already rolled back the whole transaction, e.g. a MySQL deadlock victim, the
-     * rollback to the savepoint fails and that exception propagates, so nothing is written outside
-     * the claim's transaction. Without a transaction there is nothing to protect, and no savepoint.
+     * rollback to the savepoint fails and the original exception propagates, so nothing is written
+     * outside the claim's transaction. Without a transaction there is nothing to protect, and no
+     * savepoint. A connection that refuses savepoints runs [block] as is, and its failure propagates.
      */
     private fun Connection.isolated(block: () -> Unit): SQLException? {
-        val savepoint = if (autoCommit) null else setSavepoint()
-        return try {
-            block()
-            if (savepoint != null) releaseSavepoint(savepoint)
-            null
-        } catch (e: SQLException) {
-            if (savepoint != null) {
-                try {
-                    rollback(savepoint)
-                } catch (rollbackFailure: SQLException) {
-                    rollbackFailure.addSuppressed(e)
-                    throw rollbackFailure
-                }
+        if (autoCommit) {
+            return try {
+                block()
+                null
+            } catch (e: SQLException) {
+                e
             }
-            e
         }
+        val savepoint = try {
+            setSavepoint()
+        } catch (_: SQLException) {
+            block()
+            return null
+        }
+        try {
+            block()
+        } catch (e: SQLException) {
+            try {
+                rollback(savepoint)
+                // Released, so that the next savepoint is not nested under this one.
+                releaseSavepoint(savepoint)
+            } catch (rollbackFailure: SQLException) {
+                e.addSuppressed(rollbackFailure)
+                throw e
+            }
+            return e
+        }
+        releaseSavepoint(savepoint)
+        return null
     }
 
     private fun ResultSet.toOutboxEntry(): OutboxEntry = OutboxEntry(
@@ -281,6 +305,9 @@ class MysqlOutboxStore(
         /** Stored instead of a `last_error` the database rejected. ASCII, so that any charset accepts it. */
         private const val REJECTED_LAST_ERROR = "okapi: the database rejected this entry's error message; see the application log"
         private const val LOGGED_ERROR_LENGTH = 2_000
+
+        /** Errors for a value a column cannot hold that MySQL reports with SQLState HY000: 1366, incorrect string value. */
+        private val REJECTED_VALUE_ERROR_CODES = setOf(1366)
 
         private val upsertSql = """
             INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, status, created_at, updated_at, retries, last_attempt, last_error, delivery_metadata, next_attempt_at)

@@ -25,6 +25,9 @@ class PostgresRejectedRowIsolationTest : FunSpec({
                                 IF NEW.last_error LIKE '%$REJECTED_ERROR_MARKER%' OR NEW.message_type = '$ALWAYS_REJECTED_TYPE' THEN
                                     RAISE EXCEPTION 'rejected by test trigger' USING ERRCODE = '22000';
                                 END IF;
+                                IF NEW.message_type = '$TRANSIENT_FAILURE_TYPE' AND COALESCE(NEW.last_error, '') NOT LIKE 'okapi:%' THEN
+                                    RAISE EXCEPTION 'could not serialize (test trigger)' USING ERRCODE = '40001';
+                                END IF;
                                 RETURN NEW;
                             END ${'$'}${'$'} LANGUAGE plpgsql
                             """.trimIndent(),

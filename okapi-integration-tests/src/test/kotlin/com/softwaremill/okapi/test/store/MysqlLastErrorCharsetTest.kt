@@ -58,7 +58,8 @@ class MysqlLastErrorCharsetTest : FunSpec({
         container.start()
         DriverManager.getConnection(container.jdbcUrl, "root", container.password).use { conn ->
             conn.createStatement().use {
-                it.execute("CREATE DATABASE legacy CHARACTER SET latin1")
+                it.execute("CREATE DATABASE legacy_before_005 CHARACTER SET latin1")
+                it.execute("CREATE DATABASE legacy_upgraded CHARACTER SET latin1")
                 it.execute("CREATE DATABASE modern")
             }
         }
@@ -125,11 +126,11 @@ class MysqlLastErrorCharsetTest : FunSpec({
     }
 
     test("before 005, a latin1 last_error rejects an emoji, and the store keeps the batch with a placeholder error") {
-        migrate("legacy", CHANGESETS_BEFORE_005)
-        lastErrorCharset("legacy") shouldBe "latin1"
+        migrate("legacy_before_005", CHANGESETS_BEFORE_005)
+        lastErrorCharset("legacy_before_005") shouldBe "latin1"
         // Control: the raw value really is rejected.
         shouldThrowAny {
-            connect("legacy").use { conn ->
+            connect("legacy_before_005").use { conn ->
                 conn.prepareStatement(
                     "INSERT INTO okapi_outbox (id, message_type, payload, delivery_type, delivery_metadata, last_error) " +
                         "VALUES (UUID(), 'm', '{}', 'charset-test', '{}', ?)",
@@ -140,7 +141,7 @@ class MysqlLastErrorCharsetTest : FunSpec({
             }
         }
 
-        val rows = processHealthyAndPoisoned("legacy")
+        val rows = processHealthyAndPoisoned("legacy_before_005")
 
         rows.getValue("healthy").first shouldBe OutboxStatus.DELIVERED
         rows.getValue("poisoned").first shouldBe OutboxStatus.PENDING
@@ -148,11 +149,13 @@ class MysqlLastErrorCharsetTest : FunSpec({
     }
 
     test("005 converts last_error to utf8mb4, which stores the emoji") {
-        migrate("legacy")
-        execType005("legacy") shouldBe "EXECUTED"
-        lastErrorCharset("legacy") shouldBe "utf8mb4"
+        migrate("legacy_upgraded", CHANGESETS_BEFORE_005)
+        lastErrorCharset("legacy_upgraded") shouldBe "latin1"
+        migrate("legacy_upgraded")
+        execType005("legacy_upgraded") shouldBe "EXECUTED"
+        lastErrorCharset("legacy_upgraded") shouldBe "utf8mb4"
 
-        val rows = processHealthyAndPoisoned("legacy")
+        val rows = processHealthyAndPoisoned("legacy_upgraded")
 
         rows.getValue("healthy").first shouldBe OutboxStatus.DELIVERED
         rows.getValue("poisoned") shouldBe (OutboxStatus.PENDING to EMOJI_ERROR)
