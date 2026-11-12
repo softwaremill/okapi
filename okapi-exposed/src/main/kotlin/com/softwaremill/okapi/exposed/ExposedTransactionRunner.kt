@@ -20,6 +20,12 @@ import java.sql.Connection
  * `DatabaseConfig.defaultIsolationLevel` set for the rest of the application. Other databases keep
  * their default (Postgres already defaults to READ COMMITTED).
  *
+ * Each block runs once (issue #134). Exposed retries a top-level transaction whose block throws an
+ * `SQLException` up to `DatabaseConfig.defaultMaxAttempts` times (3 by default). For the processor
+ * that would re-claim and re-deliver the same entries on a failed status update or commit, since
+ * delivery is not transactional. The scheduler instead retries on its next tick. The rest of the
+ * application keeps its configured retries.
+ *
  * @param database The [Database] instance where the outbox table resides.
  */
 class ExposedTransactionRunner private constructor(
@@ -44,5 +50,9 @@ class ExposedTransactionRunner private constructor(
         }
     }
 
-    override fun <T> runInTransaction(block: () -> T): T = transaction(database, transactionIsolation = transactionIsolation) { block() }
+    override fun <T> runInTransaction(block: () -> T): T = transaction(database, transactionIsolation = transactionIsolation) {
+        // Exposed reads maxAttempts after a failed attempt, so setting it here applies to this one.
+        maxAttempts = 1
+        block()
+    }
 }
