@@ -16,6 +16,7 @@ import io.kotest.matchers.shouldBe
 import org.jetbrains.exposed.v1.core.DatabaseConfig
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.transactions.transactionManager
 import java.sql.Connection
 import java.sql.SQLException
@@ -117,6 +118,20 @@ class ExposedTransactionRunnerTest : FunSpec({
         shouldThrow<SQLException> { ExposedTransactionRunner(db).runInTransaction { processor.processBatch(10) } }
 
         deliveries.get() shouldBe 1
+    }
+
+    test("a nested call leaves the caller's transaction retries alone") {
+        val attempts = AtomicInteger()
+
+        shouldThrow<SQLException> {
+            transaction(db) {
+                attempts.incrementAndGet()
+                ExposedTransactionRunner(db).runInTransaction { }
+                throw SQLException("connection reset", "08S01")
+            }
+        }
+
+        attempts.get() shouldBe db.transactionManager.defaultMaxAttempts
     }
 
     test("a block that succeeds commits and returns its result") {

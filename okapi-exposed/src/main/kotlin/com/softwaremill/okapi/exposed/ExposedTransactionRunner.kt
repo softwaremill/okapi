@@ -3,7 +3,9 @@ package com.softwaremill.okapi.exposed
 import com.softwaremill.okapi.core.TransactionRunner
 import org.jetbrains.exposed.v1.core.vendors.MysqlDialect
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.transactions.currentOrNull
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.transactions.transactionManager
 import java.sql.Connection
 
 /**
@@ -23,8 +25,10 @@ import java.sql.Connection
  * Each block runs once (issue #134). Exposed retries a top-level transaction whose block throws an
  * `SQLException` up to `DatabaseConfig.defaultMaxAttempts` times (3 by default). For the processor
  * that would re-claim and re-deliver the same entries on a failed status update or commit, since
- * delivery is not transactional. The scheduler instead retries on its next tick. The rest of the
- * application keeps its configured retries.
+ * delivery is not transactional. The scheduler instead retries on its next tick. The same applies to
+ * the purger and metrics reads, which also retry on their next run. Inside an existing transaction
+ * the block joins it and the caller's retry settings are left alone, as are those of every other
+ * transaction in the application.
  *
  * @param database The [Database] instance where the outbox table resides.
  */
@@ -50,9 +54,17 @@ class ExposedTransactionRunner private constructor(
         }
     }
 
-    override fun <T> runInTransaction(block: () -> T): T = transaction(database, transactionIsolation = transactionIsolation) {
-        // Exposed reads maxAttempts after a failed attempt, so setting it here applies to this one.
-        maxAttempts = 1
-        block()
+    override fun <T> runInTransaction(block: () -> T): T {
+        // Nested, Exposed reuses the caller's transaction by default, so only a top-level one is changed.
+        val topLevel = database.transactionManager.currentOrNull() == null
+        return transaction(database, transactionIsolation = transactionIsolation) {
+            if (topLevel) {
+                // Exposed reads these after a failed attempt, so setting them here applies to this one.
+                maxAttempts = 1
+                minRetryDelay = 0
+                maxRetryDelay = 0
+            }
+            block()
+        }
     }
 }

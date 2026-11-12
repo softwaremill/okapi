@@ -28,7 +28,9 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   times (3 by default). Delivery is not transactional, so a failed status update or commit, such as a
   deadlock victim or a connection reset, re-claimed and delivered the same entries again, up to three
   times per tick. The runner now makes a single attempt, and the scheduler retries on its next tick.
-  Other Exposed transactions in the application keep their configured retries.
+  The purger and the metrics reads, which use the same runner, also no longer retry within a run;
+  they try again on their next one. A runner call inside an existing transaction, and every other
+  Exposed transaction in the application, keep their configured retries.
   ([#134](https://github.com/softwaremill/okapi/issues/134))
 - **MySQL: the processor no longer blocks `publish()` for the duration of delivery.** Under MySQL's
   default `REPEATABLE READ`, the claim's `FOR UPDATE SKIP LOCKED` took gap locks on the claim index;
