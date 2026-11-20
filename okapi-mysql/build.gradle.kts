@@ -7,6 +7,7 @@ description = "MySQL outbox store using plain JDBC"
 
 dependencies {
     implementation(project(":okapi-core"))
+    implementation(libs.slf4jApi)
 
     compileOnly(libs.liquibaseCore)
 

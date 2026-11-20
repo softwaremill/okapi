@@ -77,6 +77,10 @@ data class OutboxEntry @JvmOverloads constructor(
          * rest is cut to [MAX_LAST_ERROR_LENGTH], never between the two halves of a surrogate pair,
          * which MySQL would reject as an invalid string.
          *
+         * The built-in stores also survive a value rejected for any other reason, by writing a
+         * placeholder in its place (issue #141). Sanitizing still matters, because the placeholder
+         * loses the message.
+         *
          * [retry] and [toFailed] apply it, and the built-in stores apply it again when writing, so an
          * entry built with `copy(lastError = ...)` is covered too. Custom [OutboxStore]s should call
          * it before writing `last_error`. It is idempotent.

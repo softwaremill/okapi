@@ -32,6 +32,27 @@ Until `1.0.0`, breaking changes may appear in any release and are flagged with *
   they try again on their next one. A runner call inside an existing transaction, and every other
   Exposed transaction in the application, keep their configured retries.
   ([#134](https://github.com/softwaremill/okapi/issues/134))
+- **One rejected `last_error` no longer rolls back a whole batch, whatever the cause.** #130 removed the
+  two known values the database rejected, but any other value still made the batch update fail, rolling
+  back the batch's results, delivered entries included, which were then delivered again on every tick.
+  When the batch update fails, `PostgresOutboxStore` and `MysqlOutboxStore` now roll back to a savepoint
+  and write the rows one by one, each under its own savepoint. A row the database still rejects is
+  written with a placeholder `last_error`, keeping its status and `retries`, and the original message is
+  logged at WARN with the entry id. Only a value error (SQLState class 22, or MySQL error 1366) gets the
+  placeholder; any other failure, such as a deadlock, a timeout or a lost connection, still fails the
+  batch as before. A successful batch costs two extra statements, `SAVEPOINT` and `RELEASE SAVEPOINT`.
+  On PostgreSQL the row-by-row fallback opens a subtransaction per row; above 64 rows that overflows the
+  per-backend subtransaction cache, so keep `batch-size` at or below 64 if rejected values are frequent.
+  ([#141](https://github.com/softwaremill/okapi/issues/141))
+- **MySQL: `last_error` is `utf8mb4` (new migration `005__last_error_utf8mb4`).** 001 created
+  `okapi_outbox` in the schema's default character set. On a `latin1` or `utf8mb3` schema, common on
+  servers upgraded from MySQL 5.7, an error message with an emoji or any other character outside that
+  set was rejected with `Incorrect string value`. 005 converts the column to `utf8mb4`. Its
+  precondition skips it where the column is already `utf8mb4`, the MySQL 8 default. Otherwise it copies
+  the table: it first waits up to 30 s for open transactions on `okapi_outbox`, queuing every other
+  statement on the table, and then blocks writes, `publish()` included, until the copy finishes. On a
+  large outbox, run it in a quiet period.
+  ([#141](https://github.com/softwaremill/okapi/issues/141))
 - **MySQL: the processor no longer blocks `publish()` for the duration of delivery.** Under MySQL's
   default `REPEATABLE READ`, the claim's `FOR UPDATE SKIP LOCKED` took gap locks on the claim index;
   with a backlog smaller than the batch, the gap ran to the end of the claimed type's range, exactly
